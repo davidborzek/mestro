@@ -1,0 +1,63 @@
+import { Theme } from "common.slint";
+
+// the first seconds after boot: the kiosk is up before the network
+// and the music server are. Matches the psplash logo, so the hand
+// over from the boot splash reads as one screen
+export component BootView inherits Rectangle {
+    // 1 waiting for the network, 2 connecting to the server
+    in property <int> phase;
+    in property <string> server;
+
+    // psplash's ground and wordmark colour (image/board/mestro/rpi4/splash.png)
+    background: #0f0f14;
+
+    // nothing underneath is usable yet
+    TouchArea { }
+
+    Text {
+        text: "mestro";
+        font-size: 54px;
+        font-weight: 700;
+        color: #f3bd6e;
+        x: (parent.width - self.width) / 2;
+        y: parent.height * 0.38;
+    }
+
+    VerticalLayout {
+        y: parent.height * 0.66;
+        width: parent.width;
+        height: 60px;
+        spacing: 6px;
+        alignment: start;
+
+        HorizontalLayout {
+            alignment: center;
+            spacing: 10px;
+
+            Rectangle {
+                width: 8px;
+                height: 8px;
+                y: (parent.height - self.height) / 2;
+                border-radius: 4px;
+                background: #f3bd6e;
+                // a slow breathing dot: alive, not alarming
+                opacity: 0.35 + 0.65 * abs(sin(animation-tick() / 1400ms * 180deg));
+            }
+
+            Text {
+                text: root.phase == 1 ? @tr("Waiting for network …") : @tr("Connecting to Music Assistant …");
+                font-size: 16px;
+                color: Theme.text-dim;
+                vertical-alignment: center;
+            }
+        }
+
+        Text {
+            visible: root.phase == 2 && root.server != "";
+            text: root.server;
+            font-size: 12px;
+            color: Theme.text-mute;
+            horizontal-alignment: center;
+        }
+    }
+}

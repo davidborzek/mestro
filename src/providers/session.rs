@@ -10,8 +10,11 @@
 //!
 //! The event channel survives attempts (the core state stays
 //! intact). The banner only clears once real events flow again —
-//! the retry loop raises it, the core loop lowers it.
+//! the retry loop raises it, the core loop lowers it. Transient
+//! failures raise it only after a grace window (banner.rs).
 
+use super::banner::BannerGate;
+use super::startup::{Startup, StartupGate};
 use super::{PlaybackSource, SourceCommand, SourceEvent};
 use crate::config::ThemeVariant;
 use crate::library;
@@ -19,7 +22,21 @@ use crate::library::search::Search;
 use crate::player::state::{self, Shared, UpdateTx};
 use crate::Mestro;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::Instant;
+
+fn set_startup(ui_weak: &slint::Weak<Mestro>, phase: Startup) {
+    let weak = ui_weak.clone();
+    let _ = slint::invoke_from_event_loop(move || {
+        if let Some(ui) = weak.upgrade() {
+            ui.set_startup_phase(match phase {
+                Startup::WaitingForNetwork => 1,
+                Startup::Connecting => 2,
+                Startup::Done => 0,
+            });
+        }
+    });
+}
 
 fn set_status(ui_weak: &slint::Weak<Mestro>, text: &str) {
     let text = text.to_string();
@@ -64,16 +81,36 @@ pub fn spawn<P, F>(
 {
     let banner_up = Arc::new(AtomicBool::new(false));
     let connected_up = Arc::new(AtomicBool::new(false));
+    let gate = Arc::new(Mutex::new(BannerGate::new(Instant::now())));
+    let startup = Arc::new(Mutex::new(StartupGate::new(Instant::now())));
     std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async move {
             let (evt_tx, mut evt_rx) = tokio::sync::mpsc::unbounded_channel::<SourceEvent>();
+            // the boot screen: network → connecting → gone
+            let boot_screen = async {
+                let mut shown = None;
+                loop {
+                    let network = crate::remote::web::lan_ip() != "127.0.0.1";
+                    let phase = startup.lock().unwrap().phase(Instant::now(), network);
+                    if shown != Some(phase) {
+                        set_startup(&ui_weak, phase);
+                        shown = Some(phase);
+                    }
+                    if phase == Startup::Done {
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                }
+            };
             let provider_loop = async {
                 loop {
                     let mut provider = make();
                     // unconfigured: never dial (first-run state) —
                     // idle-poll and keep the connected flag honest
                     if !provider.configured() {
+                        // first run: the setup screen, not the boot screen
+                        startup.lock().unwrap().connected();
                         if connected_up.swap(false, Ordering::Relaxed) {
                             set_connected(&ui_weak, false);
                         }
@@ -82,8 +119,15 @@ pub fn spawn<P, F>(
                     }
                     if let Err(e) = provider.run(&mut cmd_rx, evt_tx.clone()).await {
                         let retry = provider.failure(e);
-                        set_status(&ui_weak, &retry.message);
-                        banner_up.store(true, Ordering::Relaxed);
+                        let now = Instant::now();
+                        let booting = !startup
+                            .lock()
+                            .unwrap()
+                            .show_failure(now, retry.heals_on_retry);
+                        if !booting && gate.lock().unwrap().on_failure(now, retry.heals_on_retry) {
+                            set_status(&ui_weak, &retry.message);
+                            banner_up.store(true, Ordering::Relaxed);
+                        }
                         if connected_up.swap(false, Ordering::Relaxed) {
                             set_connected(&ui_weak, false);
                         }
@@ -102,6 +146,8 @@ pub fn spawn<P, F>(
                     if !connected_up.swap(true, Ordering::Relaxed) {
                         set_connected(&ui_weak, true);
                     }
+                    gate.lock().unwrap().on_connected(Instant::now());
+                    startup.lock().unwrap().connected();
                     match ev {
                         SourceEvent::Transport {
                             playing,
@@ -142,7 +188,7 @@ pub fn spawn<P, F>(
                     }
                 }
             };
-            tokio::join!(provider_loop, core);
+            tokio::join!(boot_screen, provider_loop, core);
         });
     });
 }

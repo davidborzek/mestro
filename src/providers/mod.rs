@@ -2,8 +2,10 @@
 //! (state machine + UI) and a remote control protocol (Music Assistant,
 //! later LMS/MPD).
 
+mod banner;
 pub mod ma;
 pub mod session;
+pub mod startup;
 
 use std::future::Future;
 
@@ -240,6 +242,9 @@ pub enum SourceEvent {
 pub struct Retry {
     pub message: String,
     pub backoff: std::time::Duration,
+    /// a later attempt can succeed (network, server restart) — the
+    /// banner waits out a grace window; false shows it at once
+    pub heals_on_retry: bool,
 }
 
 /// A playback source drives one display session. `run` consumes

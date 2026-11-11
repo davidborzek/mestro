@@ -22,6 +22,7 @@ import { TopBar } from "topbar.slint";
 import { HubPage, HubEntryData } from "hub.slint";
 import { FirstRunView } from "firstrun.slint";
 import { UpdateOverlay } from "update-overlay.slint";
+import { BootView } from "boot.slint";
 
 export component Mestro inherits Window {
     // preferred (not fixed) size: the desktop backend floats a
@@ -213,6 +214,11 @@ export component Mestro inherits Window {
     // server unreachable. Sits above every layer incl. standby —
     // a kiosk with a dead data source must not look healthy
     in property <string> provider-status;
+    // the boot screen while network and server come up: 0 gone,
+    // 1 waiting for the network, 2 connecting (the session drives it)
+    in property <int> startup-phase: 0;
+    // the server's host, for the connecting line
+    in property <string> startup-server;
     // for the settings about page
     in property <string> app-version: "dev";
     // system update in progress (empty = none): the full-screen
@@ -1172,6 +1178,15 @@ export component Mestro inherits Window {
         dismissed => {
             root.first-run-dismissed = true;
         }
+    }
+
+    // the boot screen covers the app until the first connection;
+    // first-run and config errors take over instead
+    if root.startup-phase != 0 && !root.first-run: BootView {
+        width: 100%;
+        height: 100%;
+        phase: root.startup-phase;
+        server: root.startup-server;
     }
 
     // the system update covers everything, first-run and config

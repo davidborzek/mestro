@@ -271,6 +271,7 @@ static BOOTED_UNCONFIGURED: std::sync::atomic::AtomicBool =
 pub fn sync_connection(ui: &Mestro, effective: &config::Config) {
     let ma = &effective.music_assistant;
     ui.set_conn_url(ma.url.as_str().into());
+    ui.set_startup_server(server_host(&ma.url).into());
     ui.set_conn_player(ma.player.as_str().into());
     // never the token itself — only whether one exists
     ui.set_conn_token_set(!ma.token.is_empty());
@@ -286,6 +287,17 @@ pub fn sync_connection(ui: &Mestro, effective: &config::Config) {
     // once it is done — that is the "apply & restart" point
     let wizard_done = !ma.url.is_empty() && (!ma.token.is_empty() || !ma.player.is_empty());
     ui.set_first_run_detected(latched && wizard_done);
+}
+
+/// `ws://host:8095/ws` → `host`: the boot screen names the server,
+/// not its endpoint
+fn server_host(url: &str) -> &str {
+    let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
+    let authority = rest.split('/').next().unwrap_or_default();
+    match authority.rsplit_once(':') {
+        Some((host, port)) if port.bytes().all(|b| b.is_ascii_digit()) => host,
+        _ => authority,
+    }
 }
 
 /// the settings-layer banner state: what config file the edits
@@ -873,5 +885,18 @@ pub fn wire_vu(
                 }
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod server_host_tests {
+    use super::server_host;
+
+    #[test]
+    fn names_the_host_only() {
+        assert_eq!(server_host("ws://ma.example.com:8095/ws"), "ma.example.com");
+        assert_eq!(server_host("ws://192.168.1.50:8095/ws"), "192.168.1.50");
+        assert_eq!(server_host("wss://ma.example.com/ws"), "ma.example.com");
+        assert_eq!(server_host(""), "");
     }
 }

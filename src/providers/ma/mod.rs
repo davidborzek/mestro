@@ -79,12 +79,14 @@ impl PlaybackSource for MaProvider {
             return super::Retry {
                 message: format!("Music Assistant: {}", auth.0),
                 backoff: Duration::from_secs(60),
+                heals_on_retry: false,
             };
         }
         tracing::warn!("ma: {error}");
         super::Retry {
             message: format!("Music Assistant unreachable: {error}"),
             backoff: Duration::from_secs(5),
+            heals_on_retry: true,
         }
     }
 
