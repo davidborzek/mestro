@@ -9,6 +9,10 @@ BOARD_DIR="$(dirname "$0")"
 GENIMAGE_CFG="${BINARIES_DIR}/genimage.cfg"
 GENIMAGE_TMP="${BUILD_DIR}/genimage.tmp"
 
+# the kernel boots from slot A (config.txt kernel=Image.a); the
+# update artifact stays the plain Image
+cp "${BINARIES_DIR}/Image" "${BINARIES_DIR}/Image.a"
+
 # generate genimage config: the boot partition carries the whole
 # firmware tree, the kernel image and the kernel's bcm2711 dtbs
 {
@@ -18,7 +22,7 @@ GENIMAGE_TMP="${BUILD_DIR}/genimage.tmp"
 				files = {
 	EOF
 	for i in "${BINARIES_DIR}"/rpi-firmware/* \
-		"${BINARIES_DIR}"/Image \
+		"${BINARIES_DIR}"/Image.a \
 		"${BINARIES_DIR}"/bcm2711-*.dtb; do
 		printf '\t\t\t"%s",\n' "${i#${BINARIES_DIR}/}"
 	done

@@ -9,7 +9,7 @@ system that runs entirely from RAM — piCorePlayer-style.
 
 | Partition | Type | Content |
 |---|---|---|
-| 1 (boot) | FAT32 | kernel Image (with embedded initramfs), DTBs, firmware, `config.txt` |
+| 1 (boot) | FAT32 | the system in two slots `Image.a`/`Image.b` (kernel with embedded initramfs), DTBs, firmware, `config.txt` |
 | 2 (data) | FAT32 `MESTRODATA` | `mestro.toml`, `squeezelite.env`, mestro state/config — survives reflashes, editable on Windows/macOS |
 
 - No root partition: the rootfs is an initramfs inside the kernel
@@ -122,27 +122,36 @@ SSH access is key-only. Two ways to get a key in:
   (`S02data`).
 
 The whole system is one file — the rootfs lives in the initramfs
-embedded in the kernel `Image` on the boot partition. So an
-upgrade is a file swap, no re-flashing:
+embedded in the kernel image. The boot partition holds two of them,
+`Image.a` and `Image.b`; `kernel=` in `config.txt` names the
+running one. An upgrade writes the other slot and boots it once on
+trial, no re-flashing:
 
 ```sh
-# on the build machine
-scp ~/.cache/pi/buildroot/output/images/Image root@<pi>:/tmp/new-Image
-# optional: verify the transfer
-sha256sum ~/.cache/pi/buildroot/output/images/Image
-
-# on the pi (Image.old is the recovery: mv it back and reboot)
-mestro-upgrade --reboot /tmp/new-Image <sha256>
+# stream it from the build machine (nothing is buffered in RAM)
+cat ~/.cache/pi/buildroot/output/images/Image | \
+	ssh root@<pi> "mestro-upgrade --reboot - $(sha256sum ~/.cache/pi/buildroot/output/images/Image | cut -d' ' -f1)"
 ```
 
-Without `--reboot` the new image takes over at the next
-`mestro-reboot` (never plain `reboot`: it hangs the initramfs
-kiosk).
+The trial uses the firmware's one-shot `tryboot`: that boot reads
+`tryboot.txt` (a copy of `config.txt` pointing at the new slot)
+and starts with the SoC watchdog armed. `S99ota` feeds the
+watchdog while it checks that mestro runs stably for a minute,
+then commits — `config.txt` switches to the new slot and the
+watchdog turns off again. Anything else goes back to the previous
+slot on its own:
 
-`mestro-upgrade` copies to `Image.new`, re-verifies the checksum
-on the FAT before the swap, and keeps the previous kernel as
-`Image.old`. Follow-up: an update button in the mestro web UI
-(tryboot fallback as the next safety layer).
+| the new image … | what happens |
+|---|---|
+| runs, mestro stays up | committed after ~70 s |
+| boots, mestro crashes | S99ota reboots → previous slot |
+| hangs (kernel, init) | the watchdog resets after 60 s → previous slot |
+| power cut during the trial | next boot reads `config.txt` → previous slot |
+
+`mestro-upgrade --status` shows the running and a pending slot.
+Without `--reboot` the trial starts at the next
+`mestro-reboot --tryboot`; plain `mestro-reboot` (never busybox
+`reboot`, it hangs the initramfs kiosk) stays on the current slot.
 
 ## Status / known untested
 
@@ -171,8 +180,8 @@ User-facing configuration should converge into the mestro UI
 - settings UI: WiFi credentials writing `/data/wpa_supplicant.conf`
   + `S39wifi restart`
 - settings UI: squeezelite.env editor + `S60squeezelite restart`
-- web UI: OTA update button — upload an Image, verify its sha256,
-  run mestro-upgrade, reboot (tryboot as the fallback layer)
+- web UI: OTA update button — stream an uploaded Image into
+  `mestro-upgrade --reboot -`
 - kiosk polish: hide the clock until the first NTP sync (boots
   into 1970 for ~a minute on a fresh image)
 

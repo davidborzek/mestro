@@ -1,5 +1,6 @@
 menu "mestro kiosk image"
 
 source "$BR2_EXTERNAL_MESTROIMAGE_PATH/package/mestro/Config.in"
+source "$BR2_EXTERNAL_MESTROIMAGE_PATH/package/rpi-tryboot/Config.in"
 
 endmenu

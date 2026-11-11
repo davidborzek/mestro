@@ -1,0 +1,51 @@
+#!/bin/sh
+# S99ota — decide a trial boot (mestro-upgrade): commit the new slot
+# once mestro has run stably, otherwise reboot normally, which lands
+# on the previous slot again (the firmware's tryboot flag is gone).
+#
+# The trial boots with the SoC watchdog armed (tryboot.txt
+# kernel_watchdog_timeout); the kernel feeds it until userspace
+# opens /dev/watchdog. This script takes over and feeds it while
+# mestro proves itself, then closes it with the magic 'V' — the
+# watchdog runs only during a trial, never in normal operation. A
+# boot that hangs before or during the check stops being fed and
+# resets into the previous slot.
+
+HEALTHY_AFTER=60
+
+feed_for() {
+	n=$1
+	while [ "$n" -gt 0 ]; do
+		printf . >&3
+		sleep 5
+		n=$((n - 5))
+	done
+}
+
+check() {
+	exec 3>/dev/watchdog || echo "no /dev/watchdog, the trial runs unguarded"
+	feed_for 10
+	PID=$(pidof mestro)
+	feed_for "$HEALTHY_AFTER"
+	if [ -n "$PID" ] && [ "$(pidof mestro)" = "$PID" ]; then
+		mestro-upgrade --commit
+		printf V >&3
+		exec 3>&-
+	else
+		echo "trial boot unhealthy (mestro not running stably), rolling back"
+		mestro-reboot
+	fi
+}
+
+case "$1" in
+start)
+	if [ "$(hexdump -v -e '4/1 "%02x"' /proc/device-tree/chosen/bootloader/tryboot 2>/dev/null)" != "00000001" ]; then
+		# a normal boot with a trial still pending: that trial never
+		# committed (crash, hang, rollback) — drop it
+		mestro-upgrade --abandon >>/tmp/ota.log 2>&1
+		exit 0
+	fi
+	echo "trial boot: checking health for ${HEALTHY_AFTER}s"
+	check >>/tmp/ota.log 2>&1 </dev/null &
+	;;
+esac

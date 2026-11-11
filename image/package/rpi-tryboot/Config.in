@@ -1,0 +1,5 @@
+config BR2_PACKAGE_RPI_TRYBOOT
+	bool "rpi-tryboot"
+	help
+	  Reboot into the Raspberry Pi firmware's one-shot tryboot
+	  mode — the trial boot behind mestro-upgrade's A/B slots.

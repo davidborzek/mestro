@@ -7,8 +7,9 @@ arm_64bit=1
 # no raspberry splash: the psplash logo (S12psplash) takes over as
 # soon as the kernel can draw
 disable_splash=1
-# the kernel (initramfs embedded) lands in the boot partition as Image
-kernel=Image
+# the kernel (initramfs embedded) — slot A of the A/B pair;
+# mestro-upgrade writes the other slot and switches this line
+kernel=Image.a
 disable_overscan=1
 dtparam=audio=off
 # vc4/v3d KMS — the kernel defconfig already enables the drivers.

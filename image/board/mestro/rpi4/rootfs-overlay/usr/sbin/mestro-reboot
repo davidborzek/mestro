@@ -1,13 +1,17 @@
 #!/bin/sh
-# mestro-reboot — clean reboot for the initramfs kiosk.
+# mestro-reboot [--tryboot] — clean reboot for the initramfs kiosk.
 #
 # Plain busybox `reboot` asks PID 1 to restart userspace — but the
 # whole system lives in an initramfs, so busybox init tears
 # everything down and re-execs nothing: a black limbo instead of a
 # reboot. Force the kernel reboot instead, after a clean unmount of
 # the data partition (rcK does not run on this path).
+#
+# --tryboot: one trial boot of the slot mestro-upgrade prepared.
 
 sync
 umount /data 2>/dev/null
+umount /boot 2>/dev/null
 sync
+[ "$1" = "--tryboot" ] && exec rpi-tryboot
 exec reboot -f
