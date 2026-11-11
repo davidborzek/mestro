@@ -4,7 +4,10 @@
 # re-flashing. Usage:
 #
 #   scp Image root@<pi>:/tmp/new-Image
-#   ssh root@<pi> mestro-upgrade /tmp/new-Image [sha256]
+#   ssh root@<pi> mestro-upgrade [--reboot] /tmp/new-Image [sha256]
+#
+# --reboot activates the new image right away (mestro-reboot);
+# without it the new image takes over at the next reboot.
 #
 # Safety: the new image is copied to the boot partition as
 # Image.new, optionally verified against a sha256, then renamed
@@ -13,12 +16,17 @@
 # upgrade; renaming back over SSH is the manual recovery.
 set -e
 
+REBOOT=
+if [ "$1" = "--reboot" ]; then
+	REBOOT=1
+	shift
+fi
 NEW="$1"
 WANT_SHA="$2"
 BOOT=/boot
 
 [ -n "$NEW" ] || {
-	echo "usage: mestro-upgrade <new-Image> [sha256]"
+	echo "usage: mestro-upgrade [--reboot] <new-Image> [sha256]"
 	exit 2
 }
 [ -f "$NEW" ] || {
@@ -62,5 +70,10 @@ mv "$BOOT/Image.new" "$BOOT/Image"
 sync
 
 echo "done. current: $(sha256sum "$BOOT/Image" | cut -d' ' -f1)"
+echo "recovery: mv $BOOT/Image.old $BOOT/Image"
+if [ -n "$REBOOT" ]; then
+	echo "rebooting into the new image …"
+	exec mestro-reboot
+fi
 echo "activate with: mestro-reboot (plain 'reboot' hangs on the"
-echo "initramfs kiosk); recovery: mv $BOOT/Image.old $BOOT/Image"
+echo "initramfs kiosk)"

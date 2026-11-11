@@ -132,9 +132,12 @@ scp ~/.cache/pi/buildroot/output/images/Image root@<pi>:/tmp/new-Image
 sha256sum ~/.cache/pi/buildroot/output/images/Image
 
 # on the pi (Image.old is the recovery: mv it back and reboot)
-mestro-upgrade /tmp/new-Image <sha256>
-reboot
+mestro-upgrade --reboot /tmp/new-Image <sha256>
 ```
+
+Without `--reboot` the new image takes over at the next
+`mestro-reboot` (never plain `reboot`: it hangs the initramfs
+kiosk).
 
 `mestro-upgrade` copies to `Image.new`, re-verifies the checksum
 on the FAT before the swap, and keeps the previous kernel as

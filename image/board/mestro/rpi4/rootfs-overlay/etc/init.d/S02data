@@ -54,6 +54,12 @@ start)
 		chmod 700 /root/.ssh
 		chmod 600 /root/.ssh/authorized_keys
 	fi
+	# dropbear host keys live on the data partition: the rootfs is
+	# rebuilt from RAM every boot, and fresh keys would trip every
+	# client's known_hosts after each reboot or upgrade
+	mkdir -p "$DATA_DIR/dropbear"
+	rm -f /etc/dropbear
+	ln -s "$DATA_DIR/dropbear" /etc/dropbear
 	mkdir -p "$DATA_DIR/state" "$DATA_DIR/config"
 	;;
 stop)
