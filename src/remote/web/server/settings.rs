@@ -116,6 +116,6 @@ fn state_payload(ui: &Mestro, settings: &Handle, info: &WebInfo) -> serde_json::
             .map(|p| p.display().to_string())
             .as_deref(),
         ui.get_provider_status().as_ref(),
-        &info.remote_url,
+        &info.remote_url(),
     )
 }

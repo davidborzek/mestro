@@ -534,12 +534,29 @@ fn wire_remote(
     );
     // the local control socket: `mestro ctl <command>`
     mestro::remote::ipc::serve(ui.as_weak());
-    // the connection page shows the wizard URL (incl. pairing PIN)…
-    ui.set_settings_remote_url(web_info.remote_url.clone().into());
-    // …and the first-run overlay shows it as a scannable QR code
-    if !web_info.remote_url.is_empty() {
-        ui.set_first_run_qr(mestro::remote::qr::image(&web_info.remote_url, 260));
-    }
+    // the connection page shows the wizard URL (incl. pairing PIN)
+    // and the first-run overlay its QR code. The address follows
+    // DHCP: the kiosk starts before the network is up, and leases
+    // change
+    let show_url = {
+        let weak = ui.as_weak();
+        let shown = RefCell::new(String::new());
+        move || {
+            let url = web_info.remote_url();
+            let Some(ui) = weak.upgrade() else { return };
+            if url.is_empty() || *shown.borrow() == url {
+                return;
+            }
+            tracing::info!("web: wizard url: {url}");
+            ui.set_settings_remote_url(url.clone().into());
+            ui.set_first_run_qr(mestro::remote::qr::image(&url, 260));
+            *shown.borrow_mut() = url;
+        }
+    };
+    show_url();
+    let timer = Timer::default();
+    timer.start(TimerMode::Repeated, Duration::from_secs(5), show_url);
+    std::mem::forget(timer);
 }
 
 /// the text protocol (ctl socket, web) and the keyboard with its

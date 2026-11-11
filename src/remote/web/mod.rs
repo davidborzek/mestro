@@ -31,10 +31,22 @@ type Dispatch = Rc<dyn Fn(&Command)>;
 /// device-side facts the protocol reports (wizard chrome)
 #[derive(Debug, Clone)]
 pub struct WebInfo {
-    /// the wizard URL including the auth fragment, for the SPA
-    /// footer and the kiosk's connection page
-    pub remote_url: String,
+    /// port + pairing PIN; empty PIN = the endpoint is off
+    pub port: u16,
+    pub pin: String,
     pub app_version: String,
+}
+
+impl WebInfo {
+    /// the wizard URL including the auth fragment, for the SPA
+    /// footer and the kiosk's connection page. Built per call: the
+    /// kiosk usually starts before DHCP has handed out an address
+    pub fn remote_url(&self) -> String {
+        if self.pin.is_empty() {
+            return String::new();
+        }
+        format!("http://{}:{}/#pair={}", lan_ip(), self.port, self.pin)
+    }
 }
 
 /// cross-thread bridge: web thread → UI thread. The slint handles
@@ -102,24 +114,20 @@ pub fn info(remote: &crate::config::Remote, app_version: &str) -> (WebInfo, Stri
         remote.enabled,
         remote.port
     );
-    if !remote.enabled {
-        return (
-            WebInfo {
-                remote_url: String::new(),
-                app_version: app_version.to_string(),
-            },
-            String::new(),
-        );
-    }
-    let pin = pairing_pin();
+    let pin = if remote.enabled {
+        pairing_pin()
+    } else {
+        String::new()
+    };
     let info = WebInfo {
-        remote_url: format!("http://{}:{}/#pair={pin}", lan_ip(), remote.port),
+        port: remote.port,
+        pin: pin.clone(),
         app_version: app_version.to_string(),
     };
-    // once per boot: the wizard URL carries the pairing PIN — the
-    // kiosk connection page shows it too (restart-stable secret
-    // for a LAN device, persisted 0600)
-    tracing::info!("web: wizard url: {}", info.remote_url);
+    // the wizard URL carries the pairing PIN — the kiosk connection
+    // page shows it too (restart-stable secret for a LAN device,
+    // persisted 0600)
+    tracing::info!("web: wizard url: {}", info.remote_url());
     (info, pin)
 }
 
@@ -153,8 +161,9 @@ pub fn serve(remote: &crate::config::Remote, info: WebInfo, bridge: Bridge, pin:
 }
 
 /// the LAN address a phone can reach (UDP connect trick — no
-/// packets are sent, it only picks the outbound interface)
-fn lan_ip() -> String {
+/// packets are sent, it only picks the outbound interface).
+/// 127.0.0.1 while no interface has a route yet
+pub fn lan_ip() -> String {
     std::net::UdpSocket::bind("0.0.0.0:0")
         .and_then(|socket| {
             socket.connect("8.8.8.8:80")?;

@@ -128,7 +128,7 @@ pub(crate) async fn dispatch(text: &str, info: &WebInfo, bridge: &Bridge) -> Str
             json!({
                 "app": info.app_version,
                 "version": info.app_version,
-                "remote_url": info.remote_url,
+                "remote_url": info.remote_url(),
                 "ota": cfg!(feature = "ota"),
             }),
         )),
@@ -154,7 +154,8 @@ mod tests {
 
     fn info() -> WebInfo {
         WebInfo {
-            remote_url: String::new(),
+            port: 8787,
+            pin: String::new(),
             app_version: "0.1.0 (abc1234)".into(),
         }
     }
