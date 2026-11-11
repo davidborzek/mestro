@@ -17,7 +17,7 @@ pub enum RailStyle {
 #[serde(default, deny_unknown_fields)]
 pub struct Ui {
     /// open the now-playing overlay when playback starts from a
-    /// library tap (track rows, the detail play button)
+    /// library tap or from outside while in standby
     pub auto_open_now_playing: bool,
     /// nav rail look: dark bezel glass or translucent glass
     /// (the blurred-cover backdrop runs under the rail, so the

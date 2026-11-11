@@ -8,6 +8,9 @@
 //! wake fallback and the burn-in jitter. Skins compile once at
 //! startup; a broken skin logs and the digital face takes over.
 
+mod wake;
+pub use wake::StandbyWake;
+
 use crate::Mestro;
 use slint::{ComponentFactory, ComponentHandle};
 use slint_interpreter::{Compiler, ComponentDefinition, ComponentInstance, Value};

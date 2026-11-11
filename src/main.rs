@@ -234,6 +234,7 @@ fn main() {
         config.theme.palette,
         mestro::config::ThemePalette::Cover
     )));
+    let standby = standby_hook(&ui, &nav, &clock, config.ui.auto_open_now_playing);
     spawn_update_loop(
         &ui,
         update_rx,
@@ -241,7 +242,7 @@ fn main() {
         &theme_cover,
         &np_state,
         &quality_vals,
-        &clock,
+        standby,
     );
 
     // library wiring: all browse callbacks + the slint-thread
@@ -442,6 +443,38 @@ fn wire_static_ui(ui: &Mestro, config: &mestro::config::Config) {
     )));
 }
 
+/// the standby side of every player update: a new cover feeds the
+/// cover background, and leaving standby picks the view — a tap on
+/// the clock returns to the page the user left, a remote start (MA
+/// web UI, Home Assistant) follows the music into now playing when
+/// [ui] auto_open_now_playing is on
+fn standby_hook(
+    ui: &Mestro,
+    nav: &navigation::Navigation,
+    clock: &Rc<StandbyClock>,
+    auto_open: bool,
+) -> impl Fn(&Mestro, &PlayerUpdate) {
+    let wake = Rc::new(mestro::standby::StandbyWake::new(auto_open));
+    ui.on_standby_power_on({
+        let wake = wake.clone();
+        let weak = ui.as_weak();
+        move || {
+            wake.local_wake();
+            if let Some(ui) = weak.upgrade() {
+                ui.invoke_set_power(true);
+            }
+        }
+    });
+    let nav = nav.clone();
+    let clock = clock.clone();
+    move |ui, update| {
+        if update.cover.is_some() {
+            clock.cover_changed();
+        }
+        wake.observe(ui, &nav);
+    }
+}
+
 /// PlayerUpdates flow from the state machine into the slint event
 /// loop: now playing, the cover backdrop, toasts and the
 /// cover-following accent
@@ -452,14 +485,13 @@ fn spawn_update_loop(
     theme_cover: &Rc<Cell<bool>>,
     np_state: &Rc<RefCell<NpState>>,
     quality_vals: &Rc<RefCell<nowplaying::QualityVals>>,
-    clock: &Rc<StandbyClock>,
+    standby: impl Fn(&Mestro, &PlayerUpdate) + 'static,
 ) {
     let ui_weak = ui.as_weak();
     let palette = palette.clone();
     let theme_cover = theme_cover.clone();
     let np_state = np_state.clone();
     let quality_vals = quality_vals.clone();
-    let clock = clock.clone();
     slint::spawn_local(async move {
         while let Some(update) = update_rx.recv().await {
             let Some(ui) = ui_weak.upgrade() else {
@@ -467,9 +499,7 @@ fn spawn_update_loop(
             };
             *quality_vals.borrow_mut() = nowplaying::QualityVals::from_state(&update.state);
             nowplaying::apply(&ui, &update, &palette, &np_state.borrow().quality);
-            if update.cover.is_some() {
-                clock.cover_changed();
-            }
+            standby(&ui, &update);
             // toasts + remote volume ride the update channel; [osd]
             // gates them per context
             osd::show_gated(&ui, &update);

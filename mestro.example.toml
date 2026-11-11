@@ -142,7 +142,9 @@ blurred_cover = true
 
 [ui]
 # open the now-playing overlay when playback starts from a
-# library tap (track rows, the detail play button)
+# library tap (track rows, the detail play button) or from
+# outside while the kiosk sits in standby (MA web UI, Home
+# Assistant)
 auto_open_now_playing = true
 # nav rail look: "dark" (bezel glass) or "glass" (translucent —
 # the blurred-cover backdrop runs under the rail and shows
