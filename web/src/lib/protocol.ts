@@ -40,4 +40,9 @@ export type ProbeData = {
 
 export type Player = { id: string; name: string };
 
-export type HelloData = { app: string; remote_url: string };
+export type HelloData = {
+  app: string;
+  version: string;
+  remote_url: string;
+  ota: boolean;
+};

@@ -11,6 +11,9 @@ export const socket = new WizardSocket(wizardUrl());
 // a const state object is fine)
 export const device = $state({
   app: "mestro",
+  version: "",
+  // the device accepts system-image uploads (build feature `ota`)
+  ota: false,
   remoteUrl: "",
   configured: false,
   configUrl: "",
@@ -24,6 +27,8 @@ export async function connect(): Promise<void> {
   await socket.connect();
   const hello = await socket.send<HelloData>({ op: "hello" });
   device.app = hello.app;
+  device.version = hello.version;
+  device.ota = hello.ota;
   device.remoteUrl = hello.remote_url;
   await refreshDevice();
 }

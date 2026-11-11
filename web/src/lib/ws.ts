@@ -75,7 +75,11 @@ export class WizardSocket {
   }
 }
 
+export function pairCode(): string {
+  return location.hash.match(/pair=([A-Z0-9]+)/i)?.[1] ?? "";
+}
+
 export function wizardUrl(): string {
-  const pair = location.hash.match(/pair=([A-Z0-9]+)/i)?.[1] ?? "";
+  const pair = pairCode();
   return `ws://${location.host}/ws${pair ? `?pair=${pair}` : ""}`;
 }

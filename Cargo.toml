@@ -17,7 +17,7 @@ slint-interpreter = { git = "https://github.com/slint-ui/slint", rev = "47621c9d
 i-slint-core = { git = "https://github.com/slint-ui/slint", rev = "47621c9d507476e3028200611266f91b5b7a19b8", default-features = false }
 i-slint-compiler = { git = "https://github.com/slint-ui/slint", rev = "47621c9d507476e3028200611266f91b5b7a19b8", default-features = false }
 spin_on = "0.1"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "net"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "net", "process"] }
 tokio-tungstenite = "0.27"
 futures-util = "0.3"
 serde = { version = "1", features = ["derive"] }
@@ -48,6 +48,9 @@ default = ["desktop"]
 # The kiosk (linuxkms/GBM) stays on femtovg.
 desktop = ["slint/backend-winit", "slint/renderer-skia"]
 linuxkms = ["slint/backend-linuxkms", "slint-interpreter/backend-linuxkms"]
+# the web endpoint's POST /ota: streams an uploaded system image
+# into mestro-upgrade (the Pi image enables it)
+ota = []
 
 # developer tools, not shipped (cargo run --example <name>)
 [[example]]

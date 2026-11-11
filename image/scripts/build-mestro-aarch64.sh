@@ -49,7 +49,7 @@ if [ ! -x "$BR/host/bin/aarch64-linux-gcc" ] ||
 fi
 
 nix develop .#pi -c cargo build --profile "${PROFILE}" \
-	--no-default-features --features linuxkms
+	--no-default-features --features linuxkms,ota
 
 # fonts: Inter (text) + Material Symbols (icons), both OFL — the
 # files the image fonts.conf expects, from the nixpkgs revision

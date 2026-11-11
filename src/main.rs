@@ -431,7 +431,7 @@ fn wire_static_ui(ui: &Mestro, config: &mestro::config::Config) {
         );
     }
     ui.set_osk_layout(config.ui.osk_layout.as_str().into());
-    ui.set_app_version(env!("CARGO_PKG_VERSION").into());
+    ui.set_app_version(mestro::app_version().into());
     nowplaying::wire(ui, config);
     ui.set_hub_layout(match config.hub.layout {
         mestro::config::HubLayout::Cards => 0,
@@ -494,7 +494,7 @@ fn wire_remote(
     settings: &Rc<Handle>,
     dispatch: &Rc<dyn Fn(&Command)>,
 ) {
-    let (web_info, web_pin) = mestro::remote::web::info(&config.remote, env!("CARGO_PKG_VERSION"));
+    let (web_info, web_pin) = mestro::remote::web::info(&config.remote, &mestro::app_version());
     mestro::remote::web::wire(ui, settings, dispatch, &web_info);
     mestro::remote::web::serve(
         &config.remote,

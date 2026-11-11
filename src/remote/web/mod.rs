@@ -62,6 +62,17 @@ impl Bridge {
             .map_err(|_| "blocking pool gone".to_string())?
     }
 
+    /// fire-and-forget: run `update` on the UI thread, no reply
+    /// (progress hints must never stall the web runtime)
+    pub fn notify(&self, update: impl FnOnce(&Mestro) + Send + 'static) {
+        let ui = self.ui.clone();
+        let _ = slint::invoke_from_event_loop(move || {
+            if let Some(ui) = ui.upgrade() {
+                update(&ui);
+            }
+        });
+    }
+
     /// run one JSON envelope on the UI thread, wait for the JSON
     /// response (the wizard is interactive — latency is invisible)
     pub fn op(&self, envelope: &str) -> Result<String, String> {

@@ -21,6 +21,7 @@ import { MenuAction, SheetAction } from "library/sheet.slint";
 import { TopBar } from "topbar.slint";
 import { HubPage, HubEntryData } from "hub.slint";
 import { FirstRunView } from "firstrun.slint";
+import { UpdateOverlay } from "update-overlay.slint";
 
 export component Mestro inherits Window {
     // preferred (not fixed) size: the desktop backend floats a
@@ -214,6 +215,10 @@ export component Mestro inherits Window {
     in property <string> provider-status;
     // for the settings about page
     in property <string> app-version: "dev";
+    // system update in progress (empty = none): the full-screen
+    // overlay with this text, set from the web thread
+    in-out property <string> update-status: "";
+    out property <bool> update-overlay-visible: update-overlay.visible;
     // settings edits: dotted key + number value — routed through
     // the control channel (Command::SetSetting), the same
     // vocabulary a future web/IPC client speaks
@@ -1167,6 +1172,14 @@ export component Mestro inherits Window {
         dismissed => {
             root.first-run-dismissed = true;
         }
+    }
+
+    // the system update covers everything, first-run and config
+    // errors included — the screen is not usable meanwhile
+    update-overlay := UpdateOverlay {
+        width: 100%;
+        height: 100%;
+        status: root.update-status;
     }
 
     // the keyboard front door: one FocusScope for the whole

@@ -1,0 +1,36 @@
+import { Theme, Icon, Icons } from "common.slint";
+
+// the system update in progress: dims the whole screen, blocks
+// input and says what the device is doing. Rust owns the text
+// (empty = hidden) — the upload runs on the web thread
+export component UpdateOverlay inherits Rectangle {
+    in property <string> status;
+
+    visible: root.status != "";
+    background: #14120fe6;
+
+    // swallows touches: nothing underneath may be used mid-update
+    TouchArea { }
+
+    VerticalLayout {
+        alignment: center;
+        spacing: 14px;
+
+        Text {
+            text: Icons.glyph(Icon.progress-activity);
+            font-family: Theme.icon-font;
+            font-size: 40px;
+            color: Theme.accent;
+            horizontal-alignment: center;
+            transform-rotation: mod(animation-tick(), 900ms) / 900ms * 360deg;
+        }
+
+        Text {
+            text: root.status;
+            font-size: 20px;
+            color: Theme.text;
+            horizontal-alignment: center;
+            wrap: word-wrap;
+        }
+    }
+}

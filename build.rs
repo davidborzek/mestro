@@ -22,6 +22,18 @@ fn main() {
 
     slint_build::compile("ui/mestro.slint").unwrap();
 
+    // the short git hash next to the crate version (empty without
+    // git, e.g. in the nix sandbox)
+    println!("cargo:rerun-if-changed=.git/HEAD");
+    let git = std::process::Command::new("git")
+        .args(["describe", "--always", "--dirty"])
+        .output()
+        .ok()
+        .filter(|out| out.status.success())
+        .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
+        .unwrap_or_default();
+    println!("cargo:rustc-env=MESTRO_GIT={git}");
+
     // ── the embedded setup-wizard SPA ──
     // pattern: the build/release process runs the Vite build first
     // (`bun run build` in web/), this only embeds the single file.

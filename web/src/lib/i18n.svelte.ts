@@ -55,6 +55,22 @@ const strings = {
     "done.pending": "Music Assistant · verbinde …",
     "done.close": "Fenster kann geschlossen werden",
 
+    "nav.setup": "Einrichtung",
+    "nav.update": "Update",
+
+    "update.title": "System-Update",
+    "update.current": "Installierte Version: {version}",
+    "update.lead":
+      "Wähle ein neues System-Image (Image-Datei). Der Kiosk installiert es und startet danach neu; bei einem Fehler bleibt die alte Version aktiv.",
+    "update.file": "Image-Datei",
+    "update.start": "Hochladen und installieren",
+    "update.uploading": "Wird hochgeladen … {percent} %",
+    "update.keepOpen": "Fenster und Kiosk bitte nicht ausschalten.",
+    "update.rebooting": "Der Kiosk startet neu und prüft das Update …",
+    "update.done": "Update installiert. Neue Version: {version}",
+    "update.error": "Update fehlgeschlagen: {reason}",
+    "update.retry": "Erneut versuchen",
+
     "common.back": "← Zurück",
     "common.errorConnect":
       "Kiosk nicht erreichbar oder Pairing ungültig — bitte die URL aus dem Kiosk-Display öffnen.",
@@ -107,6 +123,22 @@ const strings = {
     "done.ok": "Music Assistant · connected",
     "done.pending": "Music Assistant · connecting …",
     "done.close": "You can close this window",
+
+    "nav.setup": "Setup",
+    "nav.update": "Update",
+
+    "update.title": "System update",
+    "update.current": "Installed version: {version}",
+    "update.lead":
+      "Pick a new system image (Image file). The kiosk installs it and restarts; if anything fails the old version stays active.",
+    "update.file": "Image file",
+    "update.start": "Upload and install",
+    "update.uploading": "Uploading … {percent} %",
+    "update.keepOpen": "Please keep this window open and the kiosk powered.",
+    "update.rebooting": "The kiosk is restarting and testing the update …",
+    "update.done": "Update installed. New version: {version}",
+    "update.error": "Update failed: {reason}",
+    "update.retry": "Try again",
 
     "common.back": "← Back",
     "common.errorConnect":
