@@ -1,0 +1,78 @@
+// the digital standby clock: large thin HH:MM with the colon in the
+// accent, a hairline that fills with the hour's progress, and a
+// spaced-out date line. Minute resolution only — one repaint per
+// minute keeps standby idle. Placement and burn-in jitter stay in
+// the standby view
+export component DigitalClock inherits VerticalLayout {
+    in property <int> hour;
+    in property <int> minute;
+    in property <string> date;
+
+    // passed in (no Theme import: the settings preview
+    // compiles this file standalone at runtime)
+    in property <color> accent: #d8a657;
+    property <color> lit: root.accent.darker(0.15);
+    property <color> digits: #a59a8a;
+    property <color> dim: #5c5347;
+    property <length> rule-width: 220px;
+
+    alignment: center;
+    spacing: 14px;
+
+    // HH accent-colon MM — three texts so the colon can carry the
+    // accent; tabular-width digits keep the block from wobbling
+    HorizontalLayout {
+        alignment: center;
+        spacing: 6px;
+        Text {
+            text: (root.hour < 10 ? "0" : "") + root.hour;
+            font-size: 96px;
+            font-weight: 200;
+            color: root.digits;
+            vertical-alignment: center;
+        }
+
+        Text {
+            text: ":";
+            font-size: 80px;
+            font-weight: 300;
+            color: root.lit;
+            vertical-alignment: center;
+        }
+
+        Text {
+            text: (root.minute < 10 ? "0" : "") + root.minute;
+            font-size: 96px;
+            font-weight: 200;
+            color: root.digits;
+            vertical-alignment: center;
+        }
+    }
+
+    // hairline: the elapsed part of the hour in the accent
+    HorizontalLayout {
+        alignment: center;
+        Rectangle {
+            width: root.rule-width;
+            height: 2px;
+            border-radius: 1px;
+            background: #26221e;
+            Rectangle {
+                x: 0;
+                width: parent.width * root.minute / 60;
+                height: parent.height;
+                border-radius: 1px;
+                background: root.lit;
+            }
+        }
+    }
+
+    Text {
+        text: root.date;
+        horizontal-alignment: center;
+        font-size: 15px;
+        font-weight: 500;
+        letter-spacing: 4px;
+        color: root.dim;
+    }
+}

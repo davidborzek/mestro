@@ -1,0 +1,151 @@
+import { Theme } from "../common.slint";
+import { QualityBadge, QualityItem } from "qualitybadge.slint";
+
+// the bottom status cluster: progress bar with the elapsed/total
+// times and the quality line ON THE SAME row — pos left, badge
+// exactly centered, dur right. One rhythm, no third row
+export component ProgressBar {
+    in property <float> progress;
+    in property <string> pos-label;
+    in property <string> dur-label;
+    in property <int> duration-seconds;
+    in property <bool> enabled: false;
+    in property <string> track-key;
+    callback seek(float, string);
+    private property <bool> scrubbing: false;
+    private property <bool> waiting: false;
+    private property <float> preview-progress: 0;
+    private property <string> drag-key;
+    private property <int> drag-duration;
+    private property <int> preview-seconds: Math.floor(root.preview-progress * root.duration-seconds);
+    private property <float> display-progress: max(0, min(1, root.scrubbing || root.waiting ? root.preview-progress : root.progress));
+    private property <string> display-position: root.scrubbing || root.waiting ? "" + Math.floor(root.preview-seconds / 60) + ":" + (Math.mod(root.preview-seconds, 60) < 10 ? "0" : "") + Math.mod(root.preview-seconds, 60) : root.pos-label;
+    changed track-key => {
+        root.scrubbing = false;
+        root.waiting = false;
+    }
+    changed duration-seconds => {
+        root.scrubbing = false;
+        root.waiting = false;
+    }
+    changed enabled => {
+        if !root.enabled {
+            root.scrubbing = false;
+            root.waiting = false;
+        }
+    }
+    changed progress => {
+        if root.waiting && Math.abs(root.progress - root.preview-progress) * root.duration-seconds <= 2.5 {
+            root.waiting = false;
+        }
+    }
+    wait-timeout := Timer {
+        interval: 5000ms;
+        running: root.waiting;
+        triggered => {
+            root.waiting = false;
+        }
+    }
+    // the ordered quality line, per [now-playing] quality
+    in property <[QualityItem]> items: [];
+    in property <bool> lossless;
+    in property <float> detail-size: 12;
+    in property <int> detail-weight: 400;
+
+    VerticalLayout {
+        horizontal-stretch: 1;
+        spacing: 2px;
+
+        Rectangle {
+            height: 6px;
+            // translucent cream reads on the dimmed backdrop
+            background: Theme.text.transparentize(0.82);
+
+            Rectangle {
+                x: 0;
+                y: 0;
+                height: parent.height;
+                width: parent.width * root.display-progress;
+                background: Theme.accent;
+            }
+
+            if root.scrubbing: Rectangle {
+                x: max(0px, min(parent.width - 8px, parent.width * root.display-progress - 4px));
+                y: -1px;
+                width: 8px;
+                height: 8px;
+                border-radius: 4px;
+                background: Theme.accent;
+            }
+        }
+
+        // times + quality share one line: the badge overlays the
+        // row, dead center — its width never shoves the times
+        // around
+        Rectangle {
+            height: 18px;
+
+            HorizontalLayout {
+                Text {
+                    text: root.display-position;
+                    font-size: 13px;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                }
+
+                Rectangle {
+                    horizontal-stretch: 1;
+                }
+
+                Text {
+                    text: root.dur-label;
+                    font-size: 13px;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                }
+            }
+
+            QualityBadge {
+                x: (parent.width - self.width) / 2;
+                // a touch lower than the times — its optical gap
+                // to the bar reads larger than the numbers'
+                y: 3px;
+                items: root.items;
+                lossless: root.lossless;
+                detail-size: root.detail-size;
+                detail-weight: root.detail-weight;
+            }
+        }
+    }
+
+    TouchArea {
+        x: 0;
+        y: -13px;
+        width: root.width;
+        height: 32px;
+        enabled: root.enabled && root.duration-seconds > 0 && self.width > 0px;
+        mouse-cursor: pointer;
+        pointer-event(event) => {
+            if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
+                root.waiting = false;
+                root.drag-key = root.track-key;
+                root.drag-duration = root.duration-seconds;
+                root.preview-progress = max(0, min(1, self.mouse-x / self.width));
+                root.scrubbing = true;
+            } else if event.kind == PointerEventKind.move && root.scrubbing {
+                root.preview-progress = max(0, min(1, self.mouse-x / self.width));
+            } else if event.kind == PointerEventKind.up && event.button == PointerEventButton.left && root.scrubbing {
+                root.preview-progress = max(0, min(1, self.mouse-x / self.width));
+                root.scrubbing = false;
+                if root.enabled && root.drag-key == root.track-key && root.drag-duration == root.duration-seconds {
+                    root.waiting = true;
+                    wait-timeout.restart();
+                    root.seek(root.preview-progress, root.drag-key);
+                }
+            } else if event.kind == PointerEventKind.cancel {
+                root.scrubbing = false;
+                root.waiting = false;
+            }
+        }
+    }
+}

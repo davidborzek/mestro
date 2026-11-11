@@ -1,0 +1,48 @@
+// shared barrel: navigation enum, skin-layer contract, and the
+// re-exports every view imports. The concrete components live in
+// components/ (icon-button, marquee-text, icons); the palette
+// lives in theme.slint.
+export enum Page { hub, library, lyrics, search, settings }
+
+// queue-level repeat state as MA reports it (player_queues/repeat)
+export enum RepeatMode { off, all, one }
+
+// one entry of a manifest skin's dial layer stack (see
+// skins/…/manifest.toml and ui/vu/svgskin.slint). kind:
+// 0 = image art, 1 = engine glow wash, 2 = needle (rotated
+// by the dial's level), 3 = live text label
+export struct SkinLayer {
+    kind: int,
+    source: image,
+    text: string,
+    color: brush,
+    // placement in dial design units; w/h 0 = full dial box
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+    // glow geometry
+    radius: float,
+    inset: float,
+    // tint needles/glow with the cover palette (modern skins)
+    tint: bool,
+    // label font size in design units
+    size: float,
+    // label font weight (400 regular, 700 bold)
+    weight: int,
+}
+
+import { Icon, Icons } from "components/icons.slint";
+export { Icon, Icons }
+
+import { IconButton } from "components/icon-button.slint";
+export { IconButton }
+
+import { MarqueeText } from "components/marquee-text.slint";
+export { MarqueeText }
+
+// the palette lives in its own module — re-exported so every
+// `import { Theme } from "common.slint"` keeps working; new
+// code should import from "theme.slint" directly
+import { Theme } from "theme.slint";
+export { Theme }

@@ -1,0 +1,75 @@
+[package]
+name = "mestro"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+
+[dependencies]
+# the Pi firmware mailbox ioctl (backlight without touching the
+# display i2c bus the firmware owns)
+libc = "0.2"
+slint = { git = "https://github.com/slint-ui/slint", rev = "47621c9d507476e3028200611266f91b5b7a19b8", default-features = false, features = ["std", "compat-1-2", "accessibility", "renderer-femtovg", "renderer-software"] }
+# runtime-compiled VU skins (ComponentContainer embedding)
+slint-interpreter = { git = "https://github.com/slint-ui/slint", rev = "47621c9d507476e3028200611266f91b5b7a19b8", default-features = false, features = ["std", "compat-1-2", "renderer-femtovg", "internal"] }
+# only to name InternalToken + ComponentSelection for the
+# interpreter's component selection (embedded skins are
+# non-Window exports; see vu/manifest.rs)
+i-slint-core = { git = "https://github.com/slint-ui/slint", rev = "47621c9d507476e3028200611266f91b5b7a19b8", default-features = false }
+i-slint-compiler = { git = "https://github.com/slint-ui/slint", rev = "47621c9d507476e3028200611266f91b5b7a19b8", default-features = false }
+spin_on = "0.1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "net"] }
+tokio-tungstenite = "0.27"
+futures-util = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.9"
+ureq = { version = "2", features = ["json"] }
+chrono = "0.4"
+clap = { version = "4", features = ["derive", "env"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+rustfft = "6.4.1"
+material-colors = "0.4.2"
+indexmap = "2.3"
+ahash = "0.8"
+qrcode = { version = "0.14.1", default-features = false }
+
+[features]
+# default = dev/desktop: the winit backend under a compositor.
+# The linuxkms feature adds the straight-on-DRM kiosk backend
+# (the Pi image) and with it the --output flag (SLINT_DRM_OUTPUT
+# per process — a second process with --output drives the second
+# screen). Kiosk: --no-default-features --features linuxkms.
+default = ["desktop"]
+# skia alongside femtovg: femtovg (glutin) doesn't work on plain
+# wayland compositors (glutin built without wayland EGL — slint
+# #3312), so desktop dev runs on skia via SLINT_BACKEND=winit-skia.
+# The kiosk (linuxkms/GBM) stays on femtovg.
+desktop = ["slint/backend-winit", "slint/renderer-skia"]
+linuxkms = ["slint/backend-linuxkms", "slint-interpreter/backend-linuxkms"]
+
+# developer tools, not shipped (cargo run --example <name>)
+[[example]]
+name = "wscap"
+path = "tools/wscap.rs"
+
+[[example]]
+name = "vu-feed"
+path = "tools/vu-feed.rs"
+
+[build-dependencies]
+slint-build = { git = "https://github.com/slint-ui/slint", rev = "47621c9d507476e3028200611266f91b5b7a19b8" }
+
+[profile.release]
+opt-level = "s"
+lto = true
+
+# fast kiosk iteration (`nix develop .#pi -c cargo build --profile pi`):
+# release codegen without fat LTO — all cores, incremental. The image
+# keeps [profile.release]
+[profile.pi]
+inherits = "release"
+lto = false
+codegen-units = 16
+incremental = true

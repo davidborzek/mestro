@@ -1,0 +1,13 @@
+/target
+/result*
+.direnv
+
+# generated — the build/release process builds the SPA (web/)
+web/dist/
+web/node_modules/
+
+# buildroot download cache and the staged image payload link
+/dl/
+/image/bin
+# personal ssh key baked into local images — never in the repo
+image/board/mestro/rpi4/rootfs-overlay/root/.ssh/authorized_keys

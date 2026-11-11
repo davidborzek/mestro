@@ -1,0 +1,31 @@
+import { Theme } from "../common.slint";
+
+export component ToggleSwitch inherits Rectangle {
+    in property <bool> checked: false;
+    callback clicked();
+
+    width: 40px;
+    height: 22px;
+    border-radius: 11px;
+    background: root.checked ? Theme.accent : #ffffff2e;
+    animate background { duration: 150ms; }
+
+    TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+
+    Rectangle {
+        x: root.checked ? root.width - 20px : 2px;
+        y: 2px;
+        width: 18px;
+        height: 18px;
+        border-radius: 9px;
+        background: #fff;
+        animate x {
+            duration: 150ms;
+            easing: ease-in-out;
+        }
+    }
+}

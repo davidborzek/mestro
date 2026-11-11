@@ -1,0 +1,206 @@
+import { Theme, Page, Icon, Icons } from "common.slint";
+
+// one hub destination, prebuilt by Rust from [hub] order —
+// icon, label, list index tag and the kind the click
+// click dispatches on (0 library, 1 search, 2 settings,
+// 3 standby)
+export struct HubEntryData {
+    icon: Icon,
+    label: string,
+    index-label: string,
+    kind: int,
+}
+
+// one hub card: glass tile, icon over a letterspaced caps label.
+// All entries are uniform — accent only on hover/press; a
+// permanent "hero" would read as a stuck selection on a
+// touch screen
+component HubCard inherits Rectangle {
+    in property <Icon> icon;
+    in property <string> label;
+    callback clicked();
+
+    border-radius: 18px;
+    background: ta.pressed ? Theme.tile-hover : ta.has-hover ? Theme.tile : transparent;
+
+    ta := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+
+    VerticalLayout {
+        alignment: center;
+        padding-top: 14px;
+        padding-bottom: 14px;
+        spacing: 12px;
+
+        Text {
+            text: Icons.glyph(root.icon);
+            font-family: Theme.icon-font;
+            font-size: 30px;
+            color: Theme.accent;
+            horizontal-alignment: center;
+        }
+
+        Text {
+            text: root.label;
+            font-size: 10px;
+            letter-spacing: 2px;
+            color: ta.has-hover ? Theme.text : Theme.text-dim;
+            horizontal-alignment: center;
+        }
+    }
+}
+
+// one hub list row: index, big letterspaced word, chevron —
+// full width touch target, hairline below
+component HubRow inherits Rectangle {
+    in property <string> label;
+    in property <string> index;
+    in property <Icon> icon;
+    // supplied by the caller: the share of the available height
+    // (capped at the natural size) — compact typography kicks
+    // in below 60px so short screens (kiosk) keep proportions
+    in property <length> row-height: 72px;
+    property <bool> compact: root.row-height < 60px;
+    callback clicked();
+
+    height: root.row-height;
+    background: transparent;
+
+    ta := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+
+    HorizontalLayout {
+        alignment: center;
+        padding-left: 6px;
+        padding-right: 6px;
+        spacing: 22px;
+
+        Text {
+            text: root.index;
+            font-size: root.compact ? 9px : 10px;
+            letter-spacing: 2px;
+            color: Theme.text-mute;
+            vertical-alignment: center;
+            width: 22px;
+        }
+
+        Text {
+            text: Icons.glyph(root.icon);
+            font-family: Theme.icon-font;
+            font-size: root.compact ? 17px : 21px;
+            color: ta.has-hover ? Theme.accent : Theme.text-mute;
+            vertical-alignment: center;
+            width: 26px;
+        }
+
+        Text {
+            text: root.label;
+            font-size: root.compact ? 22px : 30px;
+            font-weight: 250;
+            letter-spacing: root.compact ? 4px : 6px;
+            color: ta.has-hover ? Theme.accent : Theme.text;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+
+        Text {
+            text: Icons.glyph(Icon.chevron-right);
+            font-family: Theme.icon-font;
+            font-size: root.compact ? 15px : 18px;
+            color: ta.has-hover ? Theme.accent : Theme.text-mute;
+            vertical-alignment: center;
+        }
+    }
+
+    Rectangle {
+        y: parent.height - 1px;
+        height: 1px;
+        width: parent.width;
+        background: Theme.hairline;
+    }
+}
+
+// the hub: console-row cards (default) or the editorial word
+// list — greeting on top either way; the top bar owns now-playing
+export component HubPage inherits Rectangle {
+    in property <string> greet-title;
+    in property <string> greet-sub;
+    // [hub] layout: 0 cards, 1 list
+    in property <int> hub-layout: 0;
+    // set from the window size by Rust (short screens like the
+    // kiosk get compact rows — slint loops when rows size off
+    // layout-derived heights)
+    in property <bool> compact: false;
+    // the destinations, ordered per [hub] order
+    in property <[HubEntryData]> entries: [];
+    callback entry-activated(int);
+
+    background: transparent;
+
+    VerticalLayout {
+        padding-left: 28px;
+        padding-right: 28px;
+        padding-top: 20px;
+        padding-bottom: 22px;
+
+        Text {
+            text: root.greet-title;
+            font-size: 22px;
+            font-weight: 250;
+            color: Theme.text;
+        }
+
+        Text {
+            text: root.greet-sub;
+            font-size: 12px;
+            letter-spacing: 1px;
+            color: Theme.text-mute;
+        }
+
+        Rectangle {
+            vertical-stretch: 1;
+        }
+
+        // [hub] layout = "cards": the console row
+        if root.hub-layout == 0: HorizontalLayout {
+            spacing: 12px;
+
+            for e[i] in root.entries: HubCard {
+                icon: e.icon;
+                label: e.label;
+                clicked => {
+                    root.entry-activated(e.kind);
+                }
+            }
+        }
+
+        // [hub] layout = "list": the editorial stack — one word
+        // per full-width row inside a Flickable: tall screens
+        // center the block, short ones (kiosk 573×344) flick-
+        // scroll instead of clipping rows
+        if root.hub-layout == 1: hub-flick := Flickable {
+            vertical-stretch: 1;
+
+            VerticalLayout {
+                vertical-stretch: 1;
+                alignment: center;
+
+                for e[i] in root.entries: HubRow {
+                    row-height: root.compact ? 48px : 72px;
+                    index: e.index-label;
+                    icon: e.icon;
+                    label: e.label;
+                    clicked => {
+                        root.entry-activated(e.kind);
+                    }
+                }
+            }
+        }
+    }
+}

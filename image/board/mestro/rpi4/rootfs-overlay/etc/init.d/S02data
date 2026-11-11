@@ -1,0 +1,62 @@
+#!/bin/sh
+# S02data — mount the data partition (FAT, editable on any OS),
+# seed defaults on first boot.
+#
+# Everything else runs from RAM (initramfs); /data survives
+# reflashes. mestro itself needs no config file: --kiosk preset
+# plus the remote setup wizard (phone) cover everything.
+
+DATA_LABEL="MESTRODATA"
+DATA_DIR="/data"
+
+case "$1" in
+start)
+	mkdir -p "$DATA_DIR"
+	# the data partition is always the second one on the boot device
+	# (SD: mmcblk0p2, NVMe: nvme0n1p2, USB: sda2). Label lookup via
+	# -L and LABEL= both trip over busybox mount quirks; scan by
+	# device and verify the vfat label with busybox blkid.
+	n=0
+	while [ $n -lt 10 ]; do
+		for dev in /dev/mmcblk0p2 /dev/nvme0n1p2 /dev/sda2; do
+			if [ -b "$dev" ] && blkid "$dev" 2>/dev/null | grep -q "LABEL=\"$DATA_LABEL\""; then
+				mount -t vfat "$dev" "$DATA_DIR" && break 2
+				echo "mestro: mounting $dev failed: $?" >&2
+			fi
+		done
+		n=$((n + 1))
+		sleep 1
+	done
+	if ! grep -q " $DATA_DIR " /proc/mounts; then
+		echo "mestro: data partition $DATA_LABEL not found — running volatile" >&2
+		exit 0
+	fi
+	# first boot: seed the player defaults so a plain flash works
+	[ -f "$DATA_DIR/squeezelite.env" ] ||
+		cp /etc/mestro-defaults/squeezelite.env "$DATA_DIR/squeezelite.env"
+	[ -f "$DATA_DIR/wpa_supplicant.conf" ] ||
+		cp /etc/mestro-defaults/wpa_supplicant.conf "$DATA_DIR/wpa_supplicant.conf"
+	# timezone override: a /data/timezone file (IANA name like
+	# "Europe/Berlin", editable on any OS) beats the baked
+	# /etc/localtime default
+	if [ -s "$DATA_DIR/timezone" ]; then
+		TZ_NAME="$(head -n1 "$DATA_DIR/timezone" | tr -d ' \r\n')"
+		if [ -f "/usr/share/zoneinfo/$TZ_NAME" ]; then
+			ln -snf "/usr/share/zoneinfo/$TZ_NAME" /etc/localtime
+			echo "$TZ_NAME" >/etc/timezone
+		fi
+	fi
+	# dropbear: an authorized_keys on the data partition overrides
+	# the built-in recovery key
+	if [ -f "$DATA_DIR/authorized_keys" ]; then
+		mkdir -p /root/.ssh
+		cp "$DATA_DIR/authorized_keys" /root/.ssh/authorized_keys
+		chmod 700 /root/.ssh
+		chmod 600 /root/.ssh/authorized_keys
+	fi
+	mkdir -p "$DATA_DIR/state" "$DATA_DIR/config"
+	;;
+stop)
+	umount "$DATA_DIR" 2>/dev/null
+	;;
+esac

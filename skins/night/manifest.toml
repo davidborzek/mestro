@@ -1,0 +1,68 @@
+# The night VU as a manifest skin — black glass, amber
+# illumination. Same format as any custom VU (README "custom
+# VUs" section); geometry in faceplate design units, the
+# engine scales the faceplate to fit any window.
+
+glow = 0
+
+[faceplate]
+design-w = 573
+design-h = 344
+plate = "#060504"   # the bg edge tone — bands blend on any aspect
+
+# layers render in file order, bottom first:
+#   face   panel + dark glass meter window
+#   scale  amber tick ring, traced numbers, VU lettering
+#   overlay  per-side traced channel label (bottom-left)
+#   needle the only animated layer (stem + pivot cap)
+[[dial]]
+side = "left"
+x = 39
+art-w = 232
+art-h = 158
+pivot-x = 116.5
+pivot-y = 135
+zero-angle = -60
+sweep = 120
+
+[[dial.layer]]
+role = "face"
+source = "bg.svg"
+
+[[dial.layer]]
+role = "scale"
+source = "scale.svg"
+
+[[dial.layer]]
+role = "overlay"
+source = "overlay-l.svg"
+
+[[dial.layer]]
+role = "needle"
+source = "needle.svg"
+
+[[dial]]
+side = "right"
+x = 301
+art-w = 232
+art-h = 158
+pivot-x = 116.5
+pivot-y = 135
+zero-angle = -60
+sweep = 120
+
+[[dial.layer]]
+role = "face"
+source = "bg.svg"
+
+[[dial.layer]]
+role = "scale"
+source = "scale.svg"
+
+[[dial.layer]]
+role = "overlay"
+source = "overlay-r.svg"
+
+[[dial.layer]]
+role = "needle"
+source = "needle.svg"

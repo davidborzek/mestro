@@ -1,0 +1,114 @@
+import { Theme, Icon, IconButton } from "common.slint";
+
+// the global nav rail: a flush strip on the right display edge,
+// full height — part of the bezel, not a floating widget. Dark
+// glass, hairline on its left edge only, flat uniform buttons.
+// Transport (play/pause · next · prev) over the hairline
+// separator, then navigation (back · home). It is a root-layout
+// COLUMN (not an overlay): every view automatically ends before
+// it, and hidden (standby) the app zone goes fullscreen again
+export component NavRail inherits Rectangle {
+    in property <bool> playing;
+    // 0 = dark bezel glass, 1 = translucent glass (the blurred
+    // backdrop runs under the rail and shows through)
+    in property <int> style: 0;
+    // an opaque layer (np/queue/vu) fills the zone: the glass
+    // variant must sit on its backdrop (Theme.bg), not keep
+    // showing the blurred cover — the rail would glow beside a
+    // black faceplate
+    in property <bool> opaque-below: false;
+    // back/home hide on the pure hub (nothing to pop) — the
+    // transport stays; overlays over the hub bring them back
+    in property <bool> show-nav: true;
+    callback toggle-play();
+    callback next-track();
+    callback prev-track();
+    callback back();
+    callback home();
+
+    width: 56px;
+    background: root.style == 1 ? (root.opaque-below ? Theme.bg : Theme.glass) : #100e0bb8;
+
+    // slint borders are uniform — the left hairline is its own
+    // 1px strip
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: 1px;
+        height: 100%;
+        background: Theme.hairline;
+    }
+
+    VerticalLayout {
+        alignment: center;
+        padding-top: 14px;
+        padding-bottom: 14px;
+        spacing: 10px;
+
+        IconButton {
+            icon: root.playing ? Icon.pause : Icon.play-arrow;
+            icon-size: 21px;
+            min-height: 42px;
+            clicked => {
+                root.toggle-play();
+            }
+        }
+
+        IconButton {
+            icon: Icon.skip-next;
+            icon-size: 21px;
+            min-height: 42px;
+            clicked => {
+                root.next-track();
+            }
+        }
+
+        IconButton {
+            icon: Icon.skip-previous;
+            icon-size: 21px;
+            min-height: 42px;
+            clicked => {
+                root.prev-track();
+            }
+        }
+
+        // navigation: hidden on the pure hub — the nav pair is
+        // redundant there (tiles are the way out), the layout
+        // re-centers the transport
+        if root.show-nav: VerticalLayout {
+            spacing: 10px;
+
+            Rectangle {
+                height: 10px;
+            }
+
+            Rectangle {
+                height: 1px;
+                width: 26px;
+                background: Theme.hairline;
+            }
+
+            Rectangle {
+                height: 10px;
+            }
+
+            IconButton {
+                icon: Icon.arrow-back;
+                icon-size: 20px;
+                min-height: 42px;
+                clicked => {
+                    root.back();
+                }
+            }
+
+            IconButton {
+                icon: Icon.home;
+                icon-size: 20px;
+                min-height: 42px;
+                clicked => {
+                    root.home();
+                }
+            }
+        }
+    }
+}

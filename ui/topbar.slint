@@ -1,0 +1,101 @@
+import { Theme, MarqueeText, Icon, Icons } from "common.slint";
+
+// the global glass capsule over every subpage: the now-playing
+// marquee stretching out (tap = jump to now-playing), the
+// clock on the right. Transport, back and home live in the
+// nav rail — the bar carries no navigation anymore. It only
+// renders on subpages — now-playing keeps its own top bar
+export component TopBar inherits Rectangle {
+    in property <image> cover;
+    in property <string> np-label;
+    in property <bool> has-media;
+    in property <string> clock-label;
+    callback open-np();
+
+    height: 44px;
+    background: Theme.glass;
+    border-radius: 22px;
+    border-width: 1px;
+    border-color: Theme.hairline;
+
+    HorizontalLayout {
+        padding-left: 2px;
+        padding-right: 2px;
+        spacing: 4px;
+
+        // now-playing marquee — horizontal-stretch keeps the title
+        // flush left; the VerticalLayout
+        // centers it vertically with real font metrics
+        Rectangle {
+            horizontal-stretch: 1;
+            background: npta.pressed ? Theme.tile-hover : (npta.has-hover ? Theme.tile : transparent);
+            border-radius: 18px;
+
+            npta := TouchArea {
+                clicked => {
+                    root.open-np();
+                }
+            }
+
+            VerticalLayout {
+                padding-left: 8px;
+                alignment: center;
+
+                HorizontalLayout {
+                    spacing: 8px;
+
+                    // round cover thumb
+                    Rectangle {
+                        width: 26px;
+                        height: 26px;
+                        border-radius: 13px;
+                        clip: true;
+                        background: Theme.panel;
+
+                        Image {
+                            x: 0;
+                            y: 0;
+                            width: parent.width;
+                            height: parent.height;
+                            source: root.cover;
+                            image-fit: ImageFit.cover;
+                            visible: root.has-media;
+                        }
+
+                        if !root.has-media: Text {
+                            text: Icons.glyph(Icon.music-note);
+                            font-family: Theme.icon-font;
+                            font-size: 14px;
+                            color: Theme.text-mute;
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                        }
+                    }
+
+                    // center the text against the circle: the wrapper
+                    // stretches to the row height and centers inside
+                    VerticalLayout {
+                        alignment: center;
+                        horizontal-stretch: 1;
+
+                        MarqueeText {
+                            text: root.np-label;
+                            font-size: 13px;
+                            text-color: Theme.text-dim;
+                        }
+                    }
+                }
+            }
+        }
+
+        // clock
+        Text {
+            text: root.clock-label;
+            font-size: 14px;
+            color: Theme.text-dim;
+            vertical-alignment: center;
+            width: self.preferred-width + 28px;
+            horizontal-alignment: center;
+        }
+    }
+}

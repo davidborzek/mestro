@@ -1,0 +1,172 @@
+import { Theme } from "common.slint";
+
+// First-run overlay: covers the app while no connection is
+// configured (music-assistant url empty). The wizard QR code is
+// the only setup path on the device itself — scan it, finish the
+// flow on the phone, the session rewires live. Dismisses on the
+// verified connection flag (real events flowed), not on config
+// writes alone.
+export component FirstRunView inherits Rectangle {
+    in property <string> remote-url: "";
+    in property <image> qr;
+    // url + player/token landed (written by the wizard)
+    in property <bool> detected: false;
+    // provider-owned truth: an attempt really connected
+    in property <bool> connected: false;
+    callback restart-app();
+    // done for this boot — the root re-arms on a connection clear
+    callback dismissed();
+    property <bool> seen-connected: false;
+    function check() {
+        if (root.detected && root.connected && !root.seen-connected) {
+            root.seen-connected = true;
+            root.dismissed();
+        }
+    }
+    changed detected => {
+        root.check();
+    }
+    changed connected => {
+        root.check();
+    }
+
+    background: Theme.bg;
+
+    // the QR follows the HEIGHT only (the width depends on the
+    // layout — sizing from it loops); capped so a 5" panel at scale
+    // 1.5 (533 x 320 logical) keeps room for the text column. The
+    // old fixed 260 + 240 overflowed it
+    property <length> pad: 22px;
+    property <length> gap: 20px;
+    property <length> qr-size: Math.min(root.height * 0.62, 220px);
+    // the text column takes the rest of the width (texts wrap to
+    // it, so it must not come from their own size)
+    property <length> text-w: Math.min(260px, root.width - 2 * root.pad - root.gap - root.qr-size);
+
+    HorizontalLayout {
+        padding: root.pad;
+        spacing: root.gap;
+        alignment: center;
+
+        // the QR plate: quiet zone is baked into the image, the
+        // white plate keeps it scannable on the dark UI
+        if root.remote-url != "": Rectangle {
+            width: root.qr-size;
+            height: self.width;
+            border-radius: 10px;
+            background: #ffffff;
+            Image {
+                x: 8px;
+                y: 8px;
+                width: parent.width - 16px;
+                height: parent.height - 16px;
+                source: root.qr;
+                image-rendering: pixelated;
+            }
+        }
+
+        VerticalLayout {
+            alignment: center;
+            spacing: 8px;
+            width: root.text-w;
+
+            Text {
+                text: @tr("Welcome to mestro");
+                font-size: 21px;
+                font-weight: 700;
+                color: Theme.text;
+            }
+
+            if root.remote-url != "": Text {
+                text: @tr("Set up the connection from your phone — scan the code or open:");
+                width: parent.width;
+                wrap: word-wrap;
+                font-size: 12px;
+                color: Theme.text-mute;
+            }
+            if root.remote-url != "": Text {
+                text: root.remote-url;
+                width: parent.width;
+                wrap: char-wrap;
+                font-size: 14px;
+                color: Theme.accent;
+            }
+            if root.remote-url == "": Text {
+                text: @tr("Remote setup is disabled ([remote].enabled = false) — configure the connection through config.toml.");
+                width: parent.width;
+                wrap: word-wrap;
+                font-size: 12px;
+                color: Theme.text-mute;
+            }
+
+            Rectangle {
+                height: 8px;
+            }
+
+            if !root.detected: Rectangle {
+                height: 44px;
+                border-radius: 8px;
+                background: Theme.tile;
+                HorizontalLayout {
+                    padding: 12px;
+                    spacing: 10px;
+                    Rectangle {
+                        vertical-stretch: 1;
+                        width: 10px;
+                        Rectangle {
+                            y: (parent.height - 10px) / 2;
+                            width: 10px;
+                            height: 10px;
+                            border-radius: 5px;
+                            background: Theme.accent;
+                        }
+                    }
+
+                    Text {
+                        text: @tr("Waiting for setup …");
+                        font-size: 13px;
+                        vertical-alignment: center;
+                        color: Theme.text-dim;
+                    }
+                }
+            }
+            if root.detected: Rectangle {
+                height: 44px;
+                border-radius: 8px;
+                background: #4caf6d22;
+                HorizontalLayout {
+                    padding: 12px;
+                    spacing: 12px;
+                    Text {
+                        text: @tr("Configuration detected — connecting …");
+                        font-size: 13px;
+                        font-weight: 500;
+                        vertical-alignment: center;
+                        color: #4caf6d;
+                        horizontal-stretch: 1;
+                    }
+
+                    Rectangle {
+                        width: 92px;
+                        height: 30px;
+                        border-radius: 6px;
+                        background: Theme.tile;
+                        Text {
+                            text: @tr("Restart");
+                            font-size: 12px;
+                            color: Theme.text-dim;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        TouchArea {
+                            clicked => {
+                                root.restart-app();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,89 @@
+# The half-round VU ("arc", eversolo-style): two chrome-framed
+# half gauges with a warm dark dial — the same manifest format a
+# custom VU uses (see docs/vu.md). Geometry in faceplate design
+# units; the engine scales the faceplate uniformly and centers
+# the meters+info group vertically.
+glow = 0
+
+[faceplate]
+design-w = 573
+design-h = 344
+plate = "#0b0906"   # the bg edge tone — bands blend on any aspect
+
+# needle geometry: pivot at the arc center (90,128), VU -20..+3
+# mapped onto -55..+55 degrees (see scale.svg)
+[[dial]]
+side = "left"
+x = 104
+art-w = 180
+art-h = 180
+pivot-x = 90
+pivot-y = 128
+zero-angle = -55
+sweep = 110
+
+[[dial.layer]]
+role = "face"
+source = "bg.svg"
+
+[[dial.layer]]
+role = "glow"
+radius = 70
+inset = 24
+
+[[dial.layer]]
+role = "scale"
+source = "scale.svg"
+
+[[dial.layer]]
+role = "label"
+text = "L"
+y = 146
+size = 13
+color = "#6b5c42"
+
+[[dial.layer]]
+role = "needle"
+source = "needle.svg"
+
+[[dial.layer]]
+role = "face"
+source = "bezel.svg"
+
+[[dial]]
+side = "right"
+x = 288
+art-w = 180
+art-h = 180
+pivot-x = 90
+pivot-y = 128
+zero-angle = -55
+sweep = 110
+
+[[dial.layer]]
+role = "face"
+source = "bg.svg"
+
+[[dial.layer]]
+role = "glow"
+radius = 70
+inset = 24
+
+[[dial.layer]]
+role = "scale"
+source = "scale.svg"
+
+[[dial.layer]]
+role = "label"
+text = "R"
+y = 146
+size = 13
+color = "#6b5c42"
+
+[[dial.layer]]
+role = "needle"
+source = "needle.svg"
+
+[[dial.layer]]
+role = "face"
+source = "bezel.svg"

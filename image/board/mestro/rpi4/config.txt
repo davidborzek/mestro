@@ -1,0 +1,23 @@
+# mestro kiosk image — boot config
+# dtoverlays for the panel live here; users can edit this file
+# on the FAT partition from any OS.
+
+enable_uart=0
+arm_64bit=1
+# no raspberry splash: the psplash logo (S12psplash) takes over as
+# soon as the kernel can draw
+disable_splash=1
+# the kernel (initramfs embedded) lands in the boot partition as Image
+kernel=Image
+disable_overscan=1
+dtparam=audio=off
+# vc4/v3d KMS — the kernel defconfig already enables the drivers.
+# The 7" DSI panel: direct kernel i2c touch reads are broken on
+# this panel (the onboard micro corrupts them), so touch goes
+# through the firmware instead — disable the overlay's edt touch
+# node and let the firmware feed raspberrypi-ts via rpi-ft5406
+# (the classic piCorePlayer path, verified working on this panel).
+dtoverlay=vc4-kms-v3d
+dtoverlay=vc4-kms-dsi-7inch,disable_touch
+dtoverlay=rpi-ft5406
+max_framebuffers=2

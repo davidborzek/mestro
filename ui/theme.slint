@@ -1,0 +1,33 @@
+// The palette of the app: one Theme global as the single source
+// of truth. The warm dark plates and the monochrome text family
+// are fixed; `accent` and `danger` are in-out — with
+// [theme] palette = "cover" they follow the artwork (Rust pushes
+// them through the root `set-accent` callback; the codegen folds
+// constant-only globals away, so they carry a dummy function).
+export global Theme {
+    // warm hi-fi palette: cream text, amber accent, warm darks
+    out property <color> bg: #14120f;
+    out property <color> panel: #201c18;
+    out property <color> panel-hover: #2b2621;
+    // the text family stays FIXED and neutral — a monochrome
+    // gray scale reads clean on the warm dark plates while
+    // interactive accents carry the artwork color
+    out property <color> text: #ececec;
+    out property <color> text-dim: #9a9a9a;
+    out property <color> text-mute: #707070;
+    in-out property <color> accent: #d8a657;
+    // keeps the global from being constant-folded away (see
+    // main.rs: the accent follows the cover palette)
+    public function accent-is(c: color) -> bool {
+        return self.accent == c;
+    }
+    // destructive actions: remove/clear rows in sheets and menus
+    in-out property <color> danger: #cc241d;
+    out property <color> bar: #2b2621;
+    // glass surfaces floating over the blurred-cover backdrop
+    out property <color> glass: #14120f66;
+    out property <color> hairline: #ffffff14;
+    out property <color> tile: #ffffff08;
+    out property <color> tile-hover: #ffffff14;
+    out property <string> icon-font: "Material Symbols Outlined";
+}

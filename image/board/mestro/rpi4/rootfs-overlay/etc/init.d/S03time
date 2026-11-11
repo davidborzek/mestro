@@ -1,0 +1,13 @@
+#!/bin/sh
+# S03time — restore the last known time from the data partition
+# (fake-hwclock): the Pi has no RTC, so without this the kiosk
+# would boot into 1970 until NTP syncs (S45time).
+STATE=/data/state/hwclock
+
+case "$1" in
+start)
+	if [ -f "$STATE" ]; then
+		date -s "@$(cat "$STATE")" >/dev/null 2>&1
+	fi
+	;;
+esac

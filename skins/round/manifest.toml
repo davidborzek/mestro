@@ -1,0 +1,100 @@
+# The round VU as a manifest skin — the same format a custom
+# VU uses (see the README "custom VUs" section). All geometry
+# is in faceplate design units; the engine scales the whole
+# faceplate uniformly to fit any window and centers the
+# meters+info group vertically.
+
+# engine glow dial: scales every glow layer's opacity
+# (0 = unlit, 1 = fully lit); the built-in round takes this
+# from the config's [vu.round] glow instead
+glow = 0
+
+[faceplate]
+design-w = 573
+design-h = 344
+plate = "#000000"
+
+# one [[dial]] per channel; layers render in file order,
+# bottom first. Roles:
+#   face   static art rasterized at device resolution
+#   glow   engine-drawn warm wash (radius, optional inset)
+#   scale  static art, typically ticks + traced numbers
+#   label  live text (or use image art for fancy lettering)
+#   needle the ONLY animated layer: rotated around the
+#          dial pivot by zero-angle + level * sweep
+[[dial]]
+side = "left"
+x = 104
+# the dial's art design box — every layer shares this space
+art-w = 180
+art-h = 180
+pivot-x = 90
+pivot-y = 90
+zero-angle = -60
+sweep = 120
+
+[[dial.layer]]
+role = "face"
+source = "bg.svg"
+
+[[dial.layer]]
+role = "glow"
+radius = 82
+inset = 8
+
+[[dial.layer]]
+role = "scale"
+source = "scale.svg"
+
+[[dial.layer]]
+role = "label"
+text = "L"
+y = 149
+size = 12
+color = "#6b5c42"
+
+[[dial.layer]]
+role = "needle"
+source = "needle.svg"
+
+[[dial.layer]]
+role = "face"
+source = "bezel.svg"
+
+[[dial]]
+side = "right"
+x = 288
+art-w = 180
+art-h = 180
+pivot-x = 90
+pivot-y = 90
+zero-angle = -60
+sweep = 120
+
+[[dial.layer]]
+role = "face"
+source = "bg.svg"
+
+[[dial.layer]]
+role = "glow"
+radius = 82
+inset = 8
+
+[[dial.layer]]
+role = "scale"
+source = "scale.svg"
+
+[[dial.layer]]
+role = "label"
+text = "R"
+y = 149
+size = 12
+color = "#6b5c42"
+
+[[dial.layer]]
+role = "needle"
+source = "needle.svg"
+
+[[dial.layer]]
+role = "face"
+source = "bezel.svg"

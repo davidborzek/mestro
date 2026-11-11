@@ -1,0 +1,58 @@
+import {
+    SectionLabel,
+    PickerRow,
+    OrderEditor,
+    PickerRequest,
+} from "widgets.slint";
+
+// [hub]: the home screen — layout + entry order (a permutation:
+// validate() re-appends missing entries, the list never loses a
+// destination)
+export component HubSettings inherits VerticalLayout {
+    in property <string> hub-look: "cards";
+    in property <bool> hub-look-overridden: false;
+    in property <[string]> hub-order: [];
+    in property <bool> hub-order-overridden: false;
+
+    callback request-picker(PickerRequest);
+    callback reset-value(string);
+    callback move-hub(string, int);
+
+    spacing: 8px;
+
+    SectionLabel {
+        label: @tr("HUB");
+    }
+
+    PickerRow {
+        label: @tr("Layout");
+        key: "hub.layout";
+        value: root.hub-look;
+        overridden: root.hub-look-overridden;
+        open => {
+            root.request-picker({
+                key: "hub.layout",
+                title: "Hub layout",
+                options: ["cards", "list"],
+                selected: root.hub-look == "list" ? 1 : 0,
+                is-bool: false
+            });
+        }
+        reset-key(k) => {
+            root.reset-value(k);
+        }
+    }
+
+    OrderEditor {
+        key: "hub.order";
+        overridden: root.hub-order-overridden;
+        items: root.hub-order;
+        inactive: [];
+        move-item(n, d) => {
+            root.move-hub(n, d);
+        }
+        reset-key(k) => {
+            root.reset-value(k);
+        }
+    }
+}

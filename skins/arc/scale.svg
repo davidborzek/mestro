@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180">
+<path d="M 140.75 74.14 A 74 74 0 0 1 148.83 83.12" fill="none" stroke="#e14c44" stroke-opacity="0.55" stroke-width="2.4"/>
+<g stroke-linecap="butt">
+<line x1="26.11" y1="83.26" x2="35.12" y2="89.57" stroke="#f0e3c1" stroke-opacity="0.9" stroke-width="2.6"/>
+<line x1="78.89" y1="50.80" x2="80.45" y2="61.68" stroke="#f0e3c1" stroke-opacity="0.9" stroke-width="2.6"/>
+<line x1="97.95" y1="50.41" x2="96.83" y2="61.35" stroke="#f0e3c1" stroke-opacity="0.9" stroke-width="2.6"/>
+<line x1="110.47" y1="52.73" x2="107.58" y2="63.35" stroke="#f0e3c1" stroke-opacity="0.9" stroke-width="2.6"/>
+<line x1="122.44" y1="57.07" x2="117.86" y2="67.07" stroke="#f0e3c1" stroke-opacity="0.9" stroke-width="2.6"/>
+<line x1="133.54" y1="63.29" x2="127.40" y2="72.41" stroke="#f0e3c1" stroke-opacity="0.9" stroke-width="2.6"/>
+<line x1="138.68" y1="67.06" x2="131.82" y2="75.65" stroke="#f0e3c1" stroke-opacity="0.9" stroke-width="2.6"/>
+<line x1="143.49" y1="71.23" x2="135.95" y2="79.24" stroke="#e14c44" stroke-opacity="1" stroke-width="2.6"/>
+<line x1="147.95" y1="75.79" x2="139.77" y2="83.15" stroke="#e14c44" stroke-opacity="1" stroke-width="2.6"/>
+<line x1="152.01" y1="80.69" x2="143.27" y2="87.36" stroke="#e14c44" stroke-opacity="1" stroke-width="2.6"/>
+<line x1="49.13" y1="61.56" x2="52.28" y2="66.67" stroke="#a89984" stroke-opacity="0.55" stroke-width="1.5"/>
+<line x1="88.41" y1="50.02" x2="88.53" y2="56.02" stroke="#a89984" stroke-opacity="0.55" stroke-width="1.5"/>
+<line x1="104.26" y1="51.31" x2="103.16" y2="57.21" stroke="#a89984" stroke-opacity="0.55" stroke-width="1.5"/>
+<line x1="116.54" y1="54.65" x2="114.50" y2="60.30" stroke="#a89984" stroke-opacity="0.55" stroke-width="1.5"/>
+<line x1="128.12" y1="59.95" x2="125.19" y2="65.18" stroke="#a89984" stroke-opacity="0.55" stroke-width="1.5"/>
+<line x1="141.13" y1="69.09" x2="137.20" y2="73.63" stroke="#e14c44" stroke-opacity="0.8" stroke-width="1.5"/>
+<line x1="145.77" y1="73.46" x2="141.48" y2="77.66" stroke="#e14c44" stroke-opacity="0.8" stroke-width="1.5"/>
+<line x1="150.03" y1="78.20" x2="145.41" y2="82.03" stroke="#e14c44" stroke-opacity="0.8" stroke-width="1.5"/>
+</g>
+</svg>

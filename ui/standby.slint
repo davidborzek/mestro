@@ -1,0 +1,110 @@
+import { Theme } from "common.slint";
+import { DigitalClock } from "standby/digital.slint";
+import { AnalogClock } from "standby/analog.slint";
+
+// standby while the player is powered off via the source: a dim
+// clock on pure black — the panel backlight cannot be switched off
+// on every display, so the ground emits as little light as the
+// panel allows. Built-in digital (default) or analog faces, or a
+// custom skin ([clock.skins], docs/standby.md) embedded through
+// skin-factory. The position drifts by a pseudo-random ±3px every
+// minute against burn-in; multipliers are coprime to the modulus
+// so both axes cycle all offsets
+export component StandbyView inherits Rectangle {
+    in property <string> clock-label;
+    in property <string> clock-date;
+    in property <int> clock-minute;
+    in property <int> clock-hour;
+    in property <bool> analog;
+    in property <component-factory> skin-factory;
+    in property <bool> skin-active: false;
+    // backdrop ([clock.background]): two image slots crossfade on
+    // a change — Rust writes the new image into the hidden slot
+    // and flips `bg-front`; no image = plain black
+    in property <image> bg-a;
+    in property <image> bg-b;
+    in property <bool> bg-front-b: false;
+    in property <bool> bg-shown: false;
+    // 0 = image as is, 1 = black
+    in property <float> bg-dim: 0.6;
+    callback power-on();
+
+    background: #000;
+
+    if root.bg-shown: Image {
+        width: root.width;
+        height: root.height;
+        source: root.bg-a;
+        image-fit: cover;
+        opacity: root.bg-front-b ? 0 : 1;
+        animate opacity {
+            duration: 1200ms;
+            easing: ease-in-out;
+        }
+    }
+    if root.bg-shown: Image {
+        width: root.width;
+        height: root.height;
+        source: root.bg-b;
+        image-fit: cover;
+        opacity: root.bg-front-b ? 1 : 0;
+        animate opacity {
+            duration: 1200ms;
+            easing: ease-in-out;
+        }
+    }
+    // the darkening keeps the clock readable on bright images
+    if root.bg-shown: Rectangle {
+        width: root.width;
+        height: root.height;
+        background: #000;
+        opacity: root.bg-dim;
+    }
+    // a soft dark halo right behind the clock: Slint has no text
+    // shadow, a radial fade does the job and renders in femtovg
+    // and the software (preview) renderer alike
+    if root.bg-shown: Rectangle {
+        property <length> halo: Math.min(root.width, root.height) * 1.1;
+        x: (root.width - self.halo) / 2 + root.jitter-x;
+        y: (root.height - self.halo) / 2 + root.jitter-y;
+        width: self.halo;
+        height: self.halo;
+        background: @radial-gradient(circle, #000000b3 0%, #00000080 35%, #00000000 70%);
+    }
+
+    property <length> jitter-x: ((Math.mod(root.clock-minute * 3, 7)) - 3) * 1px;
+    property <length> jitter-y: ((Math.mod(root.clock-minute * 5, 7)) - 3) * 1px;
+
+    // tap anywhere powers the player back on (skins may also call
+    // power-on themselves; this stays the fallback below them)
+    TouchArea {
+        clicked => {
+            root.power-on();
+        }
+    }
+
+    if root.skin-active: ComponentContainer {
+        x: root.jitter-x;
+        y: root.jitter-y;
+        width: root.width;
+        height: root.height;
+        component-factory: root.skin-factory;
+    }
+
+    if !root.skin-active && !root.analog: DigitalClock {
+        x: (parent.width - self.width) / 2 + root.jitter-x;
+        y: (parent.height - self.height) / 2 + root.jitter-y;
+        hour: root.clock-hour;
+        minute: root.clock-minute;
+        date: root.clock-date;
+        accent: Theme.accent;
+    }
+
+    if !root.skin-active && root.analog: AnalogClock {
+        x: (parent.width - self.width) / 2 + root.jitter-x;
+        y: (parent.height - self.height) / 2 + root.jitter-y;
+        clock-hour: root.clock-hour;
+        clock-minute: root.clock-minute;
+        accent: Theme.accent;
+    }
+}

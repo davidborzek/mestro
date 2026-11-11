@@ -1,0 +1,162 @@
+import {
+    SectionLabel,
+    PickerRow,
+    ToggleRow,
+    PickerRequest,
+} from "widgets.slint";
+
+// The Theme & UI settings family: the accent source (amber vs
+// artwork-following + the M3 variant), the rail look and the
+// interaction toggles. Pickers open the hub's generic option
+// sheet (request-picker); palette and rail apply live, variant
+// and OSK need a restart (the provider session and the registry
+// captured them at startup).
+export component ThemeUiSettings inherits VerticalLayout {
+    // effective values as their config names
+    in property <string> theme-palette: "amber";
+    in property <string> theme-variant: "tonal-spot";
+    in property <string> ui-rail: "dark";
+    in property <bool> ui-auto-open: true;
+    in property <string> ui-osk: "de";
+    in property <bool> bg-blurred: true;
+    // override flags (the reset buttons show only on those)
+    in property <bool> theme-palette-overridden: false;
+    in property <bool> theme-variant-overridden: false;
+    in property <bool> ui-rail-overridden: false;
+    in property <bool> ui-auto-open-overridden: false;
+    in property <bool> ui-osk-overridden: false;
+    in property <bool> bg-blurred-overridden: false;
+
+    // the hub's generic option sheet: key, title, options,
+    // selected index, is-bool (bools take the set-bool path —
+    // toml needs real booleans, not "true" strings)
+    callback request-picker(PickerRequest);
+    callback set-bool(string, bool);
+    callback reset-value(string);
+
+    // the option index of the current variant (9 names)
+    property <int> variant-idx:
+        root.theme-variant == "content" ? 1 : root.theme-variant == "expressive" ? 2 : root.theme-variant == "fidelity" ? 3 : root.theme-variant == "fruit-salad" ? 4 : root.theme-variant == "monochrome" ? 5 : root.theme-variant == "neutral" ? 6 : root.theme-variant == "rainbow" ? 7 : root.theme-variant == "vibrant" ? 8 : 0;
+
+    spacing: 8px;
+
+    SectionLabel {
+        label: @tr("THEME");
+    }
+
+    PickerRow {
+        label: @tr("Palette");
+        key: "theme.palette";
+        value: root.theme-palette;
+        overridden: root.theme-palette-overridden;
+        open => {
+            root.request-picker({
+                key: "theme.palette",
+                title: "Palette",
+                options: ["amber", "cover"],
+                selected: root.theme-palette == "cover" ? 1 : 0,
+                is-bool: false
+            });
+        }
+        reset-key(k) => {
+            root.reset-value(k);
+        }
+    }
+
+    PickerRow {
+        label: @tr("Variant");
+        key: "theme.variant";
+        value: root.theme-variant;
+        overridden: root.theme-variant-overridden;
+        open => {
+            root.request-picker({
+                key: "theme.variant",
+                title: "Variant",
+                options: [
+                    "tonal-spot",
+                    "content",
+                    "expressive",
+                    "fidelity",
+                    "fruit-salad",
+                    "monochrome",
+                    "neutral",
+                    "rainbow",
+                    "vibrant"
+                ],
+                selected: root.variant-idx,
+                is-bool: false
+            });
+        }
+        reset-key(k) => {
+            root.reset-value(k);
+        }
+    }
+
+    SectionLabel {
+        label: @tr("UI");
+    }
+
+    PickerRow {
+        label: @tr("Rail");
+        key: "ui.rail";
+        value: root.ui-rail;
+        overridden: root.ui-rail-overridden;
+        open => {
+            root.request-picker({
+                key: "ui.rail",
+                title: "Rail",
+                options: ["dark", "glass"],
+                selected: root.ui-rail == "glass" ? 1 : 0,
+                is-bool: false
+            });
+        }
+        reset-key(k) => {
+            root.reset-value(k);
+        }
+    }
+
+    ToggleRow {
+        label: @tr("Auto-open Now Playing");
+        key: "ui.auto_open_now_playing";
+        value: root.ui-auto-open;
+        overridden: root.ui-auto-open-overridden;
+        set-bool(k, v) => {
+            root.set-bool(k, v);
+        }
+        reset-key(k) => {
+            root.reset-value(k);
+        }
+    }
+
+    PickerRow {
+        label: @tr("Keyboard layout");
+        key: "ui.osk_layout";
+        value: root.ui-osk;
+        overridden: root.ui-osk-overridden;
+        open => {
+            root.request-picker({
+                key: "ui.osk_layout",
+                title: "Keyboard layout",
+                options: ["de", "en"],
+                selected: root.ui-osk == "en" ? 1 : 0,
+                is-bool: false
+            });
+        }
+        reset-key(k) => {
+            root.reset-value(k);
+        }
+    }
+
+    ToggleRow {
+        label: @tr("Blurred cover backdrop");
+        key: "background.blurred_cover";
+        value: root.bg-blurred;
+        overridden: root.bg-blurred-overridden;
+        set-bool(k, v) => {
+            root.set-bool(k, v);
+        }
+        reset-key(k) => {
+            root.reset-value(k);
+        }
+    }
+}

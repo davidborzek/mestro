@@ -1,0 +1,248 @@
+// every Material Symbols glyph the UI uses, mapped to its
+// codepoint in Icons.glyph() below — never spell a codepoint out,
+// never guess one (they differ from the classic Material Icons)
+export enum Icon {
+    none, // sentinel: derive from the entry kind
+    arrow-back,
+    arrow-insert,
+    album,
+    artist,
+    chevron-left,
+    chevron-right,
+    close,
+    delete,
+    delete-sweep,
+    expand-less,
+    expand-more,
+    graphic-eq,
+    grid-view,
+    home,
+    hourglass-top,
+    library-music,
+    more-vert,
+    music-note,
+    pause,
+    play-arrow,
+    playlist-add,
+    power-settings-new,
+    progress-activity,
+    queue-music,
+    radio,
+    recommend,
+    repeat,
+    repeat-one,
+    search,
+    settings,
+    shuffle,
+    smartphone,
+    skip-next,
+    skip-previous,
+    speed,
+    volume-down,
+    volume-off,
+    volume-up,
+    warning,
+    waves,
+    add,
+    remove,
+    check,
+    arrow-upward,
+    arrow-downward,
+    restart-alt,
+    tune,
+    palette,
+    schedule,
+    dashboard,
+    notifications,
+    info,
+    wifi,
+    light-mode,
+    bedtime,
+    brightness-medium,
+    router,
+}
+
+// codepoints verified against the Material Symbols font.
+// Slint has no free functions — the mapping lives on a global.
+export global Icons {
+    // the volume glyph follows the level: silence and quiet read
+    // differently at a glance (shared by the HUD and the topbar)
+    public pure function volume-icon(v: int) -> Icon {
+        return v <= 0 ? Icon.volume-off : v < 50 ? Icon.volume-down : Icon.volume-up;
+    }
+
+    public pure function glyph(i: Icon) -> string {
+        if i == Icon.arrow-back {
+            return "\u{e5c4}";
+        }
+        if i == Icon.bedtime {
+            return "\u{e1f9}";
+        }
+        if i == Icon.brightness-medium {
+            return "\u{e1ae}";
+        }
+        if i == Icon.router {
+            return "\u{e328}";
+        }
+        if i == Icon.add {
+            return "\u{e145}";
+        }
+        if i == Icon.remove {
+            return "\u{e15b}";
+        }
+        if i == Icon.check {
+            return "\u{e5ca}";
+        }
+        if i == Icon.arrow-upward {
+            return "\u{e5d8}";
+        }
+        if i == Icon.arrow-downward {
+            return "\u{e5db}";
+        }
+        if i == Icon.restart-alt {
+            return "\u{f053}";
+        }
+        if i == Icon.tune {
+            return "\u{e429}";
+        }
+        if i == Icon.palette {
+            return "\u{e3b7}";
+        }
+        if i == Icon.schedule {
+            return "\u{e192}";
+        }
+        if i == Icon.dashboard {
+            return "\u{e871}";
+        }
+        if i == Icon.notifications {
+            return "\u{e7f4}";
+        }
+        if i == Icon.info {
+            return "\u{e88e}";
+        }
+        if i == Icon.wifi {
+            return "\u{e63e}";
+        }
+        if i == Icon.light-mode {
+            return "\u{e518}";
+        }
+        if i == Icon.arrow-insert {
+            return "\u{f837}";
+        }
+        if i == Icon.album {
+            return "\u{e019}";
+        }
+        if i == Icon.artist {
+            return "\u{e01a}";
+        }
+        if i == Icon.chevron-right {
+            return "\u{e5cc}";
+        }
+        if i == Icon.chevron-left {
+            return "\u{e5cb}";
+        }
+        if i == Icon.close {
+            return "\u{e5cd}";
+        }
+        if i == Icon.delete {
+            return "\u{e92e}";
+        }
+        if i == Icon.delete-sweep {
+            return "\u{e16c}";
+        }
+        if i == Icon.expand-less {
+            return "\u{e5ce}";
+        }
+        if i == Icon.expand-more {
+            return "\u{e5cf}";
+        }
+        if i == Icon.graphic-eq {
+            return "\u{e1b8}";
+        }
+        if i == Icon.grid-view {
+            return "\u{e9b0}";
+        }
+        if i == Icon.home {
+            return "\u{e88a}";
+        }
+        if i == Icon.hourglass-top {
+            return "\u{e5d3}";
+        }
+        if i == Icon.library-music {
+            return "\u{e030}";
+        }
+        if i == Icon.more-vert {
+            return "\u{e5d4}";
+        }
+        if i == Icon.music-note {
+            return "\u{e405}";
+        }
+        if i == Icon.pause {
+            return "\u{e034}";
+        }
+        if i == Icon.play-arrow {
+            return "\u{e037}";
+        }
+        if i == Icon.playlist-add {
+            return "\u{e03b}";
+        }
+        if i == Icon.power-settings-new {
+            return "\u{f8c7}";
+        }
+        if i == Icon.progress-activity {
+            return "\u{e9d0}";
+        }
+        if i == Icon.queue-music {
+            return "\u{e03d}";
+        }
+        if i == Icon.radio {
+            return "\u{e03e}";
+        }
+        if i == Icon.recommend {
+            return "\u{e9d2}";
+        }
+        if i == Icon.repeat {
+            return "\u{e040}";
+        }
+        if i == Icon.repeat-one {
+            return "\u{e041}";
+        }
+        if i == Icon.search {
+            return "\u{e8b6}";
+        }
+        if i == Icon.settings {
+            return "\u{e8b8}";
+        }
+        if i == Icon.shuffle {
+            return "\u{e043}";
+        }
+        if i == Icon.smartphone {
+            return "\u{e7ba}";
+        }
+        if i == Icon.skip-next {
+            return "\u{e044}";
+        }
+        if i == Icon.skip-previous {
+            return "\u{e045}";
+        }
+        if i == Icon.speed {
+            return "\u{e9e4}";
+        }
+        if i == Icon.volume-down {
+            return "\u{e04d}";
+        }
+        if i == Icon.volume-off {
+            return "\u{e04f}";
+        }
+        if i == Icon.volume-up {
+            return "\u{e050}";
+        }
+        if i == Icon.warning {
+            return "\u{e002}";
+        }
+        if i == Icon.waves {
+            return "\u{e176}";
+        }
+        return "";
+    }
+}

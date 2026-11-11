@@ -1,0 +1,132 @@
+import { Theme, Icon, Icons } from "common.slint";
+
+// one ignored setting, as the config loader reported it
+export struct ConfigProblem {
+    key: string,
+    reason: string,
+}
+
+// Shown instead of the first-run wizard when the connection is
+// empty BECAUSE the config had errors (a dropped music-assistant
+// key, an unreadable file): the device is configured, just broken —
+// a fresh setup would silently throw that away. The user decides:
+// fix the file, or start over on purpose.
+export component ConfigErrorView inherits Rectangle {
+    in property <[ConfigProblem]> problems;
+    callback start-setup();
+    callback restart-app();
+
+    background: Theme.bg;
+
+    VerticalLayout {
+        padding: 28px;
+        spacing: 14px;
+        alignment: center;
+
+        HorizontalLayout {
+            spacing: 12px;
+            alignment: start;
+            Text {
+                text: Icons.glyph(Icon.warning);
+                font-family: Theme.icon-font;
+                font-size: 30px;
+                color: Theme.accent;
+                vertical-alignment: center;
+            }
+
+            Text {
+                text: @tr("The configuration has errors");
+                font-size: 22px;
+                font-weight: 700;
+                color: Theme.text;
+                vertical-alignment: center;
+            }
+        }
+
+        Text {
+            text: @tr("These settings were ignored, so the connection to Music Assistant is missing. Fix the file and restart, or set the device up again.");
+            font-size: 14px;
+            color: Theme.text-dim;
+            wrap: word-wrap;
+        }
+
+        Rectangle {
+            border-radius: 12px;
+            background: Theme.tile;
+            border-width: 1px;
+            border-color: Theme.hairline;
+            VerticalLayout {
+                padding: 12px;
+                spacing: 8px;
+                for problem in root.problems: VerticalLayout {
+                    spacing: 1px;
+                    Text {
+                        text: problem.key;
+                        font-size: 14px;
+                        font-weight: 600;
+                        color: Theme.accent;
+                        overflow: elide;
+                    }
+
+                    Text {
+                        text: problem.reason;
+                        font-size: 12px;
+                        color: Theme.text-dim;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+        }
+
+        HorizontalLayout {
+            spacing: 10px;
+            alignment: start;
+            Rectangle {
+                width: 180px;
+                height: 46px;
+                border-radius: 12px;
+                background: setup-ta.has-hover ? Theme.accent.brighter(0.1) : Theme.accent;
+                setup-ta := TouchArea {
+                    clicked => {
+                        root.start-setup();
+                    }
+                }
+
+                Text {
+                    text: @tr("Set up again");
+                    font-size: 15px;
+                    font-weight: 600;
+                    color: Theme.bg;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    width: 100%;
+                    height: 100%;
+                }
+            }
+
+            Rectangle {
+                width: 140px;
+                height: 46px;
+                border-radius: 12px;
+                background: restart-ta.has-hover ? Theme.tile-hover : Theme.tile;
+                border-width: 1px;
+                border-color: Theme.hairline;
+                restart-ta := TouchArea {
+                    clicked => {
+                        root.restart-app();
+                    }
+                }
+
+                Text {
+                    text: @tr("Restart");
+                    font-size: 15px;
+                    color: Theme.text;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    width: 100%;
+                    height: 100%;
+                }
+            }
+        }
+    }
+}

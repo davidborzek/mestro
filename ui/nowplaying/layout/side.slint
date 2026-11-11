@@ -1,0 +1,91 @@
+import { TransportRow } from "../transport.slint";
+import { RepeatMode } from "../../common.slint";
+import { NpMetadata } from "../metadata.slint";
+
+// side arrangement: the metadata lines at the top of the info
+// column, an elastic gap, the transport row at the bottom. The
+// call site (the info column) stretches this component; the
+// inner gap carries the "texts stay up, controls sink down"
+// spacing.
+export component SideLayout {
+    callback line-tapped();
+
+    in property <string> title;
+    in property <string> artist;
+    in property <string> album;
+    in property <bool> has-media: false;
+    in property <float> title-size: 24;
+    in property <int> title-weight: 700;
+    in property <float> artist-size: 18;
+    in property <int> artist-weight: 400;
+    in property <float> album-size: 14;
+    in property <int> album-weight: 400;
+    in property <int> inline-vu: 1;
+    in property <float> vu-l: 0;
+    in property <float> vu-r: 0;
+    in property <[string]> controls: ["shuffle", "previous", "play-pause", "next", "repeat"];
+    in property <bool> playing: false;
+    in property <bool> loading: false;
+    in property <float> loading-opacity: 0;
+    in property <bool> shuffle: false;
+    in property <RepeatMode> repeat: RepeatMode.off;
+
+    callback toggle-play();
+    callback next-track();
+    callback prev-track();
+    callback shuffle-toggle();
+    callback repeat-cycle();
+
+    VerticalLayout {
+        spacing: 6px;
+
+        NpMetadata {
+            line-tapped => {
+                root.line-tapped();
+            }
+            title: root.title;
+            artist: root.artist;
+            album: root.album;
+            has-media: root.has-media;
+            title-size: root.title-size;
+            title-weight: root.title-weight;
+            artist-size: root.artist-size;
+            artist-weight: root.artist-weight;
+            album-size: root.album-size;
+            album-weight: root.album-weight;
+            inline-vu: root.inline-vu;
+            vu-l: root.vu-l;
+            vu-r: root.vu-r;
+        }
+
+        // eats the leftover height — texts stay at the top,
+        // the transport controls sink to the bottom
+        Rectangle {
+            vertical-stretch: 1;
+        }
+
+        TransportRow {
+            controls: root.controls;
+            playing: root.playing;
+            loading: root.loading;
+            loading-opacity: root.loading-opacity;
+            shuffle: root.shuffle;
+            repeat: root.repeat;
+            toggle-play => {
+                root.toggle-play();
+            }
+            next-track => {
+                root.next-track();
+            }
+            prev-track => {
+                root.prev-track();
+            }
+            shuffle-toggle => {
+                root.shuffle-toggle();
+            }
+            repeat-cycle => {
+                root.repeat-cycle();
+            }
+        }
+    }
+}

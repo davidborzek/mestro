@@ -1,0 +1,171 @@
+import { Theme } from "../common.slint";
+import { LibEntry } from "entry.slint";
+import { LibRow } from "rows.slint";
+import { DetailHeader } from "detail.slint";
+import { Spinner, EmptyHint } from "parts.slint";
+import { ActionSheet, MenuAction, SheetAction } from "sheet.slint";
+
+// the library page. Plain levels (root = providers, categories)
+// render a breadcrumb row + rows. Tapping an artist/album/playlist
+// opens a DETAIL level (subject header above the drill list).
+// Rust owns the level stack; this page only renders the current
+// level.
+//
+// Long-press on a row asks Rust for the applicable actions (the
+// generic ActionSheet renders them) and dispatches the tapped id.
+export component LibraryPage inherits Rectangle {
+    in property <[LibEntry]> entries;
+    in property <string> title;
+    in property <bool> loading;
+    // "list" | "artist" | "album" | "playlist"
+    in property <string> mode: "list";
+    // valid when mode != "list"
+    in property <LibEntry> subject;
+    // preformatted meta line for the detail header (artist · year,
+    // or the entry count) — composed on the Rust side
+    in property <string> meta;
+    in property <image> subject-cover;
+    // the list's scroll offset — Rust saves it per browse level and
+    // restores it after the model swap on the way back
+    in-out property <length> scroll-y;
+
+    // context menu state: the held entry and its action list;
+    // menu-open rides the root (the router closes it on back)
+    in-out property <bool> menu-open: false;
+    private property <LibEntry> menu-entry;
+    private property <[SheetAction]> menu-actions;
+
+    callback open(LibEntry);
+    callback play-subject();
+    // Rust composes the applicable actions for the held entry
+    callback menu(LibEntry) -> [SheetAction];
+    // the sheet reports the tapped action id; the entry rides along
+    callback menu-trigger(MenuAction, LibEntry);
+    callback back();
+
+    // no background of its own: the root's blurred-cover backdrop
+    // and scrim sit behind all pages — same view as the queue
+    background: transparent;
+    clip: true;
+
+    VerticalLayout {
+        // child of a plain Rectangle: fill it explicitly (see
+        // queue.slint)
+        width: parent.width;
+        height: parent.height;
+        padding: 0px;
+        spacing: 0px;
+
+        // breadcrumb row on plain levels — detail levels carry their
+        // identity in the subject header instead
+        if root.mode == "list": Rectangle {
+            height: 40px;
+
+            HorizontalLayout {
+                padding-left: 16px;
+                padding-right: 10px;
+                spacing: 8px;
+
+                Text {
+                    text: root.title;
+                    font-size: 16px;
+                    font-weight: 600;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                    overflow: TextOverflow.elide;
+                    horizontal-stretch: 1;
+                }
+            }
+        }
+
+        if root.mode != "list": DetailHeader {
+            mode: root.mode;
+            subject: root.subject;
+            meta: root.meta;
+            cover: root.subject-cover;
+            play => {
+                root.play-subject();
+            }
+            open-menu => {
+                root.menu-entry = root.subject;
+                root.menu-actions = root.menu(root.subject);
+                root.menu-open = true;
+            }
+        }
+
+        // content area: the list fills it; the spinner and the
+        // empty state float above it as overlays
+        Rectangle {
+            vertical-stretch: 1;
+
+            flick := Flickable {
+                width: parent.width;
+                height: parent.height;
+                viewport-y <=> root.scroll-y;
+                viewport-height: root.entries.length * 46px;
+                // stale list fades out while its replacement is being
+                // fetched — the spinner overlay owns the area (and
+                // blocks touches) until the reply lands
+                opacity: root.loading ? 0 : 1;
+                animate opacity {
+                    duration: 150ms;
+                    easing: ease-out;
+                }
+
+                VerticalLayout {
+                    padding: 0px;
+                    spacing: 0px;
+
+                    for entry[index] in root.entries: LibRow {
+                        entry: entry;
+                        // numbered track rows inside detail levels;
+                        // playlist tracks are mixed artists — show them
+                        two-line: root.mode == "playlist" && entry.kind == "track";
+                        number: root.mode != "list" && entry.kind == "track" ? index + 1 : 0;
+                        open(e) => {
+                            root.open(e);
+                        }
+                        hold(e) => {
+                            if (e.kind != "folder" && e.kind != "genre") {
+                                root.menu-entry = e;
+                                root.menu-actions = root.menu(e);
+                                root.menu-open = true;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // empty state: only the root level is ever fetched
+            // eagerly — an empty deeper level means the provider
+            // has nothing
+            if root.entries.length == 0 && !root.loading: EmptyHint {
+                width: parent.width;
+                height: parent.height;
+            }
+
+            if root.loading: Spinner {
+                width: parent.width;
+                height: parent.height;
+            }
+        }
+    }
+
+    // the generic bottom sheet, driven by the held entry's actions
+    ActionSheet {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        open: root.menu-open;
+        title: root.menu-entry.name;
+        actions: root.menu-actions;
+        trigger(id) => {
+            root.menu-open = false;
+            root.menu-trigger(id, root.menu-entry);
+        }
+        dismissed => {
+            root.menu-open = false;
+        }
+    }
+}

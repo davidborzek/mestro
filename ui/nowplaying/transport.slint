@@ -1,0 +1,55 @@
+import { IconButton, Icon } from "../common.slint";
+import { RepeatMode } from "../common.slint";
+
+// transport row: DATA-DRIVEN — the buttons come in as a list of
+// control ids ("shuffle", "previous", "play-pause", "next",
+// "repeat") in display order, so [now-playing] controls decides
+// what exists and where it sits. The play/pause keeps its round
+// accent styling wherever it lands in the list. The queue event
+// confirms every change — the buttons only render what MA reports
+export component TransportRow {
+    in property <bool> playing;
+    in property <bool> loading;
+    in property <float> loading-opacity;
+    // playback options from the queue state
+    in property <bool> shuffle: false;
+    in property <RepeatMode> repeat: RepeatMode.off;
+    // which buttons exist, in order ([now-playing] controls)
+    in property <[string]> controls: ["shuffle", "previous", "play-pause", "next", "repeat"];
+    callback toggle-play();
+    callback next-track();
+    callback prev-track();
+    callback shuffle-toggle();
+    callback repeat-cycle();
+
+    // center alignment: buttons keep their preferred size (44px via
+    // min-width/min-height) — the layout default would stretch them
+    // along the main axis, turning the round play button into a pill
+    HorizontalLayout {
+        alignment: LayoutAlignment.center;
+        padding-top: 8px;
+        spacing: 10px;
+
+        for c in root.controls: IconButton {
+            icon: c == "shuffle" ? Icon.shuffle : c == "previous" ? Icon.skip-previous : c == "play-pause" ? (root.loading ? Icon.hourglass-top : (root.playing ? Icon.pause : Icon.play-arrow)) : c == "next" ? Icon.skip-next : (root.repeat == RepeatMode.one ? Icon.repeat-one : Icon.repeat);
+            icon-size: c == "play-pause" ? 26px : 20px;
+            accent: c == "play-pause";
+            round: c == "play-pause";
+            active: c == "shuffle" ? root.shuffle : c == "repeat" ? root.repeat != RepeatMode.off : false;
+            opacity: c == "play-pause" && root.loading ? root.loading-opacity : 1.0;
+            clicked => {
+                if (c == "shuffle") {
+                    root.shuffle-toggle();
+                } else if (c == "previous") {
+                    root.prev-track();
+                } else if (c == "play-pause") {
+                    root.toggle-play();
+                } else if (c == "next") {
+                    root.next-track();
+                } else if (c == "repeat") {
+                    root.repeat-cycle();
+                }
+            }
+        }
+    }
+}

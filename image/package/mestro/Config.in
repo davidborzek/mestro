@@ -1,0 +1,27 @@
+config BR2_PACKAGE_MESTRO
+	bool "mestro"
+	depends on BR2_aarch64
+	depends on BR2_PACKAGE_HAS_UDEV
+	depends on BR2_PACKAGE_HAS_LIBGBM
+	select BR2_PACKAGE_SEATD
+	select BR2_PACKAGE_LIBXKBCOMMON
+	select BR2_PACKAGE_LIBINPUT
+	select BR2_PACKAGE_FONTCONFIG
+	help
+	  mestro — the Music Assistant player. The package installs
+	  a prebuilt aarch64 binary staged by
+	  image/scripts/build-mestro-aarch64.sh; see image/README.md
+	  for the first-image flow. The dependencies are the
+	  binary's runtime libs (libseat, libxkbcommon, libudev,
+	  libinput, libgbm, libfontconfig); the GL stack providing
+	  libgbm is selected by the board config.
+
+config BR2_PACKAGE_MESTRO_BIN_DIR
+	string "path to the mestro image-bin directory"
+	default "$(BR2_EXTERNAL_MESTROIMAGE_PATH)/bin"
+	depends on BR2_PACKAGE_MESTRO
+	help
+	  The unpacked payload tree (bin/mestro plus the font
+	  files) behind image/bin —
+	  image/scripts/build-mestro-aarch64.sh stages and links
+	  it.

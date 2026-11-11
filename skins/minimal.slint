@@ -1,0 +1,122 @@
+// An example runtime VU skin for mestro — fully self-contained (no
+// imports): two big horizontal bars with peak ticks and a back
+// button, the track printed between them.
+//
+// Try it with:
+//   [vu]
+//   skin = "/path/to/mestro/skins/minimal.slint"
+//
+// The VuSkin contract (all optional except the back callback):
+//   in property <float>  level-l, level-r  // 0..1 across -20..+3 VU
+//   in property <string> title, artist, codec, quality
+//   in property <bool>   lossless, has-media, show-info
+//   callback back()                       // close the overlay
+
+export component MinimalSkin inherits Rectangle {
+    in property <float> level-l: 0;
+    in property <float> level-r: 0;
+    in property <string> title;
+    in property <string> artist;
+    in property <string> codec;
+    in property <string> quality;
+    in property <bool> lossless: false;
+    in property <bool> has-media: false;
+    in property <bool> show-info: true;
+    callback back();
+
+    background: #000000;
+
+    VerticalLayout {
+        width: parent.width;
+        height: parent.height;
+
+        // top bar: back arrow
+        HorizontalLayout {
+            padding-left: 6px;
+            padding-top: 4px;
+
+            Rectangle {
+                width: 44px;
+                height: 40px;
+                border-radius: 8px;
+                background: bta.pressed ? #ffffff18 : (bta.has-hover ? #ffffff10 : transparent);
+
+                bta := TouchArea {
+                    clicked => {
+                        root.back();
+                    }
+                }
+
+                Text {
+                    text: "\u{e5c4}"; // arrow_back (Material Symbols)
+                    font-family: "Material Symbols Outlined";
+                    font-size: 22px;
+                    color: #ebdbb2;
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                }
+            }
+        }
+
+        // the bars
+        VerticalLayout {
+            vertical-stretch: 1;
+            alignment: center;
+            padding-left: 40px;
+            padding-right: 40px;
+            spacing: 26px;
+
+            // one channel bar; segments light up in amber, the
+            // last 13% (0 VU and up) run red
+            component Bar inherits Rectangle {
+                in property <float> level;
+                in property <string> label;
+
+                height: 26px;
+
+                HorizontalLayout {
+                    spacing: 4px;
+                    alignment: start;
+
+                    Text {
+                        text: root.label;
+                        width: 16px;
+                        font-size: 11px;
+                        color: #a89984;
+                        vertical-alignment: center;
+                    }
+
+                    HorizontalLayout {
+                        horizontal-stretch: 1;
+                        spacing: 3px;
+                        for i in 36: Rectangle {
+                            horizontal-stretch: 1;
+                            height: 100%;
+                            border-radius: 1px;
+                            background: i < root.level * 36 ? (i >= 31.3 ? #cc241d : #d8a657) : #ffffff0d;
+                        }
+                    }
+                }
+            }
+
+            Bar {
+                level: root.level-l;
+                label: "L";
+            }
+
+            if root.show-info: Text {
+                text: root.has-media ? root.title + " — " + root.artist : " ";
+                font-size: 14px;
+                color: #a89984;
+                horizontal-alignment: center;
+                overflow: elide;
+                width: parent.width;
+            }
+
+            Bar {
+                level: root.level-r;
+                label: "R";
+            }
+        }
+    }
+}

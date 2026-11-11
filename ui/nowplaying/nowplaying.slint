@@ -1,0 +1,379 @@
+import { Theme, IconButton, Icons, Icon, RepeatMode } from "../common.slint";
+import { QualityItem } from "qualitybadge.slint";
+import { CoverArt } from "cover.slint";
+import { ProgressBar } from "progressbar.slint";
+import { VuMatrix } from "vu.slint";
+import { SideLayout } from "layout/side.slint";
+import { FullbleedLayout } from "layout/fullbleed.slint";
+import { ActionSheet, MenuAction, SheetAction } from "../library/sheet.slint";
+
+// The now-playing screen. This file is the wiring hub: the
+// fullbleed backdrop (cover + legibility scrims + matrix VU),
+// the top bar, the info column and the bottom progress band.
+// The arrangements live in layout/:
+//   side.slint      — square cover beside metadata + bottom row
+//   fullbleed.slint — the config-driven cluster (device-truth
+//                     comments there; see [now-playing.fullbleed])
+//   metadata.slint  — the shared title/artist/album stack
+// one top-bar view jumper: the thin large glyph treatment
+// (25px, weight 200, bright ink) on a 44px touch cell — the
+// visual gap between glyphs is the cell minus the glyph
+component TopGlyph inherits Rectangle {
+    in property <Icon> icon;
+    callback clicked();
+
+    width: 46px;
+    min-height: 44px;
+
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+
+    Text {
+        text: Icons.glyph(root.icon);
+        font-family: Theme.icon-font;
+        font-size: 25px;
+        font-weight: 200;
+        color: ta.pressed ? Theme.accent : Theme.text;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+export component NowPlayingView {
+    in property <image> cover;
+    in property <string> title;
+    in property <string> artist;
+    in property <string> album;
+    in property <bool> lossless;
+    in property <bool> has-media;
+    in property <bool> playing;
+    in property <bool> loading;
+    in property <float> loading-opacity;
+    // queue-level playback options (transport + queue header)
+    in property <bool> shuffle: false;
+    in property <RepeatMode> repeat: RepeatMode.off;
+    in property <float> progress;
+    in property <string> pos-label;
+    in property <int> duration-seconds;
+    in property <bool> can-seek: false;
+    in property <string> seek-track-key;
+    callback seek(float, string);
+    in property <string> dur-label;
+    in property <float> vu-l: 0;
+    in property <float> vu-r: 0;
+    // [now-playing] config: per-line metadata font sizes/weights
+    in property <float> np-title-size: 24;
+    in property <int> np-title-weight: 700;
+    in property <float> np-artist-size: 18;
+    in property <int> np-artist-weight: 400;
+    in property <float> np-album-size: 14;
+    in property <int> np-album-weight: 400;
+    in property <float> np-quality-size: 12;
+    in property <int> np-quality-weight: 400;
+    // [now-playing] inline VU style: 0 off, 1 LED strips, 2 thin
+    // bars, 3 matrix backdrop
+    in property <int> inline-vu: 1;
+    // layout: 0 side (square cover + blurred backdrop), 1
+    // fullbleed (sharp cover edge to edge, cluster over a scrim)
+    in property <int> np-layout: 0;
+    // the spectrum bands for the matrix style ([float], 0..1)
+    in property <[float]> np-bands: [];
+    // which transport buttons the row shows ([now-playing]
+    // controls)
+    in property <[string]> controls: ["shuffle", "previous", "play-pause", "next", "repeat"];
+    // where the row sits: 0 left, 1 center, 2 right
+    // the ordered quality line, per [now-playing] quality
+    in property <[QualityItem]> np-quality-items: [];
+
+    callback open-volume();
+    // the level drives the topbar volume glyph (Icons.volume-icon)
+    in property <int> volume: 0;
+    callback open-queue();
+    callback open-vu();
+    callback toggle-play();
+    callback next-track();
+    callback prev-track();
+    callback shuffle-toggle();
+    callback repeat-cycle();
+    // the metadata go-to sheet: Rust composes the actions from
+    // the playing queue item's artist/album references and runs
+    // the library drill on trigger
+    callback meta-menu() -> [SheetAction];
+    callback meta-trigger(MenuAction);
+    private property <bool> meta-open: false;
+    private property <[SheetAction]> meta-actions;
+
+    // fullbleed: the sharp cover behind EVERYTHING (no blur, no
+    // darkening of the art itself — the scrims below only guard
+    // the icon row and the metadata cluster)
+    if root.np-layout == 1 && root.has-media: Image {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        source: root.cover;
+        image-fit: ImageFit.cover;
+    }
+    if root.np-layout == 1 && root.has-media: Rectangle {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        // legibility: a soft top vignette under the icon row —
+        // dark enough to read the glyphs, gliding out gently so
+        // it never reads as a bar — plus the bottom band for the
+        // metadata cluster. direction-aware: the vertical cluster
+        // is taller (block + row stacked), so its band starts
+        // higher and darkens faster than the horizontal one
+        // direction-aware: the wrapped cluster is taller, so its
+        // band starts higher and darkens faster — the wrap
+        // condition mirrors the cluster's (controls + 200px
+        // metadata minimum)
+        property <length> scrim-controls-w: 54px * root.controls.length - 10px;
+        background: root.width < scrim-controls-w + 212px ? @linear-gradient(180deg, #14120fcc 0%, #14120fb3 10%, #14120f4d 20%, #14120f00 28%, #14120f33 33%, #14120f66 42%, #14120f99 55%, #14120fcc 72%, #14120fe9 100%) : @linear-gradient(180deg, #14120fcc 0%, #14120fb3 10%, #14120f4d 20%, #14120f00 34%, #14120f4d 46%, #14120fa6 58%, #14120fd9 72%, #14120fe9 100%);
+    }
+
+    // matrix inline VU: the spectrum behind everything — over the
+    // scrim so the bars stay visible in the dark bottom band
+    if root.inline-vu == 3: VuMatrix {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        bands: root.np-bands;
+        has-media: root.has-media;
+    }
+
+    VerticalLayout {
+        padding: 0px;
+        spacing: 0px;
+
+        // top bar: minimal — no tile, the glyphs sit directly on
+        // the blurred backdrop (the capsule language belongs to
+        // the hub pages; here it would compete with the cover).
+        // The view jumpers take the thin large treatment: 25px
+        // at weight 200, bright ink, generous gaps — small dim
+        // glyphs read cheap on art. Chevron-down opens the hub,
+        // queue/VU/volume on the right
+        Rectangle {
+            height: 44px;
+
+            HorizontalLayout {
+                padding-left: 8px;
+                padding-right: 16px;
+
+                // back lives in the nav rail — the bar carries
+                // only the view jumpers
+                Rectangle {
+                    horizontal-stretch: 1;
+                }
+
+                TopGlyph {
+                    icon: Icon.queue-music; // queue view
+                    clicked => {
+                        root.open-queue();
+                    }
+                }
+
+                TopGlyph {
+                    icon: Icon.graphic-eq; // the VU faceplate view
+                    clicked => {
+                        root.open-vu();
+                    }
+                }
+
+                TopGlyph {
+                    icon: Icons.volume-icon(root.volume); // opens the slider overlay
+                    clicked => {
+                        root.open-volume();
+                    }
+                }
+            }
+        }
+
+        HorizontalLayout {
+            padding: 0px;
+            spacing: 0px;
+            vertical-stretch: 1;
+
+            // side mode only: square column, width follows the
+            // layout's height; the empty flag swaps stale art for
+            // a dim note placeholder
+            if root.np-layout == 0: CoverArt {
+                source: root.cover;
+                empty: !root.has-media;
+                width: parent.height - 12px;
+            }
+
+            // info column: takes the remaining width
+            VerticalLayout {
+                horizontal-stretch: 1;
+                padding-top: 18px;
+                // fullbleed: the cluster needs more air to the left
+                // edge and above the progress strip
+                padding-left: root.np-layout == 1 ? 22px : 12px;
+                padding-right: 18px;
+                // fullbleed: the cluster sits deep — little air to
+                // the progress band below
+                padding-bottom: root.np-layout == 1 ? 8px : 12px;
+                spacing: 6px;
+
+                // fullbleed: the cluster hugs the bottom (over
+                // the scrim); side keeps its metadata at the top
+                if root.np-layout == 1: Rectangle {
+                    vertical-stretch: 1;
+                }
+
+                // side: metadata lines at the top, elastic gap,
+                // transport row at the bottom
+                if root.np-layout == 0: SideLayout {
+                    line-tapped => {
+                        root.meta-actions = root.meta-menu();
+                        root.meta-open = true;
+                    }
+                    title: root.title;
+                    artist: root.artist;
+                    album: root.album;
+                    has-media: root.has-media;
+                    title-size: root.np-title-size;
+                    title-weight: root.np-title-weight;
+                    artist-size: root.np-artist-size;
+                    artist-weight: root.np-artist-weight;
+                    album-size: root.np-album-size;
+                    album-weight: root.np-album-weight;
+                    inline-vu: root.inline-vu;
+                    vu-l: root.vu-l;
+                    vu-r: root.vu-r;
+                    controls: root.controls;
+                    playing: root.playing;
+                    loading: root.loading;
+                    loading-opacity: root.loading-opacity;
+                    shuffle: root.shuffle;
+                    repeat: root.repeat;
+                    toggle-play => {
+                        root.toggle-play();
+                    }
+                    next-track => {
+                        root.next-track();
+                    }
+                    prev-track => {
+                        root.prev-track();
+                    }
+                    shuffle-toggle => {
+                        root.shuffle-toggle();
+                    }
+                    repeat-cycle => {
+                        root.repeat-cycle();
+                    }
+                }
+
+                // fullbleed: the config-driven cluster — see
+                // layout/fullbleed.slint for the arrangement
+                // semantics and the device-truth comments
+                if root.np-layout == 1: FullbleedLayout {
+                    line-tapped => {
+                        root.meta-actions = root.meta-menu();
+                        root.meta-open = true;
+                    }
+                    title: root.title;
+                    artist: root.artist;
+                    album: root.album;
+                    has-media: root.has-media;
+                    title-size: root.np-title-size;
+                    title-weight: root.np-title-weight;
+                    artist-size: root.np-artist-size;
+                    artist-weight: root.np-artist-weight;
+                    album-size: root.np-album-size;
+                    album-weight: root.np-album-weight;
+                    inline-vu: root.inline-vu;
+                    vu-l: root.vu-l;
+                    vu-r: root.vu-r;
+                    controls: root.controls;
+                    playing: root.playing;
+                    loading: root.loading;
+                    loading-opacity: root.loading-opacity;
+                    shuffle: root.shuffle;
+                    repeat: root.repeat;
+                    // the info column's content width (left 22 +
+                    // right 18 padding)
+                    avail: root.width - 40px;
+                    toggle-play => {
+                        root.toggle-play();
+                    }
+                    next-track => {
+                        root.next-track();
+                    }
+                    prev-track => {
+                        root.prev-track();
+                    }
+                    shuffle-toggle => {
+                        root.shuffle-toggle();
+                    }
+                    repeat-cycle => {
+                        root.repeat-cycle();
+                    }
+                }
+            }
+        }
+
+        // bottom band: progress bar, the quality line centered
+        // underneath — status-line style — all on one gradient scrim
+        // that lifts it off the backdrop
+        Rectangle {
+            height: 56px;
+            background: @linear-gradient(180deg, #14120f00 0%, #14120f66 40%, #14120fcc 100%);
+
+            VerticalLayout {
+                padding-left: 16px;
+                padding-right: 16px;
+                padding-top: 4px;
+                padding-bottom: 12px;
+                spacing: 0px;
+                // the progress + quality cluster sits at the band's
+                // bottom; the bar keeps its natural height instead
+                // of stretching up into the band
+                alignment: end;
+
+                ProgressBar {
+                    height: 26px;
+                    progress: root.progress;
+                    duration-seconds: root.duration-seconds;
+                    enabled: root.can-seek;
+                    track-key: root.seek-track-key;
+                    seek(fraction, key) => {
+                        root.seek(fraction, key);
+                    }
+                    pos-label: root.pos-label;
+                    dur-label: root.dur-label;
+                    items: root.np-quality-items;
+                    lossless: root.lossless;
+                    detail-size: root.np-quality-size;
+                    detail-weight: root.np-quality-weight;
+                }
+            }
+        }
+    }
+
+    // the go-to sheet — full-window host parked below the window
+    // edge (components/bottom-sheet.slint), like the queue sheet
+    ActionSheet {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        open: root.meta-open;
+        title: root.title;
+        actions: root.meta-actions;
+        trigger(id) => {
+            root.meta-open = false;
+            root.meta-trigger(id);
+        }
+        dismissed => {
+            root.meta-open = false;
+        }
+    }
+}

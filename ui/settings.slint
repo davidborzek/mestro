@@ -1,0 +1,889 @@
+import { Theme, Icon, Icons } from "common.slint";
+import { ConfigProblem } from "config-error.slint";
+import { BottomSheet } from "components/bottom-sheet.slint";
+import {
+    SettingsRow,
+    OptionSheet,
+    PickerRequest,
+    OsdGates,
+} from "settings/widgets.slint";
+import { NowPlayingSettings } from "settings/nowplaying.slint";
+import { AboutView } from "settings/about.slint";
+import { ThemeUiSettings } from "settings/theme.slint";
+import { ClockSettings, ClockPreview } from "settings/clock.slint";
+import { DisplaySettings } from "settings/display.slint";
+import { HubSettings } from "settings/hub.slint";
+import { OsdSettings } from "settings/osd.slint";
+import { ConnectionSettings } from "settings/connection.slint";
+import { RemoteSetupSettings } from "settings/remote-setup.slint";
+import { VuSettings, VuListEntry } from "settings/vu.slint";
+
+// The settings page hub (docs/configuration.md): the UI editor for the
+// device-owned overlay. The root surface stays flat — Rust pushes
+// every effective value and override flag here; edits go out
+// through set-num/set-text/set-bool/reset-value and the list
+// editors. The subpages live in settings/: widgets.slint
+// (shared primitives), nowplaying.slint, theme.slint, about.slint.
+// The router owns the view (0 index, 1 now-playing, 2 fonts,
+// 3 about, 4 controls, 5 quality, 6 theme+ui).
+//
+// One generic option sheet serves every picker: subpages call
+// request-picker(key, title, options, selected, is-bool) — the
+// hub shows the sheet and routes the pick back typed.
+export component SettingsView {
+    // effective values (the root properties mirror them)
+    in property <float> np-title-size: 24;
+    in property <float> np-artist-size: 18;
+    in property <float> np-album-size: 14;
+    in property <float> np-quality-size: 12;
+    in property <int> np-title-weight: 700;
+    in property <int> np-artist-weight: 400;
+    in property <int> np-album-weight: 400;
+    in property <int> np-quality-weight: 400;
+    in property <int> np-inline-vu: 1;
+    in property <int> np-layout: 0;
+    in property <string> app-version;
+    // theme + ui effective values (config names)
+    in property <string> theme-palette: "amber";
+    in property <string> theme-variant: "tonal-spot";
+    in property <string> ui-rail: "dark";
+    in property <bool> ui-auto-open: true;
+    in property <string> ui-osk: "de";
+    in property <bool> bg-blurred: true;
+    // clock
+    in property <string> clock-style: "digital";
+    in property <[ClockPreview]> clock-previews: [];
+    in property <string> bg-source: "black";
+    in property <bool> bg-source-overridden: false;
+    in property <float> bg-dim: 60;
+    in property <bool> bg-dim-overridden: false;
+    in property <bool> bg-blur: false;
+    in property <bool> bg-blur-overridden: false;
+    in property <float> bg-interval: 10;
+    in property <bool> bg-interval-overridden: false;
+    in property <bool> clock-style-overridden: false;
+    // display (backlight — only rendered when supported)
+    in property <float> display-brightness: 100;
+    in property <bool> display-brightness-overridden: false;
+    in property <bool> display-supported: false;
+    in property <float> display-standby-brightness: 15;
+    in property <bool> display-standby-brightness-overridden: false;
+    // hub (home screen): layout + entry order
+    in property <string> hub-look: "cards";
+    in property <bool> hub-look-overridden: false;
+    in property <[string]> hub-order: [];
+    in property <bool> hub-order-overridden: false;
+    // osd: the notification layer
+    in property <string> osd-style: "translucent";
+    in property <bool> osd-style-overridden: false;
+    in property <string> osd-position: "bottom";
+    in property <bool> osd-position-overridden: false;
+    in property <string> osd-volume-position: "bottom";
+    in property <bool> osd-volume-position-overridden: false;
+    in property <float> osd-toast-duration: 2600;
+    in property <bool> osd-toast-duration-overridden: false;
+    in property <float> osd-volume-duration: 1800;
+    in property <bool> osd-volume-duration-overridden: false;
+    in property <OsdGates> osd-gates;
+    in property <OsdGates> osd-np-gates;
+    in property <OsdGates> osd-vu-gates;
+    callback move-hub(string, int);
+    callback set-num(string, float);
+    callback set-text(string, string);
+    callback set-bool(string, bool);
+    callback reset-value(string);
+    callback restart-app();
+    // connection (music-assistant family — restart-class):
+    // status/recovery page, editing happens in the remote wizard
+    in property <string> conn-url: "";
+    in property <string> conn-player: "";
+    in property <bool> conn-token-set: false;
+    in property <string> provider-status: "";
+    // remote setup wizard URL incl. pairing PIN
+    in property <string> remote-url: "";
+    in property <image> remote-qr;
+    callback reset-connection();
+    // VU settings (view 8 list, 9 options)
+    in property <[VuListEntry]> vu-list: [];
+    in property <string> vu-edit-name: "";
+    in property <image> vu-edit-preview;
+    in property <float> vu-glow-value: 0;
+    in property <bool> vu-glow-overridden: false;
+    in property <[string]> vu-info-order: [];
+    in property <[string]> vu-info-inactive: [];
+    in property <bool> vu-info-overridden: false;
+    in property <bool> vu-meters-value: false;
+    in property <bool> vu-meters-overridden: false;
+    in property <bool> vu-gradient-value: false;
+    in property <bool> vu-gradient-overridden: false;
+    callback vu-move(string, int);
+    callback vu-toggle-cycle(string);
+    callback vu-open-options(string);
+    callback vu-toggle-info(string);
+    callback vu-move-info(string, int);
+    // Rust re-pushes these on every set/reset
+    in property <bool> np-title-size-overridden: false;
+    in property <bool> np-artist-size-overridden: false;
+    in property <bool> np-album-size-overridden: false;
+    in property <bool> np-quality-size-overridden: false;
+    in property <bool> np-title-weight-overridden: false;
+    in property <bool> np-artist-weight-overridden: false;
+    in property <bool> np-album-weight-overridden: false;
+    in property <bool> np-quality-weight-overridden: false;
+    in property <bool> np-inline-vu-overridden: false;
+    in property <bool> np-layout-overridden: false;
+    in property <bool> np-controls-overridden: false;
+    in property <bool> np-quality-overridden: false;
+    in property <bool> theme-palette-overridden: false;
+    in property <bool> theme-variant-overridden: false;
+    in property <bool> ui-rail-overridden: false;
+    in property <bool> ui-auto-open-overridden: false;
+    in property <bool> ui-osk-overridden: false;
+    in property <bool> bg-blurred-overridden: false;
+    // the list editors: Rust owns the membership/order arithmetic
+    in property <[string]> ctrl-order: [];
+    in property <[string]> ctrl-inactive: [];
+    in property <[string]> quality-order: [];
+    in property <[string]> quality-inactive: [];
+    // the settings layer itself: config.toml is the base, every
+    // edit lands in the device overlay on top of it
+    in property <string> base-config: "";
+    // settings the config loader ignored (empty = clean)
+    in property <[ConfigProblem]> config-problems: [];
+    in property <bool> overrides-active: false;
+    callback reset-all;
+    callback toggle-control(string);
+    callback toggle-quality-part(string);
+    callback move-control(string, int);
+    callback move-quality-part(string, int);
+    callback push-subview(int);
+
+    // the generic option sheet state: the last request fills it
+    property <bool> picker-sheet: false;
+    // the reset-all confirmation
+    property <bool> reset-sheet: false;
+    // the connection reset confirmation
+    property <bool> conn-reset-sheet: false;
+    property <PickerRequest> picker-request: {
+        key: "",
+        title: "",
+        options: [],
+        selected: 0,
+        is-bool: false,
+    };
+    callback request-picker(PickerRequest);
+    request-picker(req) => {
+        root.picker-request = req;
+        root.picker-sheet = true;
+    }
+
+    // the page modal slot (the generic router contract): any
+    // modal sheet reports itself here; the router pulses
+    // close-token on back — the page decides what "close" means.
+    // No binding on a two-way bound property (the alias would
+    // drop it) — the sheet bool pushes up via changed
+    in-out property <bool> sheet-open: false;
+    in property <int> close-token: 0;
+    changed close-token => {
+        self.picker-sheet = false;
+        self.reset-sheet = false;
+        self.conn-reset-sheet = false;
+        // remount edge: the root slot keeps a stale true from
+        // before the unmount — a pulse recomputes it. Without
+        // this, back is swallowed forever on remounted pages
+        root.sheet-open = false;
+    }
+    changed picker-sheet => {
+        root.sheet-open = root.picker-sheet || root.reset-sheet || root.conn-reset-sheet;
+    }
+    changed reset-sheet => {
+        root.sheet-open = root.picker-sheet || root.reset-sheet || root.conn-reset-sheet;
+    }
+    changed conn-reset-sheet => {
+        root.sheet-open = root.picker-sheet || root.reset-sheet || root.conn-reset-sheet;
+    }
+
+    // the page-local subview — owned by the router
+    in-out property <int> view: 0;
+
+    property <string> meter-name:
+        root.np-inline-vu == 0 ? "off" : root.np-inline-vu == 2 ? "thin" : root.np-inline-vu == 3 ? "matrix" : "led";
+    // scroll memory per subview: the pages share one Flickable, so
+    // its offset is saved when a view is left and restored when it
+    // comes back. Whether a view opens fresh (push) or returns
+    // (back) is the router's call: every push bumps `push-count`;
+    // the view change that sees a new count opens at the top.
+    // (`changed` runs a turn later — a plain flag would already be
+    // reset by then)
+    property <[length]> scroll-memory: [
+        0px,
+        0px,
+        0px,
+        0px,
+        0px,
+        0px,
+        0px,
+        0px,
+        0px,
+        0px,
+        0px,
+        0px,
+        0px,
+        0px,
+        0px,
+        0px
+    ];
+    property <int> shown-view: 0;
+    in property <int> push-count: 0;
+    property <int> seen-pushes: 0;
+    changed view => {
+        root.scroll-memory[root.shown-view] = settings-scroll.viewport-y;
+        root.shown-view = root.view;
+        if root.push-count != root.seen-pushes {
+            root.seen-pushes = root.push-count;
+            settings-scroll.viewport-y = 0px;
+        } else {
+            settings-scroll.viewport-y = root.scroll-memory[root.view];
+        }
+    }
+    // the current offset, read and set from outside (tests, and a
+    // future keyboard scroll)
+    in-out property <length> scroll-y <=> settings-scroll.viewport-y;
+
+    // the app backdrop shows through — the page draws no bg
+    settings-scroll := Flickable {
+        vertical-stretch: 1;
+        width: parent.width;
+        height: parent.height;
+
+        VerticalLayout {
+            padding: 16px;
+            padding-top: 8px;
+            spacing: 8px;
+
+            if root.view == 0: VerticalLayout {
+                spacing: 8px;
+                // config errors: what the loader ignored, so a typo
+                // or a stale key never fails silently
+                if root.config-problems.length > 0: Rectangle {
+                    border-radius: 12px;
+                    background: Theme.danger.with-alpha(0.10);
+                    border-width: 1px;
+                    border-color: Theme.danger.with-alpha(0.35);
+                    VerticalLayout {
+                        padding: 12px;
+                        spacing: 6px;
+                        HorizontalLayout {
+                            spacing: 10px;
+                            VerticalLayout {
+                                alignment: center;
+                                width: 20px;
+                                Text {
+                                    text: Icons.glyph(Icon.warning);
+                                    font-family: Theme.icon-font;
+                                    font-size: 20px;
+                                    color: Theme.danger;
+                                }
+                            }
+
+                            Text {
+                                text: root.config-problems.length == 1 ? @tr("1 setting in the config was ignored") : @tr("{} settings in the config were ignored", root.config-problems.length);
+                                font-size: 13px;
+                                font-weight: 600;
+                                color: Theme.text;
+                                vertical-alignment: center;
+                                horizontal-stretch: 1;
+                            }
+                        }
+
+                        for problem in root.config-problems: Text {
+                            text: problem.key + " — " + problem.reason;
+                            font-size: 11px;
+                            color: Theme.text-dim;
+                            wrap: word-wrap;
+                        }
+                    }
+                }
+                // the layering warning: every edit here lands on
+                // top of config.toml — and can be dropped at once
+                if root.base-config != "": Rectangle {
+                    border-radius: 10px;
+                    background: #d8a65714;
+                    border-width: 1px;
+                    border-color: #d8a65733;
+
+                    VerticalLayout {
+                        padding: 12px;
+                        spacing: 8px;
+                        HorizontalLayout {
+                            spacing: 10px;
+                            // fixed icon column: an unconstrained
+                            // layout cell stretched and pushed the
+                            // text far right
+                            VerticalLayout {
+                                alignment: center;
+                                width: 20px;
+                                Text {
+                                    text: Icons.glyph(Icon.info);
+                                    font-family: Theme.icon-font;
+                                    font-size: 20px;
+                                    color: Theme.accent;
+                                }
+                            }
+
+                            VerticalLayout {
+                                spacing: 2px;
+                                horizontal-stretch: 1;
+                                Text {
+                                    text: @tr("Changes here override the config file");
+                                    font-size: 13px;
+                                    font-weight: 600;
+                                    color: Theme.text;
+                                }
+
+                                Text {
+                                    text: root.base-config;
+                                    font-size: 11px;
+                                    color: Theme.text-dim;
+                                    overflow: elide;
+                                }
+                            }
+                        }
+
+                        if root.overrides-active: Rectangle {
+                            height: 34px;
+                            border-radius: 8px;
+                            border-width: 1px;
+                            border-color: Theme.danger;
+                            background: reset-ta.has-hover ? #cc241d22 : transparent;
+
+                            reset-ta := TouchArea {
+                                clicked => {
+                                    root.reset-sheet = true;
+                                }
+                            }
+
+                            Text {
+                                text: @tr("Reset all to config.toml");
+                                font-size: 12px;
+                                font-weight: 600;
+                                color: Theme.danger;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+                }
+                Text {
+                    text: @tr("Settings");
+                    font-size: 20px;
+                    font-weight: 700;
+                    color: Theme.text;
+                }
+                // the remote setup banner: pairing a phone is not a
+                // settings edit — its placement and accent set it apart
+                Rectangle {
+                    height: 58px;
+                    border-radius: 12px;
+                    background: Theme.accent.with-alpha(0.08);
+                    border-width: 1px;
+                    border-color: Theme.accent.with-alpha(0.3);
+
+                    remote-ta := TouchArea {
+                        clicked => {
+                            root.push-subview(13);
+                        }
+                    }
+                    // same anatomy as SettingsRow (icon tile, label +
+                    // detail, chevron) — the frame and the solid tile
+                    // set it apart
+                    HorizontalLayout {
+                        padding-left: 12px;
+                        padding-right: 12px;
+                        spacing: 12px;
+                        VerticalLayout {
+                            alignment: center;
+                            Rectangle {
+                                width: 34px;
+                                height: 34px;
+                                border-radius: 9px;
+                                background: Theme.accent;
+                                Text {
+                                    text: Icons.glyph(Icon.smartphone);
+                                    font-family: Theme.icon-font;
+                                    font-size: 20px;
+                                    color: Theme.bg;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                    width: parent.width;
+                                    height: parent.height;
+                                }
+                            }
+                        }
+
+                        VerticalLayout {
+                            alignment: center;
+                            spacing: 2px;
+                            horizontal-stretch: 1;
+                            Text {
+                                text: @tr("Remote setup");
+                                font-size: 16px;
+                                font-weight: 600;
+                                color: Theme.accent;
+                            }
+
+                            Text {
+                                text: @tr("Pair your phone — scan the QR code");
+                                font-size: 12px;
+                                color: Theme.text-dim;
+                                overflow: elide;
+                            }
+                        }
+
+                        VerticalLayout {
+                            alignment: center;
+                            Text {
+                                text: Icons.glyph(Icon.chevron-right);
+                                font-family: Theme.icon-font;
+                                font-size: 20px;
+                                color: Theme.accent;
+                            }
+                        }
+                    }
+                }
+
+                SettingsRow {
+                    label: @tr("Now Playing");
+                    detail: @tr("Layout, buttons, quality line, fonts");
+                    icon: Icon.music-note;
+                    clicked => {
+                        root.push-subview(1);
+                    }
+                }
+
+                SettingsRow {
+                    label: @tr("Theme & UI");
+                    detail: @tr("Colors, rail, keyboard");
+                    icon: Icon.palette;
+                    clicked => {
+                        root.push-subview(6);
+                    }
+                }
+
+                SettingsRow {
+                    label: @tr("Standby");
+                    detail: @tr("Clock and background");
+                    icon: Icon.bedtime;
+                    clicked => {
+                        root.push-subview(10);
+                    }
+                }
+
+                if root.display-supported: SettingsRow {
+                    label: @tr("Display");
+                    detail: @tr("Backlight and dimming");
+                    icon: Icon.brightness-medium;
+                    clicked => {
+                        root.push-subview(14);
+                    }
+                }
+                SettingsRow {
+                    label: @tr("Hub");
+                    detail: @tr("Home screen layout and order");
+                    icon: Icon.dashboard;
+                    clicked => {
+                        root.push-subview(11);
+                    }
+                }
+
+                SettingsRow {
+                    label: @tr("OSD & Toast");
+                    detail: @tr("Pop-ups and where they appear");
+                    icon: Icon.notifications;
+                    clicked => {
+                        root.push-subview(12);
+                    }
+                }
+
+                SettingsRow {
+                    label: @tr("VU");
+                    detail: @tr("Meters and their order");
+                    icon: Icon.graphic-eq;
+                    clicked => {
+                        root.push-subview(8);
+                    }
+                }
+
+                SettingsRow {
+                    label: @tr("Connection");
+                    detail: @tr("Music Assistant status");
+                    icon: Icon.router;
+                    clicked => {
+                        root.push-subview(7);
+                    }
+                }
+
+                SettingsRow {
+                    label: @tr("About");
+                    detail: @tr("Version and restart");
+                    icon: Icon.info;
+                    clicked => {
+                        root.push-subview(3);
+                    }
+                }
+            }
+
+            if root.view == 1 || root.view == 2 || root.view == 4 || root.view == 5: NowPlayingSettings {
+                view: root.view;
+                np-layout: root.np-layout;
+                np-inline-vu: root.np-inline-vu;
+                meter-name: root.meter-name;
+                np-title-size: root.np-title-size;
+                np-title-weight: root.np-title-weight;
+                np-artist-size: root.np-artist-size;
+                np-artist-weight: root.np-artist-weight;
+                np-album-size: root.np-album-size;
+                np-album-weight: root.np-album-weight;
+                np-quality-size: root.np-quality-size;
+                np-quality-weight: root.np-quality-weight;
+                np-layout-overridden: root.np-layout-overridden;
+                np-inline-vu-overridden: root.np-inline-vu-overridden;
+                np-title-size-overridden: root.np-title-size-overridden;
+                np-title-weight-overridden: root.np-title-weight-overridden;
+                np-artist-size-overridden: root.np-artist-size-overridden;
+                np-artist-weight-overridden: root.np-artist-weight-overridden;
+                np-album-size-overridden: root.np-album-size-overridden;
+                np-album-weight-overridden: root.np-album-weight-overridden;
+                np-quality-size-overridden: root.np-quality-size-overridden;
+                np-quality-weight-overridden: root.np-quality-weight-overridden;
+                np-controls-overridden: root.np-controls-overridden;
+                np-quality-overridden: root.np-quality-overridden;
+                ctrl-order: root.ctrl-order;
+                ctrl-inactive: root.ctrl-inactive;
+                quality-order: root.quality-order;
+                quality-inactive: root.quality-inactive;
+                set-num(k, v) => {
+                    root.set-num(k, v);
+                }
+                reset-value(k) => {
+                    root.reset-value(k);
+                }
+                push-subview(s) => {
+                    root.push-subview(s);
+                }
+                move-control(n, d) => {
+                    root.move-control(n, d);
+                }
+                move-quality-part(n, d) => {
+                    root.move-quality-part(n, d);
+                }
+                toggle-control(n) => {
+                    root.toggle-control(n);
+                }
+                toggle-quality-part(n) => {
+                    root.toggle-quality-part(n);
+                }
+                request-picker(req) => {
+                    root.request-picker(req);
+                }
+            }
+
+            if root.view == 6: ThemeUiSettings {
+                theme-palette: root.theme-palette;
+                theme-variant: root.theme-variant;
+                ui-rail: root.ui-rail;
+                ui-auto-open: root.ui-auto-open;
+                ui-osk: root.ui-osk;
+                bg-blurred: root.bg-blurred;
+                theme-palette-overridden: root.theme-palette-overridden;
+                theme-variant-overridden: root.theme-variant-overridden;
+                ui-rail-overridden: root.ui-rail-overridden;
+                ui-auto-open-overridden: root.ui-auto-open-overridden;
+                ui-osk-overridden: root.ui-osk-overridden;
+                bg-blurred-overridden: root.bg-blurred-overridden;
+                request-picker(req) => {
+                    root.request-picker(req);
+                }
+                set-bool(k, v) => {
+                    root.set-bool(k, v);
+                }
+                reset-value(k) => {
+                    root.reset-value(k);
+                }
+            }
+
+            if root.view == 10: ClockSettings {
+                clock-style: root.clock-style;
+                clock-previews: root.clock-previews;
+                clock-style-overridden: root.clock-style-overridden;
+                bg-source: root.bg-source;
+                bg-source-overridden: root.bg-source-overridden;
+                bg-dim: root.bg-dim;
+                bg-dim-overridden: root.bg-dim-overridden;
+                bg-blur: root.bg-blur;
+                bg-blur-overridden: root.bg-blur-overridden;
+                bg-interval: root.bg-interval;
+                bg-interval-overridden: root.bg-interval-overridden;
+                set-text(k, v) => {
+                    root.set-text(k, v);
+                }
+                set-num(k, v) => {
+                    root.set-num(k, v);
+                }
+                set-bool(k, v) => {
+                    root.set-bool(k, v);
+                }
+                reset-value(k) => {
+                    root.reset-value(k);
+                }
+                request-picker(req) => {
+                    root.request-picker(req);
+                }
+            }
+
+            if root.view == 14: DisplaySettings {
+                display-brightness: root.display-brightness;
+                display-brightness-overridden: root.display-brightness-overridden;
+                display-standby-brightness: root.display-standby-brightness;
+                display-standby-brightness-overridden: root.display-standby-brightness-overridden;
+                set-num(k, v) => {
+                    root.set-num(k, v);
+                }
+                reset-value(k) => {
+                    root.reset-value(k);
+                }
+            }
+
+            if root.view == 11: HubSettings {
+                hub-look: root.hub-look;
+                hub-look-overridden: root.hub-look-overridden;
+                hub-order: root.hub-order;
+                hub-order-overridden: root.hub-order-overridden;
+                request-picker(req) => {
+                    root.request-picker(req);
+                }
+                reset-value(k) => {
+                    root.reset-value(k);
+                }
+                move-hub(n, d) => {
+                    root.move-hub(n, d);
+                }
+            }
+
+            if root.view == 12: OsdSettings {
+                osd-style: root.osd-style;
+                osd-style-overridden: root.osd-style-overridden;
+                osd-position: root.osd-position;
+                osd-position-overridden: root.osd-position-overridden;
+                osd-volume-position: root.osd-volume-position;
+                osd-volume-position-overridden: root.osd-volume-position-overridden;
+                osd-toast-duration: root.osd-toast-duration;
+                osd-toast-duration-overridden: root.osd-toast-duration-overridden;
+                osd-volume-duration: root.osd-volume-duration;
+                osd-volume-duration-overridden: root.osd-volume-duration-overridden;
+                osd-gates: root.osd-gates;
+                osd-np-gates: root.osd-np-gates;
+                osd-vu-gates: root.osd-vu-gates;
+                request-picker(req) => {
+                    root.request-picker(req);
+                }
+                set-bool(k, v) => {
+                    root.set-bool(k, v);
+                }
+                set-num(k, v) => {
+                    root.set-num(k, v);
+                }
+                reset-value(k) => {
+                    root.reset-value(k);
+                }
+            }
+
+            if root.view == 3: AboutView {
+                app-version: root.app-version;
+                restart-app => {
+                    root.restart-app();
+                }
+            }
+
+            if root.view == 8 || root.view == 9: VuSettings {
+                view: root.view;
+                vu-list: root.vu-list;
+                edit-name: root.vu-edit-name;
+                edit-preview: root.vu-edit-preview;
+                glow-value: root.vu-glow-value;
+                glow-overridden: root.vu-glow-overridden;
+                info-order: root.vu-info-order;
+                info-inactive: root.vu-info-inactive;
+                info-overridden: root.vu-info-overridden;
+                meters-value: root.vu-meters-value;
+                meters-overridden: root.vu-meters-overridden;
+                gradient-value: root.vu-gradient-value;
+                gradient-overridden: root.vu-gradient-overridden;
+                vu-move(n, d) => {
+                    root.vu-move(n, d);
+                }
+                vu-toggle-cycle(n) => {
+                    root.vu-toggle-cycle(n);
+                }
+                vu-open-options(n) => {
+                    root.vu-open-options(n);
+                }
+                toggle-info(n) => {
+                    root.vu-toggle-info(n);
+                }
+                move-info(n, d) => {
+                    root.vu-move-info(n, d);
+                }
+                set-num(k, v) => {
+                    root.set-num(k, v);
+                }
+                set-bool(k, v) => {
+                    root.set-bool(k, v);
+                }
+                reset-value(k) => {
+                    root.reset-value(k);
+                }
+                push-subview(s) => {
+                    root.push-subview(s);
+                }
+                request-picker(req) => {
+                    root.request-picker(req);
+                }
+            }
+
+            if root.view == 7: ConnectionSettings {
+                conn-url: root.conn-url;
+                conn-player: root.conn-player;
+                conn-token-set: root.conn-token-set;
+                provider-status: root.provider-status;
+                remote-url: root.remote-url;
+                reset-connection => {
+                    root.conn-reset-sheet = true;
+                }
+            }
+
+            if root.view == 13: RemoteSetupSettings {
+                remote-url: root.remote-url;
+                remote-qr: root.remote-qr;
+            }
+        }
+    }
+
+    OptionSheet {
+        open: root.picker-sheet;
+        title: root.picker-request.title;
+        options: root.picker-request.options;
+        selected: root.picker-request.selected;
+        pick(opt) => {
+            root.picker-sheet = false;
+            if root.picker-request.is-bool {
+                root.set-bool(root.picker-request.key, opt == "on" || opt == "true");
+            } else {
+                root.set-text(root.picker-request.key, opt);
+            }
+        }
+        dismissed() => {
+            root.picker-sheet = false;
+        }
+    }
+
+    // reset-all confirmation: destructive, deliberate, two taps
+    BottomSheet {
+        open: root.reset-sheet;
+        title: @tr("Reset all settings?");
+        content-height: 88px;
+        dismissed() => {
+            root.reset-sheet = false;
+        }
+
+        VerticalLayout {
+            width: parent.width;
+            Rectangle {
+                height: 44px;
+                background: confirm-ta.has-hover ? #cc241d22 : transparent;
+                confirm-ta := TouchArea {
+                    clicked => {
+                        root.reset-sheet = false;
+                        root.reset-all();
+                    }
+                }
+
+                Text {
+                    text: @tr("Yes — take config.toml values");
+                    font-size: 15px;
+                    color: Theme.danger;
+                    vertical-alignment: center;
+                    x: 14px;
+                }
+            }
+
+            Rectangle {
+                height: 44px;
+                background: cancel-ta.has-hover ? Theme.panel-hover : transparent;
+                cancel-ta := TouchArea {
+                    clicked => {
+                        root.reset-sheet = false;
+                    }
+                }
+
+                Text {
+                    text: @tr("Cancel");
+                    font-size: 15px;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                    x: 14px;
+                }
+            }
+        }
+    }
+
+    // connection reset confirmation: destructive, deliberate, two taps
+    BottomSheet {
+        open: root.conn-reset-sheet;
+        title: @tr("Clear the connection?");
+        content-height: 88px;
+        dismissed() => {
+            root.conn-reset-sheet = false;
+        }
+
+        VerticalLayout {
+            width: parent.width;
+            Rectangle {
+                height: 44px;
+                background: conn-confirm-ta.has-hover ? #cc241d22 : transparent;
+                conn-confirm-ta := TouchArea {
+                    clicked => {
+                        root.conn-reset-sheet = false;
+                        root.reset-connection();
+                    }
+                }
+
+                Text {
+                    text: @tr("Yes — clear server, token and player");
+                    font-size: 15px;
+                    color: Theme.danger;
+                    vertical-alignment: center;
+                    x: 14px;
+                }
+            }
+
+            Rectangle {
+                height: 44px;
+                background: conn-cancel-ta.has-hover ? Theme.panel-hover : transparent;
+                conn-cancel-ta := TouchArea {
+                    clicked => {
+                        root.conn-reset-sheet = false;
+                    }
+                }
+
+                Text {
+                    text: @tr("Cancel");
+                    font-size: 15px;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                    x: 14px;
+                }
+            }
+        }
+    }
+}

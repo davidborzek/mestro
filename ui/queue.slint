@@ -1,0 +1,430 @@
+import { Theme, IconButton, Icon, Icons } from "common.slint";
+import { RepeatMode } from "common.slint";
+import { ActionSheet, MenuAction, SheetAction } from "library/sheet.slint";
+
+// one row of the queue list; the Rust side builds this from the
+// provider's queue snapshot (duration preformatted as mm:ss)
+export struct QueueEntry {
+    queue_item_id: string,
+    title: string,
+    artist: string,
+    duration: string,
+    current: bool,
+    // go-to navigation references
+    provider: string,
+    artist-id: string,
+    artist-uri: string,
+    album-id: string,
+    album-name: string,
+    album-uri: string,
+    image-url: string,
+}
+
+// the queue page: the playing track plus what's upcoming — history
+// is filtered out on the Rust side. Tapping a row plays it by its
+// queue_item_id (stable across reorders); the three-dots open a
+// per-row action menu (remove for now).
+//
+// Scrolling is a raw Flickable, not a std-widgets ListView: the
+// widget ships a scrollbar we don't want on the kiosk, and hiding
+// it is not exposed. Fixed 46px rows make the viewport height a
+// simple computation.
+export component QueuePage inherits Rectangle {
+    in property <[QueueEntry]> entries;
+    // queue-level playback options — same state the transport
+    // renders
+    in property <bool> shuffle: false;
+    in property <RepeatMode> repeat: RepeatMode.off;
+    callback shuffle-toggle();
+    callback repeat-cycle();
+    callback play-item(string);
+    callback remove-item(string);
+    callback clear-queue();
+    // Rust composes the applicable row actions (remove + go-tos)
+    callback menu(QueueEntry) -> [SheetAction];
+    callback menu-trigger(MenuAction, QueueEntry);
+
+    // the entry the confirm sheet acts on (row actions go through
+    // the generic ActionSheet)
+    private property <int> sheet: 0;
+    property <length> sheet-height: 164px;
+
+    // context menu state for the generic sheet
+    private property <bool> menu-open: false;
+    private property <QueueEntry> menu-entry;
+    private property <[SheetAction]> menu-actions;
+
+    // no background of its own: the root's blurred-cover backdrop
+    // and scrim sit behind all pages — same view as now-playing
+    background: transparent;
+    clip: true;
+
+    VerticalLayout {
+        // child of a plain Rectangle: fill it explicitly — a
+        // layout there would otherwise collapse to its preferred
+        // size (short queue, misanchored sheets)
+        width: parent.width;
+        height: parent.height;
+        padding: 0px;
+        spacing: 0px;
+
+        // slim content header: title on the left, clear on the
+        // right — the glass capsule does not ride this page and
+        // back lives in the nav rail
+        Rectangle {
+            height: 40px;
+
+            HorizontalLayout {
+                padding-left: 14px;
+                padding-right: 8px;
+                spacing: 2px;
+
+                Text {
+                    text: @tr("Queue");
+                    font-size: 16px;
+                    font-weight: 600;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                }
+
+                Rectangle {
+                    horizontal-stretch: 1;
+                }
+
+                // playback options — same state the transport
+                // renders (the queue event confirms every change)
+                IconButton {
+                    icon: Icon.shuffle;
+                    icon-size: 20px;
+                    icon-weight: 200;
+                    icon-color: Theme.text;
+                    active: root.shuffle;
+                    min-height: 32px;
+                    clicked => {
+                        root.shuffle-toggle();
+                    }
+                }
+
+                IconButton {
+                    icon: root.repeat == RepeatMode.one ? Icon.repeat-one : Icon.repeat;
+                    icon-size: 20px;
+                    icon-weight: 200;
+                    icon-color: Theme.text;
+                    active: root.repeat != RepeatMode.off;
+                    min-height: 32px;
+                    clicked => {
+                        root.repeat-cycle();
+                    }
+                }
+
+                // opens the clear confirm sheet
+                IconButton {
+                    icon: Icon.delete;
+                    icon-size: 20px;
+                    icon-weight: 200;
+                    icon-color: Theme.text;
+                    min-height: 32px;
+                    clicked => {
+                        root.sheet = 2;
+                    }
+                }
+            }
+        }
+
+        // empty state, mirroring the now-playing placeholder: dim
+        // icon + hint, centered in the remaining space
+        if root.entries.length == 0: Rectangle {
+            vertical-stretch: 1;
+
+            HorizontalLayout {
+                alignment: center;
+                spacing: 10px;
+                padding-top: 60px;
+
+                Text {
+                    text: Icons.glyph(Icon.queue-music);
+                    font-family: Theme.icon-font;
+                    font-size: 22px;
+                    color: Theme.text-mute;
+                    vertical-alignment: center;
+                }
+
+                Text {
+                    text: @tr("queue is empty");
+                    font-size: 16px;
+                    color: Theme.text-mute;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        Flickable {
+            vertical-stretch: 1;
+            viewport-height: root.entries.length * 46px;
+
+            VerticalLayout {
+                padding: 0px;
+                spacing: 0px;
+
+                for entry[index] in root.entries: Rectangle {
+                    height: 46px;
+                    // translucent: the blurred cover stays visible
+                    // through the hover/press highlight
+                    background: (qta.pressed || qta.has-hover) ? #2b262180 : transparent;
+
+                    qta := TouchArea {
+                        // long-press (600ms) opens the row menu; the
+                        // timer runs while the finger is down, so a
+                        // drag (flick cancels the grab) stops it
+                        property <bool> hold-fired: false;
+
+                        pointer-event(ev) => {
+                            if (ev.kind == PointerEventKind.down) {
+                                self.hold-fired = false;
+                            }
+                        }
+
+                        clicked => {
+                            if (!self.hold-fired) {
+                                root.play-item(entry.queue_item_id);
+                            }
+                        }
+                    }
+
+                    hold-timer := Timer {
+                        interval: 600ms;
+                        running: qta.pressed && !qta.hold-fired;
+                        triggered => {
+                            qta.hold-fired = true;
+                            root.menu-entry = entry;
+                            root.menu-actions = root.menu(entry);
+                            root.menu-open = true;
+                        }
+                    }
+
+                    HorizontalLayout {
+                        padding-left: 10px;
+                        padding-right: 10px;
+                        spacing: 10px;
+
+                        // position marker: accent bar on the playing row
+                        Rectangle {
+                            width: 3px;
+                            height: 26px;
+                            border-radius: 1.5px;
+                            background: entry.current ? Theme.accent : transparent;
+                            y: (parent.height - self.height) / 2;
+                        }
+
+                        Text {
+                            text: "" + (index + 1);
+                            color: Theme.text-mute;
+                            font-size: 13px;
+                            vertical-alignment: center;
+                            width: 22px;
+                            horizontal-alignment: right;
+                        }
+
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            alignment: center;
+                            Text {
+                                text: entry.title;
+                                color: entry.current ? Theme.accent : Theme.text;
+                                font-size: 14px;
+                                overflow: elide;
+                            }
+
+                            Text {
+                                text: entry.artist;
+                                color: Theme.text-dim;
+                                font-size: 12px;
+                                overflow: elide;
+                            }
+                        }
+
+                        Text {
+                            text: entry.duration;
+                            color: Theme.text-dim;
+                            font-size: 13px;
+                            vertical-alignment: center;
+                        }
+
+                        // row actions menu; its own TouchArea
+                        // consumes the tap so the row below does
+                        // not trigger
+                        Rectangle {
+                            width: 26px;
+                            height: 26px;
+                            border-radius: 13px;
+                            y: (parent.height - self.height) / 2;
+                            background: dots.pressed ? #2b262180 : transparent;
+
+                            dots := TouchArea {
+                                clicked => {
+                                    root.menu-entry = entry;
+                                    root.menu-actions = root.menu(entry);
+                                    root.menu-open = true;
+                                }
+                            }
+
+                            Text {
+                                text: Icons.glyph(Icon.more-vert);
+                                font-family: Theme.icon-font;
+                                font-size: 16px;
+                                color: dots.has-hover ? Theme.text-dim : Theme.text-mute;
+                                x: (parent.width - self.width) / 2;
+                                y: (parent.height - self.height) / 2;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // clear-confirm sheet (destructive, custom): a dim scrim
+    // dismisses on tap; the sheet slides up from the bottom edge.
+    // Row actions went to the generic ActionSheet below.
+    if root.sheet == 2: Rectangle {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        background: #14120f99;
+
+        TouchArea {
+            clicked => {
+                root.sheet = 0;
+            }
+            // consume the wheel: the flickable below must not
+            // scroll the list behind the sheet
+            scroll-event(event) => {
+                return accept;
+            }
+        }
+    }
+
+    Rectangle {
+        x: 0;
+        width: root.width;
+        height: root.sheet-height;
+        // 16px of the sheet hang below the window edge: the bottom
+        // corner rounding is never visible
+        y: root.sheet == 2 ? root.height - root.sheet-height + 16px : root.height;
+        animate y {
+            duration: 200ms;
+            easing: ease-out;
+        }
+        background: Theme.panel;
+        border-radius: 14px;
+        border-width: 1px;
+        border-color: Theme.bar;
+
+        VerticalLayout {
+            alignment: start;
+            padding-top: 10px;
+            padding-left: 14px;
+            padding-right: 14px;
+            // clears the 16px hang below the window edge: the
+            // cancel row keeps real margin on screen
+            padding-bottom: 28px;
+            spacing: 8px;
+
+            // clear confirm: destructive, so it asks first — the
+            // destructive action leads and is marked red
+            if root.sheet == 2: Text {
+                text: @tr("Clear the queue?");
+                font-size: 13px;
+                color: Theme.text-dim;
+                width: parent.width;
+            }
+
+            if root.sheet == 2: Rectangle {
+                height: 44px;
+                border-radius: 10px;
+                background: (cta.pressed || cta.has-hover) ? Theme.panel-hover : #2b262180;
+
+                cta := TouchArea {
+                    clicked => {
+                        root.clear-queue();
+                        root.sheet = 0;
+                    }
+                }
+
+                HorizontalLayout {
+                    alignment: start;
+                    padding-left: 12px;
+                    spacing: 10px;
+
+                    Text {
+                        text: Icons.glyph(Icon.delete-sweep);
+                        font-family: Theme.icon-font;
+                        font-size: 16px;
+                        color: Theme.danger;
+                        vertical-alignment: center;
+                    }
+
+                    Text {
+                        text: @tr("Clear queue");
+                        font-size: 14px;
+                        color: Theme.danger;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            if root.sheet == 2: Rectangle {
+                height: 44px;
+                border-radius: 10px;
+                background: (cta2.pressed || cta2.has-hover) ? Theme.panel-hover : #2b262180;
+
+                cta2 := TouchArea {
+                    clicked => {
+                        root.sheet = 0;
+                    }
+                }
+
+                HorizontalLayout {
+                    alignment: start;
+                    padding-left: 12px;
+                    spacing: 10px;
+
+                    Text {
+                        text: Icons.glyph(Icon.close);
+                        font-family: Theme.icon-font;
+                        font-size: 16px;
+                        color: Theme.text-dim;
+                        vertical-alignment: center;
+                    }
+
+                    Text {
+                        text: @tr("Cancel");
+                        font-size: 14px;
+                        color: Theme.text;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+    }
+
+    // the generic row-action sheet (remove + go-tos), driven by
+    // the held entry's actions
+    ActionSheet {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        open: root.menu-open;
+        title: root.menu-entry.title;
+        actions: root.menu-actions;
+        trigger(id) => {
+            root.menu-open = false;
+            root.menu-trigger(id, root.menu-entry);
+        }
+        dismissed => {
+            root.menu-open = false;
+        }
+    }
+}

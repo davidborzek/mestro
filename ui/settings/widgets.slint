@@ -1,0 +1,766 @@
+import { Theme, Icon, Icons } from "../common.slint";
+import { BottomSheet } from "../components/bottom-sheet.slint";
+import { ToggleSwitch } from "../components/toggle-switch.slint";
+
+// one picker-sheet request: the config key it writes, the
+// sheet title, the options and the selected index. is-bool
+// routes the pick through set-bool (toml wants real booleans)
+export struct PickerRequest {
+    key: string,
+    title: string,
+    options: [string],
+    selected: int,
+    is-bool: bool,
+}
+
+// one [osd] gate group (the base flags or a context override):
+// the effective value plus whether an override sits on it
+export struct OsdGates {
+    transport: bool,
+    transport-overridden: bool,
+    track: bool,
+    track-overridden: bool,
+    queue: bool,
+    queue-overridden: bool,
+    volume: bool,
+    volume-overridden: bool,
+}
+
+// The settings widgets: shared primitives of every settings
+// subpage. Thematic pages live beside this (nowplaying.slint,
+// about.slint); the SettingsView hub (../settings.slint) wires
+// them to the root.
+export component SettingsRow inherits Rectangle {
+    in property <string> label;
+    // one line under the label: what the page holds
+    in property <string> detail;
+    in property <Icon> icon: Icon.none;
+    in property <bool> active: false;
+    callback clicked();
+    height: root.detail == "" ? 48px : 58px;
+    background: ta.has-hover ? Theme.tile-hover : Theme.tile;
+    border-radius: 12px;
+
+    ta := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 12px;
+        // icon badge: a soft accent square, like the rail's glyphs
+        if root.icon != Icon.none: VerticalLayout {
+            alignment: center;
+            Rectangle {
+                width: 34px;
+                height: 34px;
+                border-radius: 9px;
+                background: Theme.accent.with-alpha(0.12);
+                Text {
+                    text: Icons.glyph(root.icon);
+                    font-family: Theme.icon-font;
+                    font-size: 20px;
+                    color: Theme.accent;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    width: parent.width;
+                    height: parent.height;
+                }
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+            horizontal-stretch: 1;
+            Text {
+                text: root.label;
+                font-size: 16px;
+                font-weight: 500;
+                color: root.active ? Theme.accent : Theme.text;
+            }
+
+            if root.detail != "": Text {
+                text: root.detail;
+                font-size: 12px;
+                // brighter than text-dim: it sits on tiles over the
+                // dimmed cover, where the dim grey washed out
+                color: Theme.text.with-alpha(0.6);
+                overflow: elide;
+            }
+        }
+
+        VerticalLayout {
+            alignment: center;
+            Text {
+                text: Icons.glyph(Icon.chevron-right);
+                font-family: Theme.icon-font;
+                font-size: 20px;
+                color: Theme.text-mute;
+            }
+        }
+    }
+}
+
+// small square tile: icon button (±, reorder, reset). Material
+// Symbols like the rail — unicode arrows/ticks rendered in a
+// different weight. The `glyph` names below map to the icons.
+export component GlyphBtn inherits Rectangle {
+    in property <string> glyph;
+    in property <bool> enabled: true;
+    callback clicked();
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    background: !root.enabled ? transparent : ta.has-hover ? Theme.panel-hover : Theme.tile;
+
+    property <Icon> icon:
+        root.glyph == "+" ? Icon.add : root.glyph == "−" ? Icon.remove : root.glyph == "↑" ? Icon.arrow-upward : root.glyph == "↓" ? Icon.arrow-downward : root.glyph == "✓" ? Icon.check : root.glyph == "↺" ? Icon.restart-alt : root.glyph == "⚙" ? Icon.tune : Icon.none;
+
+    ta := TouchArea {
+        enabled: root.enabled;
+        clicked => {
+            root.clicked();
+        }
+    }
+
+    Text {
+        text: root.icon == Icon.none ? root.glyph : Icons.glyph(root.icon);
+        font-family: root.icon == Icon.none ? "" : Theme.icon-font;
+        font-size: 20px;
+        color: root.enabled ? Theme.accent : Theme.text-mute.with-alpha(0.5);
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        width: parent.width;
+        height: parent.height;
+    }
+}
+
+// label + value + ± + reset, on one tile
+export component StepperRow inherits Rectangle {
+    in property <string> label;
+    in property <float> value;
+    in property <string> key;          // settings dotted path
+    in property <float> step: 2;
+    in property <float> min;
+    in property <float> max;
+    // how the number reads: "" plain, "px", "weight" (Thin…Black),
+    // "ms-as-s" (2600 → 2.6 s); the stored value is unchanged
+    in property <string> unit: "";
+    property <string> shown:
+        root.unit == "weight" ? (root.value <= 100 ? "Thin" : root.value <= 200 ? "Extra light" : root.value <= 300 ? "Light" : root.value <= 400 ? "Regular" : root.value <= 500 ? "Medium" : root.value <= 600 ? "Semibold" : root.value <= 700 ? "Bold" : root.value <= 800 ? "Extra bold" : "Black") : root.unit == "ms-as-s" ? (Math.round(root.value / 100) / 10) + " s" : root.unit == "px" ? Math.round(root.value) + " px" : Math.round(root.value) + "";
+    callback set-num(string, float);
+    callback reset-key(string);
+    // the reset button renders only when the overlay has this key
+    in property <bool> overridden: false;
+    height: 44px;
+    background: Theme.tile;
+    border-radius: 10px;
+
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 8px;
+        spacing: 8px;
+        Text {
+            text: root.label;
+            font-size: 15px;
+            color: Theme.text;
+            vertical-alignment: center;
+        }
+
+        Rectangle {
+            horizontal-stretch: 1;
+        }
+
+        Text {
+            text: root.shown;
+            font-size: 15px;
+            color: Theme.accent;
+            vertical-alignment: center;
+            min-width: 34px;
+            horizontal-alignment: right;
+        }
+        // height guards: unstretched cells keep 36px and center
+        VerticalLayout {
+            alignment: center;
+            GlyphBtn {
+                glyph: "−";
+                enabled: root.value - root.step >= root.min;
+                clicked => {
+                    root.set-num(root.key, Math.max(root.min, root.value - root.step));
+                }
+            }
+        }
+
+        VerticalLayout {
+            alignment: center;
+            GlyphBtn {
+                glyph: "+";
+                enabled: root.value + root.step <= root.max;
+                clicked => {
+                    root.set-num(root.key, Math.min(root.max, root.value + root.step));
+                }
+            }
+        }
+
+        if root.overridden: VerticalLayout {
+            alignment: center;
+            GlyphBtn {
+                glyph: "↺";
+                clicked => {
+                    root.reset-key(root.key);
+                }
+            }
+        }
+    }
+}
+
+export component SegPill inherits Rectangle {
+    in property <string> label;
+    in property <bool> selected: false;
+    callback picked();
+    height: 32px;
+    background: root.selected ? Theme.accent : ta.has-hover ? Theme.tile-hover : Theme.tile;
+    border-radius: 8px;
+
+    ta := TouchArea {
+        clicked => {
+            root.picked();
+        }
+    }
+
+    Text {
+        text: root.label;
+        font-size: 13px;
+        color: root.selected ? Theme.bg : Theme.text;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        width: parent.width;
+    }
+}
+
+// multi-select chips on one tile (transport buttons, quality
+// parts) — Rust owns the list; the chips just show membership
+// and report taps
+// small dim section header
+export component SectionLabel inherits Rectangle {
+    in property <string> label;
+    height: 28px;
+    Text {
+        x: 4px;
+        width: parent.width - 4px;
+        text: root.label;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 1px;
+        color: Theme.text-dim;
+        horizontal-alignment: left;
+        vertical-alignment: center;
+    }
+}
+
+// display names for config values: rows and option sheets show
+// these, the settings keep writing the raw config value. Unknown
+// values pass through unchanged
+export global Labels {
+    public pure function of(value: string) -> string {
+        // theme / ui
+        if value == "amber" {
+            return "Amber";
+        }
+        if value == "cover" {
+            return "From cover";
+        }
+        if value == "tonal-spot" {
+            return "Tonal";
+        }
+        if value == "content" {
+            return "Content";
+        }
+        if value == "expressive" {
+            return "Expressive";
+        }
+        if value == "fidelity" {
+            return "Fidelity";
+        }
+        if value == "fruit-salad" {
+            return "Fruit salad";
+        }
+        if value == "monochrome" {
+            return "Monochrome";
+        }
+        if value == "neutral" {
+            return "Neutral";
+        }
+        if value == "rainbow" {
+            return "Rainbow";
+        }
+        if value == "vibrant" {
+            return "Vibrant";
+        }
+        if value == "dark" {
+            return "Dark";
+        }
+        if value == "glass" {
+            return "Glass";
+        }
+        if value == "de" {
+            return "German";
+        }
+        if value == "en" {
+            return "English";
+        }
+        // now playing
+        if value == "side" {
+            return "Side by side";
+        }
+        if value == "fullbleed" {
+            return "Full bleed";
+        }
+        if value == "off" {
+            return "Off";
+        }
+        if value == "led" {
+            return "LED";
+        }
+        if value == "thin" {
+            return "Thin";
+        }
+        if value == "matrix" {
+            return "Matrix";
+        }
+        // osd
+        if value == "translucent" {
+            return "Translucent";
+        }
+        if value == "solid" {
+            return "Solid";
+        }
+        if value == "top" {
+            return "Top";
+        }
+        if value == "bottom" {
+            return "Bottom";
+        }
+        if value == "left" {
+            return "Left";
+        }
+        if value == "right" {
+            return "Right";
+        }
+        if value == "center" {
+            return "Center";
+        }
+        // hub
+        if value == "cards" {
+            return "Cards";
+        }
+        if value == "list" {
+            return "List";
+        }
+        // standby
+        if value == "digital" {
+            return "Digital";
+        }
+        if value == "analog" {
+            return "Analog";
+        }
+        if value == "black" {
+            return "Black";
+        }
+        if value == "folder" {
+            return "Picture folder";
+        }
+        return value;
+    }
+}
+
+// label + current value + chevron; tap opens the option sheet
+export component PickerRow inherits Rectangle {
+    in property <string> label;
+    in property <string> value;
+    in property <string> key;
+    in property <bool> overridden: false;
+    callback open();
+    callback reset-key(string);
+    height: 44px;
+    background: ta.has-hover ? Theme.tile-hover : Theme.tile;
+    border-radius: 10px;
+
+    ta := TouchArea {
+        clicked => {
+            root.open();
+        }
+    }
+
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 8px;
+        spacing: 8px;
+        Text {
+            text: root.label;
+            font-size: 15px;
+            color: Theme.text;
+            vertical-alignment: center;
+        }
+
+        Rectangle {
+            horizontal-stretch: 1;
+        }
+
+        Text {
+            text: Labels.of(root.value);
+            font-size: 15px;
+            color: Theme.accent;
+            vertical-alignment: center;
+        }
+
+        VerticalLayout {
+            alignment: center;
+            Text {
+                text: Icons.glyph(Icon.chevron-right);
+                font-family: Theme.icon-font;
+                font-size: 18px;
+                color: Theme.text-mute;
+                vertical-alignment: center;
+            }
+        }
+        // reset stops the row's TouchArea — its own area
+        if root.overridden: VerticalLayout {
+            alignment: center;
+            GlyphBtn {
+                glyph: "↺";
+                clicked => {
+                    root.reset-key(root.key);
+                }
+            }
+        }
+    }
+}
+
+/// an on/off row with a switch: the whole row taps, ↺ resets
+export component ToggleRow inherits Rectangle {
+    in property <string> label;
+    in property <string> key;
+    in property <bool> value: false;
+    in property <bool> overridden: false;
+    callback set-bool(string, bool);
+    callback reset-key(string);
+    height: 44px;
+    background: ta.has-hover ? Theme.tile-hover : Theme.tile;
+    border-radius: 10px;
+
+    ta := TouchArea {
+        clicked => {
+            root.set-bool(root.key, !root.value);
+        }
+    }
+
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 8px;
+        spacing: 8px;
+        Text {
+            text: root.label;
+            font-size: 15px;
+            color: Theme.text;
+            vertical-alignment: center;
+        }
+
+        Rectangle {
+            horizontal-stretch: 1;
+        }
+        // the switch: accent track when on, the knob slides
+        VerticalLayout {
+            alignment: center;
+            ToggleSwitch {
+                checked: root.value;
+                clicked => {
+                    root.set-bool(root.key, !root.value);
+                }
+            }
+        }
+        // reset stops the row's TouchArea — its own area
+        if root.overridden: VerticalLayout {
+            alignment: center;
+            GlyphBtn {
+                glyph: "↺";
+                clicked => {
+                    root.reset-key(root.key);
+                }
+            }
+        }
+    }
+}
+
+// bottom sheet with one option per row, the current one dotted
+export component OptionSheet inherits BottomSheet {
+    in property <[string]> options;
+    in property <int> selected;
+    callback pick(string);
+
+    content-height: 44px * root.options.length;
+
+    VerticalLayout {
+        width: parent.width;
+        spacing: 0px;
+
+        for opt[i] in root.options: Rectangle {
+            height: 44px;
+            background: row-ta.has-hover ? Theme.panel-hover : transparent;
+            row-ta := TouchArea {
+                clicked => {
+                    root.pick(opt);
+                }
+            }
+
+            HorizontalLayout {
+                padding-left: 14px;
+                padding-right: 14px;
+                spacing: 8px;
+                Text {
+                    text: Labels.of(opt);
+                    font-size: 16px;
+                    color: i == root.selected ? Theme.accent : Theme.text;
+                    vertical-alignment: center;
+                }
+
+                Rectangle {
+                    horizontal-stretch: 1;
+                }
+                // height guard: the dot keeps 6px (a bare
+                // layout child would stretch to the row)
+                VerticalLayout {
+                    alignment: center;
+                    Rectangle {
+                        width: 6px;
+                        height: 6px;
+                        border-radius: 3px;
+                        background: Theme.accent;
+                        visible: i == root.selected;
+                    }
+                }
+            }
+        }
+    }
+}
+
+// an order-editor page: the active items in order (↑/↓ per
+// row), the inactive ones below as chips (tap = append). Rust
+// owns the list arithmetic; the page renders models
+export component OrderEditor inherits VerticalLayout {
+    in property <string> key;
+    in property <bool> overridden: false;
+    in property <[string]> items: [];
+    in property <[string]> inactive: [];
+    callback move-item(string, int);
+    callback add-item(string);
+    callback toggle-item(string);
+    callback reset-key(string);
+    spacing: 8px;
+
+    SectionLabel {
+        label: @tr("IN ORDER");
+    }
+
+    for item[i] in root.items: Rectangle {
+        height: 44px;
+        background: Theme.tile;
+        border-radius: 10px;
+        HorizontalLayout {
+            padding-left: 14px;
+            padding-right: 8px;
+            spacing: 8px;
+            Text {
+                text: item;
+                font-size: 15px;
+                color: Theme.text;
+                vertical-alignment: center;
+            }
+
+            Rectangle {
+                horizontal-stretch: 1;
+            }
+            // the checkmark: active rows toggle straight off here
+            VerticalLayout {
+                alignment: center;
+                GlyphBtn {
+                    glyph: "✓";
+                    clicked => {
+                        root.toggle-item(item);
+                    }
+                }
+            }
+
+            VerticalLayout {
+                alignment: center;
+                GlyphBtn {
+                    glyph: "↑";
+                    enabled: i > 0;
+                    clicked => {
+                        root.move-item(item, -1);
+                    }
+                }
+            }
+
+            VerticalLayout {
+                alignment: center;
+                GlyphBtn {
+                    glyph: "↓";
+                    enabled: i + 1 < root.items.length;
+                    clicked => {
+                        root.move-item(item, 1);
+                    }
+                }
+            }
+        }
+    }
+    if root.overridden: VerticalLayout {
+        alignment: center;
+        HorizontalLayout {
+            spacing: 8px;
+            Text {
+                text: @tr("Customized");
+                font-size: 13px;
+                color: Theme.text-mute;
+                vertical-alignment: center;
+            }
+
+            GlyphBtn {
+                glyph: "↺";
+                clicked => {
+                    root.reset-key(root.key);
+                }
+            }
+        }
+    }
+    if root.inactive.length > 0: SectionLabel {
+        label: @tr("INACTIVE — TAP TO ADD");
+    }
+    HorizontalLayout {
+        spacing: 6px;
+        for off in root.inactive: SegPill {
+            label: off;
+            selected: false;
+            picked => {
+                root.add-item(off);
+            }
+        }
+    }
+}
+
+
+// a draggable percent slider (display brightness): track with
+// fill + thumb, drag anywhere on the track to set
+export component SliderRow inherits Rectangle {
+    in property <string> label;
+    in property <string> key;          // settings dotted path
+    in property <float> value;
+    in property <float> min: 1;
+    in property <float> max: 100;
+    callback set-num(string, float);
+    callback reset-key(string);
+    in property <bool> overridden: false;
+    // the drag runs locally (track + number follow the finger);
+    // set-num fires once on release — writes like the backlight
+    // must not run per pointer move
+    property <bool> dragging: false;
+    property <float> drag-value: 0;
+    property <float> shown: root.dragging ? root.drag-value : root.value;
+    height: 52px;
+    background: Theme.tile;
+    border-radius: 10px;
+
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 8px;
+        spacing: 12px;
+        Text {
+            text: root.label;
+            font-size: 15px;
+            color: Theme.text;
+            vertical-alignment: center;
+            width: 96px;
+        }
+
+        track := Rectangle {
+            height: 26px;
+            horizontal-stretch: 1;
+            // full-height hit area, visuals drawn inside
+            slider-ta := TouchArea {
+                property <float> fraction: (root.shown - root.min) / Math.max(root.max - root.min, 1);
+                property <float> at-pointer: Math.round(Math.min(Math.max(
+                    self.mouse_x / Math.max(self.width, 1px) * (root.max - root.min) + root.min,
+                    root.min), root.max));
+                moved => {
+                    if self.pressed {
+                        root.drag-value = self.at-pointer;
+                    }
+                }
+                pointer-event(pe) => {
+                    if pe.kind == PointerEventKind.down {
+                        root.drag-value = self.at-pointer;
+                        root.dragging = true;
+                    } else if pe.kind == PointerEventKind.up && root.dragging {
+                        root.dragging = false;
+                        root.set-num(root.key, root.drag-value);
+                    } else if pe.kind == PointerEventKind.cancel {
+                        root.dragging = false;
+                    }
+                }
+            }
+
+            Rectangle {
+                x: 0;
+                y: (parent.height - self.height) / 2;
+                width: parent.width;
+                height: 4px;
+                border-radius: 2px;
+                background: Theme.panel-hover;
+            }
+
+            Rectangle {
+                x: 0;
+                y: (parent.height - self.height) / 2;
+                width: Math.max(parent.width * slider-ta.fraction, 4px);
+                height: 4px;
+                border-radius: 2px;
+                background: Theme.accent;
+            }
+
+            Rectangle {
+                x: Math.max(Math.min(parent.width * slider-ta.fraction - self.width / 2, parent.width - self.width), 0);
+                y: (parent.height - self.height) / 2;
+                width: 14px;
+                height: 14px;
+                border-radius: 7px;
+                background: #fff;
+                border-width: 2px;
+                border-color: Theme.accent;
+                drop-shadow-blur: 4px;
+                drop-shadow-color: #00000066;
+            }
+        }
+
+        Text {
+            text: @tr("{}", Math.round(root.shown));
+            font-size: 15px;
+            color: Theme.accent;
+            vertical-alignment: center;
+            width: 34px;
+            horizontal-alignment: right;
+        }
+
+        if root.overridden: VerticalLayout {
+            alignment: center;
+            GlyphBtn {
+                glyph: "↺";
+                clicked => {
+                    root.reset-key(root.key);
+                }
+            }
+        }
+    }
+}

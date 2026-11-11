@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180">
+<path d="M 18.99 89.00 A 82 82 0 0 1 161.01 89.00" fill="none" stroke="#ffffff" stroke-opacity="0.3" stroke-width="2.2"/>
+<path d="M 144.33 79.75 A 74 74 0 0 1 152.37 90.18" fill="none" stroke="#e14c44" stroke-opacity="0.5" stroke-width="2.8"/>
+<g stroke-linecap="butt">
+<line x1="20.72" y1="90.00" x2="34.57" y2="98.00" stroke="#ececec" stroke-opacity="0.85" stroke-width="3.4"/>
+<line x1="77.57" y1="50.97" x2="80.06" y2="66.78" stroke="#ececec" stroke-opacity="0.85" stroke-width="3.4"/>
+<line x1="112.85" y1="53.33" x2="108.28" y2="68.67" stroke="#ececec" stroke-opacity="0.85" stroke-width="3.4"/>
+<line x1="143.66" y1="70.67" x2="132.93" y2="82.53" stroke="#ececec" stroke-opacity="0.85" stroke-width="3.4"/>
+<line x1="157.43" y1="86.95" x2="143.95" y2="95.56" stroke="#e14c44" stroke-opacity="0.9" stroke-width="3.4"/>
+<line x1="44.72" y1="64.04" x2="49.25" y2="70.64" stroke="#ececec" stroke-opacity="0.28" stroke-width="1.8"/>
+<line x1="132.29" y1="62.09" x2="128.06" y2="68.88" stroke="#ececec" stroke-opacity="0.28" stroke-width="1.8"/>
+<line x1="151.09" y1="78.35" x2="144.98" y2="83.51" stroke="#e14c44" stroke-opacity="0.4" stroke-width="1.8"/>
+<line x1="155.45" y1="83.99" x2="148.90" y2="88.59" stroke="#e14c44" stroke-opacity="0.4" stroke-width="1.8"/>
+</g>
+</svg>

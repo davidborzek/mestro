@@ -1,0 +1,47 @@
+import { Theme } from "../theme.slint";
+import { Icon, Icons } from "icons.slint";
+
+// glyph button backed by the Material Symbols icon font.
+// Square buttons stay fully transparent — no pressed/hover box
+// flashing behind the glyph. Round buttons render as filled
+// circles (the fill IS the button shape).
+export component IconButton inherits Rectangle {
+    in property <Icon> icon;
+    in property <length> icon-size: 26px;
+    in property <int> icon-weight: 400;
+    in property <color> icon-color: Theme.text-dim;
+    in property <bool> accent;
+    // a latched toggle (shuffle/repeat): the icon lights accent
+    in property <bool> active: false;
+    in property <bool> round: false;
+    in property <bool> enabled: true;
+    callback clicked();
+
+    min-width: 44px;
+    vertical-stretch: 0;
+    // round buttons must be squares — 44×40 with a /2 radius
+    // renders as a capsule, not a circle
+    min-height: 44px;
+    border-radius: root.round ? Math.min(self.width, self.height) / 2 : 8px;
+    background: !root.round ? transparent : ta.pressed ? Theme.accent.brighter(1.15) : Theme.accent;
+
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+
+    Text {
+        width: 100%;
+        height: 100%;
+        text: Icons.glyph(root.icon);
+        font-family: Theme.icon-font;
+        font-size: root.icon-size;
+        font-weight: root.icon-weight;
+        color: !root.enabled ? Theme.text-mute : root.round ? Theme.bg : (root.accent || root.active) ? Theme.accent : root.icon-color;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}

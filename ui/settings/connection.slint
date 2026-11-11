@@ -1,0 +1,156 @@
+import { Theme } from "../common.slint";
+import { SectionLabel, SettingsRow } from "widgets.slint";
+
+// label left, value right — the same row anatomy as the pickers,
+// without a chevron: these values are read-only here
+component InfoRow inherits Rectangle {
+    in property <string> label;
+    in property <string> value: "";
+    property <bool> muted: root.value == "";
+    height: 44px;
+    border-radius: 10px;
+    background: Theme.tile;
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        spacing: 12px;
+        Text {
+            text: root.label;
+            font-size: 15px;
+            color: Theme.text;
+            vertical-alignment: center;
+        }
+
+        Text {
+            text: root.muted ? @tr("not set") : root.value;
+            overflow: elide;
+            font-size: 15px;
+            color: root.muted ? Theme.text-mute : Theme.text-dim;
+            horizontal-alignment: right;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+    }
+}
+
+component ActionBtn inherits Rectangle {
+    in property <string> label;
+    in property <bool> danger: false;
+    callback clicked();
+    height: 44px;
+    border-radius: 8px;
+    background: root.danger ? (btn-ta.has-hover ? #cc241d2e : #cc241d16) : (btn-ta.has-hover ? Theme.tile-hover : Theme.tile);
+    Text {
+        text: root.label;
+        font-size: 14px;
+        font-weight: 500;
+        color: root.danger ? Theme.danger : Theme.accent;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    btn-ta := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// The Connection subpage: status and recovery only. Editing the
+// connection is deliberately NOT here — the remote setup wizard
+// (phone, with login) or config.toml own that. This page reports
+// state, shows the wizard URL and resets the whole connection.
+export component ConnectionSettings inherits Rectangle {
+    in property <string> conn-url: "";
+    in property <string> conn-player: "";
+    in property <bool> conn-token-set: false;
+    // the provider status line ("" = connected)
+    in property <string> provider-status: "";
+    // remote setup wizard URL incl. pairing PIN
+    in property <string> remote-url: "";
+    callback reset-connection();
+
+    // the shared settings-scroll sizes its viewport from the
+    // children's preferred heights — a Rectangle root must forward
+    // its content's (all other pages inherit VerticalLayout)
+    preferred-height: content.preferred-height;
+
+    content := VerticalLayout {
+        spacing: 10px;
+        padding-bottom: 8px;
+
+        SectionLabel {
+            label: @tr("MUSIC ASSISTANT");
+        }
+
+        // provider status
+        Rectangle {
+            height: 48px;
+            border-radius: 8px;
+            background: root.provider-status == "" ? Theme.tile : #cc241d16;
+            HorizontalLayout {
+                padding: 10px;
+                padding-left: 12px;
+                spacing: 10px;
+                Rectangle {
+                    vertical-stretch: 1;
+                    width: 10px;
+                    Rectangle {
+                        y: (parent.height - 10px) / 2;
+                        width: 10px;
+                        height: 10px;
+                        border-radius: 5px;
+                        background: root.provider-status == "" ? #4caf6d : Theme.danger;
+                    }
+                }
+
+                Text {
+                    text: root.provider-status == "" ? @tr("Connected") : root.provider-status;
+                    overflow: elide;
+                    wrap: word-wrap;
+                    font-size: 14px;
+                    vertical-alignment: center;
+                    color: root.provider-status == "" ? Theme.text : Theme.danger;
+                }
+            }
+        }
+
+        InfoRow {
+            label: @tr("Server");
+            value: root.conn-url;
+        }
+
+        InfoRow {
+            label: @tr("Player");
+            value: root.conn-player;
+        }
+
+        InfoRow {
+            label: @tr("Login");
+            value: root.conn-token-set ? @tr("Signed in") : "";
+        }
+
+        Text {
+            text: @tr("Change the connection with Remote setup on your phone.");
+            font-size: 12px;
+            color: Theme.text-dim;
+            wrap: word-wrap;
+        }
+
+        Rectangle {
+            height: 6px;
+        }
+
+        HorizontalLayout {
+            spacing: 8px;
+            ActionBtn {
+                label: @tr("Clear connection");
+                danger: true;
+                // the parent opens the confirm sheet
+                clicked => {
+                    root.reset-connection();
+                }
+            }
+        }
+    }
+}

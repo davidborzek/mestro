@@ -1,0 +1,101 @@
+import { OskKeys } from "../keys.slint";
+import { OskRowData } from "../keys.slint";
+
+// German QWERTZ with a bare latin alphabet — the accents
+// (umlauts included) live behind long-press on their base
+// letters: one clean layout covers ~90% of the latin languages
+// (German, French, Spanish, Italian, Portuguese). Numbers + €
+// and „ for the numeric pane
+export global DeLayouts {
+    public function letters() -> [OskRowData] {
+        return [
+            {
+                keys: [
+                    OskKeys.kl("q", "Q"),
+                    OskKeys.kl("w", "W"),
+                    OskKeys.klv("e", "E", ["é", "è", "ê", "ë"]),
+                    OskKeys.kl("r", "R"),
+                    OskKeys.kl("t", "T"),
+                    OskKeys.kl("z", "Z"),
+                    OskKeys.klv("u", "U", ["ü", "ù", "ú", "û"]),
+                    OskKeys.klv("i", "I", ["í", "î", "ì", "ï"]),
+                    OskKeys.kl("o", "O"),
+                    OskKeys.kl("p", "P"),
+                ]
+            },
+            {
+                keys: [
+                    OskKeys.klv("a", "A", ["ä", "à", "á", "â", "ã"]),
+                    OskKeys.klv("s", "S", ["ß"]),
+                    OskKeys.kl("d", "D"),
+                    OskKeys.kl("f", "F"),
+                    OskKeys.kl("g", "G"),
+                    OskKeys.kl("h", "H"),
+                    OskKeys.kl("j", "J"),
+                    OskKeys.kl("k", "K"),
+                    OskKeys.kl("l", "L"),
+                ]
+            },
+            {
+                keys: [
+                    OskKeys.shift-key(),
+                    OskKeys.kl("y", "Y"),
+                    OskKeys.kl("x", "X"),
+                    OskKeys.klv("c", "C", ["ç"]),
+                    OskKeys.kl("v", "V"),
+                    OskKeys.kl("b", "B"),
+                    OskKeys.klv("n", "N", ["ñ"]),
+                    OskKeys.kl("m", "M"),
+                    OskKeys.backspace(),
+                ]
+            },
+            { keys: [OskKeys.toggle("123"), OskKeys.space(), OskKeys.enter(), OskKeys.collapse()] },
+        ];
+    }
+
+    public function numbers() -> [OskRowData] {
+        return [
+            {
+                keys: [
+                    OskKeys.k("1"),
+                    OskKeys.k("2"),
+                    OskKeys.k("3"),
+                    OskKeys.k("4"),
+                    OskKeys.k("5"),
+                    OskKeys.k("6"),
+                    OskKeys.k("7"),
+                    OskKeys.k("8"),
+                    OskKeys.k("9"),
+                    OskKeys.k("0"),
+                ]
+            },
+            {
+                keys: [
+                    OskKeys.k("-"),
+                    OskKeys.k("/"),
+                    OskKeys.k(":"),
+                    OskKeys.k(";"),
+                    OskKeys.k("("),
+                    OskKeys.k(")"),
+                    OskKeys.k("€"),
+                    OskKeys.k("&"),
+                    OskKeys.k("@"),
+                    OskKeys.k("„"),
+                ]
+            },
+            {
+                keys: [
+                    OskKeys.k("."),
+                    OskKeys.k(","),
+                    OskKeys.k("?"),
+                    OskKeys.k("!"),
+                    OskKeys.k("\""),
+                    OskKeys.k("+"),
+                    OskKeys.k("#"),
+                    OskKeys.backspace(),
+                ]
+            },
+            { keys: [OskKeys.toggle("abc"), OskKeys.space(), OskKeys.enter(), OskKeys.collapse()] },
+        ];
+    }
+}

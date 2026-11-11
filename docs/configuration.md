@@ -1,0 +1,152 @@
+# Configuration
+
+mestro reads one TOML file and keeps the changes made on the
+device in a second one. Everything has a working default — a
+fresh device needs nothing but the connection to Music Assistant,
+and the setup wizard on your phone writes that.
+
+[`mestro.example.toml`](../mestro.example.toml) lists every key
+with its default and an explanation. This page is the map.
+
+## Where things live
+
+| | Path | Written by |
+|---|---|---|
+| config file | `$MESTRO_CONFIG`, else `$XDG_CONFIG_HOME/mestro/config.toml` (on the kiosk image: `/data/config/mestro/`) | you |
+| device settings | `$XDG_STATE_HOME/mestro/settings.toml` (on the kiosk image: `/data/state/mestro/`) | the settings page, the phone wizard |
+
+The **config file** is yours: mestro never writes it. It can also
+be a directory — every `*.toml` inside is merged in name order
+(`theme.toml`, `vu.toml`, …).
+
+The **device settings** hold only what was changed on the device,
+nothing else. A key there wins over the config file; **Reset** in
+the settings (per key, or *Reset all*) removes it, and the config
+file value is back.
+
+## Precedence
+
+```
+built-in defaults  <  config file  <  device settings  <  MESTRO_* env  <  CLI flags
+```
+
+## When something is wrong
+
+A broken key never takes the device down. An unknown key, a
+misspelled value or a wrong type drops **that key only** — the
+rest of the configuration stays in force. mestro then shows a
+toast at startup and lists every ignored key with the reason at
+the top of the settings page.
+
+A file that is not valid TOML at all is ignored as a whole and
+mestro starts on the defaults. If that leaves the connection to
+Music Assistant empty, mestro says so instead of silently
+starting the setup wizard — you can fix the file and restart, or
+set the device up again on purpose.
+
+## Sections
+
+| Section | What it controls |
+|---|---|
+| `[window]` | size, fullscreen, UI scale for small panels |
+| `[display]` | backlight brightness and standby dimming |
+| `[music-assistant]` | server URL, player, access token |
+| `[theme]` | accent: fixed amber or following the cover art |
+| `[ui]` | nav rail style, on-screen keyboard layout, auto-open now playing |
+| `[background]` | blurred cover behind the views |
+| `[now-playing]` | layout, inline meter, quality line, transport buttons, fonts |
+| `[hub]` | home screen layout and the order of its destinations |
+| `[clock]` | standby clock face, custom faces, standby background |
+| `[osd]` | which notifications show, where and how long |
+| `[vu]` | VU source, the faceplates and their order, custom skins |
+| `[keyboard]` | key bindings for USB remotes and keyboards |
+| `[remote]` | the phone wizard / web endpoint |
+
+Deep dives:
+[standby clocks and backgrounds](standby.md) ·
+[VU faceplates and custom skins](vu.md) ·
+[the phone wizard and remote protocol](remote.md)
+
+### `[window]`
+
+```toml
+[window]
+size = "800x480"     # logical size; --size beats it
+fullscreen = false
+scale = 1.5          # 0.5..3.0 — larger UI on small panels (5" 800x480)
+```
+
+### `[display]`
+
+The backlight. mestro picks the backend itself: the Raspberry Pi
+firmware when the firmware drives the panel's touch (it owns that
+panel's bus then), `/sys/class/backlight` elsewhere, nothing in a
+VM. Without a backlight the keys are ignored and the settings hide
+the page.
+
+```toml
+[display]
+brightness = 80             # 1..100 %; unset = keep what the system booted with
+standby-brightness = 15     # 0..100 % while the standby clock shows
+backlight = "auto"          # auto | firmware | sysfs | none
+```
+
+### `[music-assistant]`
+
+```toml
+[music-assistant]
+url = "ws://ma.example.com:8095/ws"
+player = "Living Room"      # empty = the one playing
+# token = "…"               # usually written by the phone wizard
+```
+
+### `[clock]`
+
+```toml
+[clock]
+style = "digital"           # digital | analog | a [clock.skins] name
+
+[clock.background]
+source = "black"            # black | cover | folder
+dim = 0.6
+folder = "/data/backgrounds"
+interval = 10               # minutes per picture
+```
+
+### `[keyboard]`
+
+USB remotes and keyboards send keys; mestro maps them to
+commands. The defaults follow VLC/Kodi conventions (arrows,
+Enter, Escape, Home, +/-). Override single keys:
+
+```toml
+[keyboard]
+right = "cycle-forward"
+escape = "back"
+m = "home"
+```
+
+Commands: `cycle-forward` `cycle-back` `back` `home` `play-pause`
+`next-track` `prev-track` `volume-up` `volume-down`.
+
+## Environment and command line
+
+| env | effect |
+|---|---|
+| `MESTRO_CONFIG` | config file or directory |
+| `MESTRO_TOKEN` | Music Assistant access token (when not in the files) |
+| `MESTRO_MA_URL` | overrides `[music-assistant] url` |
+| `MESTRO_PLAYER` | overrides `[music-assistant] player` |
+| `MESTRO_CLOCK` | overrides `[clock] style` |
+| `MESTRO_OUTPUT` | DRM output for the kiosk backend (`DSI-1`, `HDMI-A-1`) |
+| `RUST_LOG` | log filter, default `mestro=info` |
+
+| flag | effect |
+|---|---|
+| `--config PATH` | config file or directory |
+| `--size WxH` | window size |
+| `--fullscreen` | fullscreen window |
+| `--kiosk` | 5" panel sized window for trying it out on a desktop |
+| `--mock` | fake playing track, no server needed |
+| `--minimal` | UI only, no provider |
+| `mestro ctl <command>` | send a command to the running instance |

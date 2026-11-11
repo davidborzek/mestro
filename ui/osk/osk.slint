@@ -1,0 +1,295 @@
+import { Theme } from "../common.slint";
+import { OskRowData } from "keys.slint";
+import { OskRegistry } from "registry.slint";
+
+// one tile: glass, uniform, generous touch target. Keys with
+// accents follow the iOS gesture: hold ~350ms → the pill opens
+// above the tile → slide onto an accent → release picks it.
+// Release on the tile itself types the plain letter, release
+// anywhere else cancels. The pill lives in a PopupWindow (its
+// own layer above the dock — sibling keys can never paint over
+// it) and only exists while the finger is down
+component OskKey inherits Rectangle {
+    in property <string> glyph;
+    // the glyph is a font icon, not text
+    in property <bool> icon: false;
+    // uniform tile size — square keys
+    in property <length> size: 56px;
+    in property <float> units: 1;
+    // long-press accents — empty = plain key
+    in property <[string]> variants: [];
+    // the space bar doubles as a cursor trackpad: hold it and
+    // slide left/right to move the caret (quick tap = space)
+    in property <bool> cursor-slide: false;
+    // auto-repeat while held (the backspace key)
+    in property <bool> repeat: false;
+    // a latched toggle stays lit (the armed shift)
+    in property <bool> active: false;
+    // 0 = first key of the row (pill hugs the left edge),
+    // 2 = last (right edge) — centering would hang the pill
+    // off the dock for edge keys
+    in property <int> pos: 1;
+    callback trigger();
+    callback variant-triggered(string);
+    // caret steps while the space bar is held (±1 per slide
+    // notch)
+    callback cursor-step(int);
+
+    // the variant under the finger while sliding, -1 = none
+    property <int> hover-variant: -1;
+    property <length> pill-h: root.size * 0.8;
+    property <length> pill-w: root.variants.length * root.pill-h + (root.variants.length - 1) * 2px + 8px;
+    property <length> pill-x: root.pos == 0 ? 0 : root.pos == 2 ? root.width - root.pill-w : (root.width - root.pill-w) / 2;
+
+    width: root.size * root.units;
+    height: root.size;
+    border-radius: 10px;
+    background: kta.pressed ? Theme.accent.transparentize(0.78) : root.active ? Theme.accent.transparentize(0.74) : (kta.has-hover ? Theme.tile-hover : Theme.tile);
+
+    kta := TouchArea {
+        property <bool> hold-fired: false;
+        // the x where the press/slide started and how many
+        // cursor notches were already emitted
+        property <length> anchor-x: 0;
+        property <int> last-steps: 0;
+        pointer-event(ev) => {
+            if (ev.kind == PointerEventKind.down) {
+                self.hold-fired = false;
+                self.anchor-x = self.mouse-x;
+                self.last-steps = 0;
+            } else if (ev.kind == PointerEventKind.up) {
+                if (self.hold-fired) {
+                    // slide-release: whichever accent the finger
+                    // rests on; release still on the tile = the
+                    // plain letter; elsewhere = cancel. Cursor
+                    // mode just drops the caret where it is
+                    if (root.cursor-slide) {
+                        // nothing — the caret moved during slide
+                    } else if (root.repeat) {
+                        // the auto-repeat already fired while held
+                        // — the release adds nothing
+                    } else if (root.hover-variant >= 0 && root.hover-variant < root.variants.length) {
+                        root.variant-triggered(root.variants[root.hover-variant]);
+                    } else if (self.mouse-x >= 0 && self.mouse-x <= root.width && self.mouse-y >= 0 && self.mouse-y <= root.height) {
+                        root.trigger();
+                    }
+                    accent-popup.close();
+                } else {
+                    root.trigger();
+                }
+                // the gesture is over — do not linger in
+                // hold state past the release
+                self.hold-fired = false;
+            } else if (ev.kind == PointerEventKind.move) {
+                if (self.hold-fired && root.cursor-slide) {
+                    // one caret notch per ~half-tile of slide —
+                    // coarse on purpose: the finger travels fast
+                    if (self.slide-steps != self.last-steps) {
+                        root.cursor-step(self.slide-steps - self.last-steps);
+                        self.last-steps = self.slide-steps;
+                    }
+                } else if (self.hold-fired) {
+                    root.track-hover(self.mouse-x, self.mouse-y);
+                }
+            }
+        }
+        // slide notches since the press landed (declarative:
+        // follows mouse-x while grabbed)
+        property <int> slide-steps: Math.round(
+            (self.mouse-x - self.anchor-x) / (root.size * 0.45),
+        );
+        clicked => {
+        }
+    }
+
+    hold-timer := Timer {
+        interval: 350ms;
+        running: kta.pressed && (root.variants.length > 0 || root.cursor-slide || root.repeat) && !kta.hold-fired;
+        triggered => {
+            kta.hold-fired = true;
+            root.hover-variant = -1;
+            if (root.variants.length > 0) {
+                accent-popup.show();
+            }
+        }
+    }
+
+    // the auto-repeat: fires the key every 90ms while held —
+    // starts after the hold delay, stops with the release
+    // (hold-fired is reset there)
+    repeat-timer := Timer {
+        interval: 90ms;
+        running: root.repeat && kta.pressed && kta.hold-fired;
+        triggered => {
+            root.trigger();
+        }
+    }
+
+    /// map a finger position (key coordinates) onto the pill
+    /// cells. iOS-style tolerance: selection is a COLUMN pick
+    /// with edge clamping — the exact x or y inside the pill
+    /// does not matter, any position above the tile selects.
+    /// The only cancel zone is a deliberate swipe DOWN past the
+    /// tile bottom
+    public function track-hover(mx: length, my: length) {
+        if (root.variants.length == 0 || my > root.height) {
+            root.hover-variant = -1;
+            return;
+        }
+        if (mx <= root.pill-x + 4px) {
+            root.hover-variant = 0;
+            return;
+        }
+        if (mx >= root.pill-x + root.pill-w - 4px) {
+            root.hover-variant = root.variants.length - 1;
+            return;
+        }
+        root.hover-variant = Math.min(
+            Math.max(Math.floor((mx - root.pill-x - 4px) / (root.pill-h + 2px)), 0),
+            root.variants.length - 1,
+        );
+    }
+
+    if root.glyph != "" && root.icon: Text {
+        text: root.glyph;
+        font-family: Theme.icon-font;
+        font-size: Math.min(20px, root.size * 0.44);
+        color: kta.pressed || root.active ? Theme.text : Theme.text-dim;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    if root.glyph != "" && !root.icon: Text {
+        text: root.glyph;
+        font-size: Math.min(17px, root.size * 0.38);
+        color: kta.pressed || root.active ? Theme.text : Theme.text-dim;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    // the accent pill: a popup layer above the whole dock, a
+    // solid panel with shadow — visible only during the gesture
+    accent-popup := PopupWindow {
+        x: root.pill-x;
+        y: -root.pill-h - 8px;
+        width: root.pill-w;
+        height: root.pill-h;
+        close-policy: PopupClosePolicy.no-auto-close;
+
+        Rectangle {
+            border-radius: self.height / 2;
+            // a solid panel, not more glass over glass — it must
+            // read as its own surface above the dock
+            background: #211d18f5;
+            border-width: 1px;
+            border-color: Theme.hairline;
+            drop-shadow-blur: 12px;
+            drop-shadow-offset-y: 2px;
+            drop-shadow-color: #00000099;
+
+            HorizontalLayout {
+                padding-left: 4px;
+                padding-right: 4px;
+                spacing: 2px;
+
+                for v[vi] in root.variants: Rectangle {
+                    width: root.pill-h;
+                    border-radius: root.pill-h / 2;
+                    background: root.hover-variant == vi ? Theme.accent.transparentize(0.72) : transparent;
+                    Text {
+                        text: v;
+                        font-size: Math.min(16px, root.size * 0.36);
+                        color: root.hover-variant == vi ? Theme.text : Theme.text-dim;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component Osk inherits Rectangle {
+    // every key rides one callback: letters/space pass their
+    // char, the specials pass their key NAME ("backspace",
+    // "return") — Rust dispatches synthetic key events from it
+    // into the focused field
+    callback key-pressed(string);
+    // the collapse key: hide the whole dock
+    callback hide();
+    // the space bar emits caret steps while held and slid
+    callback cursor-step(int);
+
+    // the uniform tile size, derived by the page from its width
+    in property <length> unit: 56px;
+    // which registry layout to render — the key of the
+    // OskRegistry ([ui] osk-layout in the config). The rows
+    // resolve imperatively: function calls are not allowed in
+    // declarative bindings (impure)
+    in property <string> layout: "de";
+    // the letters/numbers mode — the toggle key flips it; each
+    // letters layout carries its own number set
+    property <bool> numeric: false;
+    // the armed shift: one-shot — the next case-carrying key
+    // consumes it
+    property <bool> shift: false;
+    property <[OskRowData]> rows;
+
+    init => {
+        root.apply-layout();
+    }
+    changed layout => {
+        root.apply-layout();
+    }
+    changed numeric => {
+        root.apply-layout();
+    }
+    public function apply-layout() {
+        root.rows = OskRegistry.resolve(root.layout, root.numeric);
+    }
+
+    VerticalLayout {
+        alignment: center;
+        spacing: 6px;
+
+        for row in root.rows: HorizontalLayout {
+            alignment: center;
+            spacing: 6px;
+
+            for key[ki] in row.keys: OskKey {
+                glyph: root.shift && key.shift != "" ? key.shift : key.glyph;
+                icon: key.icon;
+                size: root.unit;
+                units: key.units;
+                variants: key.variants;
+                cursor-slide: key.kind == 4;
+                repeat: key.kind == 5;
+                active: key.kind == 7 && root.shift;
+                pos: ki == 0 ? 0 : (ki == row.keys.length - 1 ? 2 : 1);
+                trigger => {
+                    if (key.kind == 0 || key.kind == 4 || key.kind == 5) {
+                        root.key-pressed(root.shift && key.shift != "" ? key.shift : key.insert);
+                        // the shift armed and was consumed by a
+                        // cased key — one-shot done
+                        if (key.shift != "") {
+                            root.shift = false;
+                        }
+                    } else if (key.kind == 3) {
+                        root.hide();
+                    } else if (key.kind == 6) {
+                        root.numeric = !root.numeric;
+                    } else if (key.kind == 7) {
+                        root.shift = !root.shift;
+                    }
+                }
+                variant-triggered(v) => {
+                    root.key-pressed(v);
+                    // accents consume the shift too
+                    root.shift = false;
+                }
+                cursor-step(n) => {
+                    root.cursor-step(n);
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 286.5 344">
+  <!-- the hairline between the meters, on the seam (this file
+       renders in the RIGHT dial at its left edge); its own
+       layer so the glow wash never buries it -->
+  <rect x="0" y="14" width="1" height="316" fill="#ffffff0d"/>
+</svg>

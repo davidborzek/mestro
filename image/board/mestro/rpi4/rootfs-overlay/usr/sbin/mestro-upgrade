@@ -1,0 +1,66 @@
+#!/bin/sh
+# mestro-upgrade — replace the kiosk kernel (the whole system: the
+# rootfs lives in the initramfs embedded in Image) over SSH, no
+# re-flashing. Usage:
+#
+#   scp Image root@<pi>:/tmp/new-Image
+#   ssh root@<pi> mestro-upgrade /tmp/new-Image [sha256]
+#
+# Safety: the new image is copied to the boot partition as
+# Image.new, optionally verified against a sha256, then renamed
+# to Image (a single FAT directory-entry swap — the only critical
+# moment). The old kernel stays as Image.old until the next
+# upgrade; renaming back over SSH is the manual recovery.
+set -e
+
+NEW="$1"
+WANT_SHA="$2"
+BOOT=/boot
+
+[ -n "$NEW" ] || {
+	echo "usage: mestro-upgrade <new-Image> [sha256]"
+	exit 2
+}
+[ -f "$NEW" ] || {
+	echo "no such file: $NEW"
+	exit 2
+}
+
+if ! grep -q " $BOOT " /proc/mounts; then
+	mkdir -p "$BOOT"
+	for d in /dev/mmcblk0p1 /dev/nvme0n1p1 /dev/sda1; do
+		mount -t vfat "$d" "$BOOT" 2>/dev/null && break
+	done
+	grep -q " $BOOT " /proc/mounts || {
+		echo "cannot mount the boot partition at $BOOT"
+		exit 1
+	}
+fi
+
+GOT_SHA=$(sha256sum "$NEW" | cut -d' ' -f1)
+if [ -n "$WANT_SHA" ]; then
+	[ "$GOT_SHA" = "$WANT_SHA" ] || {
+		echo "sha256 mismatch: $GOT_SHA != $WANT_SHA"
+		exit 1
+	}
+else
+	echo "no sha256 given, using the local checksum: $GOT_SHA"
+fi
+
+echo "installing $(basename "$NEW") ($(du -h "$NEW" | cut -f1)) …"
+cp "$NEW" "$BOOT/Image.new"
+sync
+# verify what actually landed on the FAT before swapping it in
+GOT2=$(sha256sum "$BOOT/Image.new" | cut -d' ' -f1)
+[ "$GOT2" = "$GOT_SHA" ] || {
+	echo "corrupted copy on the boot partition, aborting (Image untouched)"
+	rm -f "$BOOT/Image.new"
+	exit 1
+}
+mv "$BOOT/Image" "$BOOT/Image.old"
+mv "$BOOT/Image.new" "$BOOT/Image"
+sync
+
+echo "done. current: $(sha256sum "$BOOT/Image" | cut -d' ' -f1)"
+echo "activate with: mestro-reboot (plain 'reboot' hangs on the"
+echo "initramfs kiosk); recovery: mv $BOOT/Image.old $BOOT/Image"

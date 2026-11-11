@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180">
+<!-- the dial face; the bezel is a separate topmost layer
+     (bezel.svg) so the glow wash never touches it -->
+<defs>
+  <radialGradient id="face" cx="0.5" cy="0.5" r="0.5">
+    <stop offset="0" stop-color="#f7eed6"/>
+    <stop offset="0.62" stop-color="#f0e3c1"/>
+    <stop offset="1" stop-color="#d6c69c"/>
+  </radialGradient>
+  <radialGradient id="shadow" cx="0.5" cy="0.5" r="0.5">
+    <stop offset="0.78" stop-color="#00000000"/>
+    <stop offset="1" stop-color="#00000066"/>
+  </radialGradient>
+</defs>
+<!-- soft drop shadow under the bezel, offset 2px down -->
+<circle cx="90" cy="92" r="90" fill="url(#shadow)"/>
+<circle cx="90" cy="90" r="82" fill="url(#face)"/>
+</svg>

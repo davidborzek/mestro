@@ -1,0 +1,51 @@
+import { Theme, Icon, Icons } from "common.slint";
+
+// A connection failure must not block the settings needed to
+// repair it. This banner sits above the page without capturing
+// input outside its own bounds.
+export component ConnectionBanner inherits Rectangle {
+    in property <string> status-text;
+    callback open-settings();
+
+    height: 48px;
+    background: Theme.panel;
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: Theme.danger;
+
+    TouchArea {
+        clicked => {
+            root.open-settings();
+        }
+    }
+
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 8px;
+
+        Text {
+            text: Icons.glyph(Icon.warning);
+            font-family: Theme.icon-font;
+            font-size: 19px;
+            color: Theme.danger;
+            vertical-alignment: center;
+        }
+
+        Text {
+            text: root.status-text;
+            font-size: 13px;
+            color: Theme.text;
+            overflow: elide;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+
+        Text {
+            text: @tr("Connection ›");
+            font-size: 13px;
+            color: Theme.accent;
+            vertical-alignment: center;
+        }
+    }
+}

@@ -1,0 +1,92 @@
+// the OSK data model: what a key IS, and the constructors that
+// build the keys. Layouts are DATA — a layout is a list of rows,
+// a row a list of keys: adding a language means adding one file
+// under layouts/ and one line in registry.slint; the dock
+// engine (osk.slint) never changes.
+//
+// Smartphone gestures, all handled by the engine per key kind:
+// hold a key with accents (~350ms) and a pill pops above the
+// tile — slide and release picks the column, release on the
+// tile types the plain letter, a swipe below cancels. The space
+// bar slides the caret while held, the backspace auto-repeats,
+// and the shift is one-shot: it arms, the next case-carrying
+// key lands uppercase, it disarms itself
+
+// what one key does
+export struct OskKeyData {
+    // tile label (empty tiles render nothing)
+    glyph: string,
+    // the inserted char, "" for special keys
+    insert: string,
+    // 0 = plain, 3 = collapse, 4 = cursor space, 5 = auto-repeat,
+    // 6 = mode toggle, 7 = shift
+    kind: int,
+    // width in tile units (backspace 1.4, enter 4.4)
+    units: float,
+    // the glyph is a font icon, not text
+    icon: bool,
+    // long-press variants, left to right in the pill
+    variants: [string],
+    // the uppercase form — "" for keys with no case (specials,
+    // digits, symbols). Shifted tiles show it as the glyph and
+    // insert it instead of `insert`
+    shift: string,
+}
+
+export struct OskRowData {
+    keys: [OskKeyData],
+}
+
+// the key constructors — top-level functions are not a thing in
+// this slint rev, so they live in a global
+export global OskKeys {
+    // a plain key (digits, symbols — no case)
+    public function k(c: string) -> OskKeyData {
+        return { glyph: c, insert: c, kind: 0, units: 1, icon: false, variants: [], shift: "" };
+    }
+    // a letter with long-press accents
+    public function kv(c: string, variants: [string]) -> OskKeyData {
+        return { glyph: c, insert: c, kind: 0, units: 1, icon: false, variants: variants, shift: "" };
+    }
+    // a case-carrying letter (the shift inserts the upper form)
+    public function kl(l: string, u: string) -> OskKeyData {
+        return { glyph: l, insert: l, kind: 0, units: 1, icon: false, variants: [], shift: u };
+    }
+    // a case-carrying letter with long-press accents
+    public function klv(l: string, u: string, variants: [string]) -> OskKeyData {
+        return { glyph: l, insert: l, kind: 0, units: 1, icon: false, variants: variants, shift: u };
+    }
+    // the backspace auto-repeats while held (kind 5)
+    public function backspace() -> OskKeyData {
+        return { glyph: "⌫", insert: "backspace", kind: 5, units: 1.4, icon: false, variants: [], shift: "" };
+    }
+    public function enter() -> OskKeyData {
+        return {
+            glyph: "\u{e8b6}",
+            insert: "return",
+            kind: 0,
+            units: 1.4,
+            icon: true,
+            variants: [],
+            shift: ""
+        };
+    }
+    // the wide blank bar — types a space, slides the caret
+    // when held (kind 4)
+    public function space() -> OskKeyData {
+        return { glyph: "", insert: " ", kind: 4, units: 3.0, icon: false, variants: [], shift: "" };
+    }
+    // collapses the dock — the query field touch brings it back
+    public function collapse() -> OskKeyData {
+        return { glyph: "\u{e5cf}", insert: "", kind: 3, units: 1.4, icon: true, variants: [], shift: "" };
+    }
+    // the letters/numbers switch (kind 6): the glyph names the
+    // mode it switches TO
+    public function toggle(glyph: string) -> OskKeyData {
+        return { glyph: glyph, insert: "", kind: 6, units: 1.4, icon: false, variants: [], shift: "" };
+    }
+    // the one-shot shift (kind 7)
+    public function shift-key() -> OskKeyData {
+        return { glyph: "\u{e5d8}", insert: "", kind: 7, units: 1.4, icon: true, variants: [], shift: "" };
+    }
+}

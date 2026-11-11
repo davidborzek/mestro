@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 232 158">
+<defs><radialGradient id="win" cx="0.5" cy="0.5" r="0.5">
+  <stop offset="0" stop-color="#eaddb6"/>
+  <stop offset="0.70" stop-color="#ddd0a8"/>
+  <stop offset="1" stop-color="#cfc094"/>
+</radialGradient></defs>
+<rect width="232" height="158" rx="14" fill="#12100c" stroke="#ffffff14" stroke-width="1"/>
+<rect x="7" y="7" width="218" height="144" rx="9" fill="url(#win)"/>
+</svg>

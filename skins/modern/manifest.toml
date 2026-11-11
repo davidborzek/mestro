@@ -1,0 +1,95 @@
+# The modern VU (eversolo A6 second-design style): NO dial face
+# — a white arc track, sparse white majors tipping into red at
+# the + end, subtle minors, a plain slim white needle line, a
+# static red dot above the pivot drawn OVER the needle, traced
+# "dB"/"LEFT" + "dB"/"RIGHT" art (resvg has no fonts — labels
+# are stroke-constructed letterforms) — all straight on the
+# black plate; the glow wash rides the cover palette.
+glow = 0
+
+[faceplate]
+design-w = 573
+design-h = 344
+plate = "#000000"
+
+# art box 250; pivot: viewBox (90,130) scaled to the box
+[[dial]]
+side = "left"
+x = 26
+art-w = 250
+art-h = 250
+pivot-x = 125
+pivot-y = 181
+zero-angle = -60
+sweep = 120
+
+[[dial.layer]]
+role = "glow"
+radius = 113
+inset = 12
+tint = "palette"
+
+[[dial.layer]]
+role = "scale"
+source = "scale.svg"
+
+[[dial.layer]]
+role = "face"
+source = "db-left.svg"
+x = 107
+y = 96
+w = 36
+h = 56
+
+[[dial.layer]]
+role = "needle"
+source = "needle.svg"
+
+# the static red dot, drawn over the needle
+[[dial.layer]]
+role = "face"
+source = "dot.svg"
+x = 116
+y = 172
+w = 18
+h = 18
+
+[[dial]]
+side = "right"
+x = 296
+art-w = 250
+art-h = 250
+pivot-x = 125
+pivot-y = 181
+zero-angle = -60
+sweep = 120
+
+[[dial.layer]]
+role = "glow"
+radius = 113
+inset = 12
+tint = "palette"
+
+[[dial.layer]]
+role = "scale"
+source = "scale.svg"
+
+[[dial.layer]]
+role = "face"
+source = "db-right.svg"
+x = 107
+y = 96
+w = 36
+h = 56
+
+[[dial.layer]]
+role = "needle"
+source = "needle.svg"
+
+[[dial.layer]]
+role = "face"
+source = "dot.svg"
+x = 116
+y = 172
+w = 18
+h = 18

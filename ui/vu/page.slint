@@ -1,0 +1,327 @@
+import { Theme, Icon, Icons } from "../common.slint";
+import { VuOverview, VuPreviewData } from "overview.slint";
+
+// Two slots retain the outgoing skin during a slide. Removing its
+// container afterwards releases the instance even while it is invisible.
+export component VuPage inherits Rectangle {
+    in property <float> level-l: 0;
+    in property <float> level-r: 0;
+    in property <string> title;
+    in property <string> artist;
+    in property <string> codec;
+    in property <string> quality;
+    in property <bool> lossless;
+    in property <bool> has-media;
+    // the preset info lines: one segment row per template
+    // the configured info lines, one string per line
+    in property <[string]> info-lines;
+    in property <int> info-count: 0;
+    in property <component-factory> skin-factory;
+    private property <component-factory> empty-factory;
+    private property <component-factory> factory-a;
+    private property <component-factory> factory-b;
+    private property <bool> live-a: false;
+    private property <bool> live-b: false;
+    private property <length> cleanup-size;
+    private property <bool> bank-b: false;
+    private property <bool> staging: false;
+    private property <bool> sliding: false;
+    private property <float> slide-progress: 1;
+    private property <int> slide-direction: 1;
+    out property <bool> transitioning: root.staging || root.sliding;
+    callback present(int);
+    callback clear-skins();
+    clear-skins => {
+        root.staging = false;
+        root.sliding = false;
+        root.slide-progress = 1;
+        root.live-a = false;
+        root.live-b = false;
+        root.factory-a = root.empty-factory;
+        root.factory-b = root.empty-factory;
+        root.bank-b = false;
+        // Layout reads flush conditional subtrees even while the overlay is hidden.
+        root.cleanup-size = slot-a.preferred-height + slot-b.preferred-height;
+    }
+    present(direction) => {
+        if direction == 0 {
+            root.clear-skins();
+            root.factory-a = root.skin-factory;
+            root.live-a = true;
+        } else if !root.transitioning {
+            root.slide-direction = direction;
+            root.bank-b = !root.bank-b;
+            if root.bank-b {
+                root.factory-b = root.skin-factory;
+                root.live-b = true;
+            } else {
+                root.factory-a = root.skin-factory;
+                root.live-a = true;
+            }
+            root.slide-progress = 0;
+            root.staging = true;
+        }
+    }
+    animate slide-progress {
+        duration: root.sliding ? 220ms : 0ms;
+        easing: ease-in-out;
+    }
+    Timer {
+        interval: 16ms;
+        running: root.staging;
+        triggered => {
+            root.staging = false;
+            root.sliding = true;
+            root.slide-progress = 1;
+        }
+    }
+
+    Timer {
+        interval: 240ms;
+        running: root.sliding;
+        triggered => {
+            root.sliding = false;
+            if root.bank-b {
+                root.factory-a = root.empty-factory;
+                root.live-a = false;
+            } else {
+                root.factory-b = root.empty-factory;
+                root.live-b = false;
+            }
+            root.cleanup-size = slot-a.preferred-height + slot-b.preferred-height;
+        }
+    }
+    // auto-hide: any touch on the back zone (or entering the
+    // layer) reveals the ghost arrow; Rust hides it after 2s.
+    // light plates (the active skin says so) flip the ink
+    in property <bool> hint: false;
+    in property <bool> arrow-dark: false;
+    // the cycle: how many views there are and which is active
+    // (the dots at the bottom center mirror it)
+    in property <int> view-count: 0;
+    in property <int> view-index: 0;
+    in property <[VuPreviewData]> previews: [];
+    in-out property <bool> overview-open: false;
+    callback open-overview();
+    callback select-preview(int);
+    // swipe tracking: where the pointer went down
+    property <length> swipe-start-x: 0px;
+    callback back();
+    callback activity();
+    callback cycle();
+    callback cycle-back();
+
+    // the shell paints nothing: every skin owns the whole canvas
+    // including the page background; the overview covers it all
+    background: transparent;
+
+    // Clip both plates to the canvas while their edges move together.
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        clip: true;
+        slot-a := VerticalLayout {
+            visible: !root.overview-open && (!root.bank-b || root.transitioning);
+            x: (root.bank-b ? -root.slide-progress : 1 - root.slide-progress) * root.slide-direction * parent.width;
+            width: parent.width;
+            height: parent.height;
+            if root.live-a: ComponentContainer {
+                component-factory: root.factory-a;
+            }
+        }
+
+        slot-b := VerticalLayout {
+            visible: !root.overview-open && (root.bank-b || root.transitioning);
+            x: (root.bank-b ? 1 - root.slide-progress : -root.slide-progress) * root.slide-direction * parent.width;
+            width: parent.width;
+            height: parent.height;
+            if root.live-b: ComponentContainer {
+                component-factory: root.factory-b;
+            }
+        }
+    }
+
+    // no visible chrome: a tap anywhere on the plate reveals a
+    // ghost arrow briefly (top-left); tapping it while visible
+    // goes back. Skins keep their whole canvas
+    TouchArea {
+        visible: !root.overview-open;
+        x: 0;
+        y: 0;
+        width: 100%;
+        height: 100%;
+
+        pointer-event(e) => {
+            if (e.kind == PointerEventKind.down) {
+                root.activity();
+                root.swipe-start-x = self.mouse-x;
+            }
+            // a horizontal swipe cycles the views; a plain tap
+            // only reveals the cycle chrome (back lives in the nav rail)
+            if (e.kind == PointerEventKind.up) {
+                if (self.mouse-x - root.swipe-start-x < -60px) {
+                    root.cycle();
+                } else if (self.mouse-x - root.swipe-start-x > 60px) {
+                    root.cycle-back();
+                }
+            }
+        }
+
+        // (the ghost back arrow is gone — the nav rail owns back;
+        // a plain tap only reveals the cycle chrome)
+
+        // side rails: chevrons mid-height at the edges, cycling
+        // back (left) / forward (right). They fade with the hint;
+        // the rails keep taking taps — every tap cycles and
+        // re-reveals the chrome. Both edges are free: the nav
+        // rail is a layout column, the vu zone ends before it
+        if root.view-count > 1: Rectangle {
+            x: 0;
+            y: 0;
+            width: 56px;
+            height: 100%;
+            opacity: root.hint ? 1 : 0;
+            animate opacity { duration: 250ms; }
+            TouchArea {
+                pointer-event(e) => {
+                    if (e.kind == PointerEventKind.down) {
+                        root.activity();
+                    }
+                }
+                clicked => {
+                    root.cycle-back();
+                }
+                Text {
+                    text: Icons.glyph(Icon.chevron-left);
+                    font-family: Theme.icon-font;
+                    font-size: 40px;
+                    color: root.arrow-dark ? #3a3226 : Theme.text-dim;
+                    opacity: parent.has-hover || parent.pressed ? 1.0 : 0.6;
+                    animate opacity { duration: 150ms; }
+                    x: 10px;
+                    y: (parent.height - self.height) / 2;
+                }
+            }
+        }
+        // the right-edge cycle strip: the nav rail is a layout
+        // column — the vu zone ends before it, the edge is free
+        if root.view-count > 1: Rectangle {
+            x: parent.width - 56px;
+            y: 0;
+            width: 56px;
+            height: 100%;
+            opacity: root.hint ? 1 : 0;
+            animate opacity { duration: 250ms; }
+            TouchArea {
+                pointer-event(e) => {
+                    if (e.kind == PointerEventKind.down) {
+                        root.activity();
+                    }
+                }
+                clicked => {
+                    root.cycle();
+                }
+                Text {
+                    text: Icons.glyph(Icon.chevron-right);
+                    font-family: Theme.icon-font;
+                    font-size: 40px;
+                    color: root.arrow-dark ? #3a3226 : Theme.text-dim;
+                    opacity: parent.has-hover || parent.pressed ? 1.0 : 0.6;
+                    animate opacity { duration: 150ms; }
+                    x: parent.width - self.width - 10px;
+                    y: (parent.height - self.height) / 2;
+                }
+            }
+        }
+
+        // the skin picker button: same transient chrome as the
+        // cycle rails and dots, then a modal three-column overview
+        if root.view-count > 1: Rectangle {
+            x: parent.width - 50px;
+            y: 12px;
+            width: 38px;
+            height: 38px;
+            border-radius: 19px;
+            background: picker-ta.has-hover ? Theme.tile-hover : Theme.tile;
+            opacity: root.hint ? 1 : 0;
+            animate opacity { duration: 250ms; }
+            picker-ta := TouchArea {
+                pointer-event(e) => {
+                    if (e.kind == PointerEventKind.down) {
+                        root.activity();
+                    }
+                }
+                clicked => {
+                    root.open-overview();
+                }
+            }
+
+            Text {
+                text: Icons.glyph(Icon.grid-view);
+                font-family: Theme.icon-font;
+                font-size: 20px;
+                font-weight: 200;
+                color: root.arrow-dark ? #3a3226 : Theme.text-dim;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                width: 100%;
+                height: 100%;
+            }
+        }
+
+        // page dots (android-homescreen style): bottom center,
+        // the active one stretches into a pill — fades with the
+        // hint like the rest of the chrome. Tap opens the picker.
+        if root.view-count > 1: Rectangle {
+            height: 28px;
+            width: root.view-count * 16px - 10px + 24px;
+            x: (parent.width - self.width) / 2;
+            y: parent.height - 32px;
+            opacity: root.hint ? 1 : 0;
+            animate opacity { duration: 250ms; }
+            TouchArea {
+                pointer-event(e) => {
+                    if (e.kind == PointerEventKind.down) {
+                        root.activity();
+                    }
+                }
+                clicked => {
+                    root.open-overview();
+                }
+            }
+
+            HorizontalLayout {
+                alignment: center;
+                spacing: 10px;
+                padding-left: 12px;
+                padding-right: 12px;
+                for _v[i] in root.view-count: Rectangle {
+                    width: i == root.view-index ? 18px : 6px;
+                    height: 6px;
+                    y: (parent.height - self.height) / 2;
+                    border-radius: self.height / 2;
+                    background: root.arrow-dark ? (i == root.view-index ? #3a3226 : #3a322655) : (i == root.view-index ? Theme.text-dim : #ffffff40);
+                    animate width {
+                        duration: 200ms;
+                        easing: ease-out;
+                    }
+                }
+            }
+        }
+    }
+
+    VuOverview {
+        x: 0;
+        y: 0;
+        width: 100%;
+        height: 100%;
+        open: root.overview-open;
+        items: root.previews;
+        select(index) => {
+            root.select-preview(index);
+        }
+        back => {
+            root.overview-open = false;
+        }
+    }
+}

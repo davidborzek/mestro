@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 573 344">
+<!-- the seamless plate radial, centered on the window middle —
+     one stretched piece (the plate contract, docs/vu.md):
+     band-free on any zone aspect. Same falloff as the former
+     half tiles: r=119%, stop offsets untouched -->
+<defs><radialGradient id="plate" cx="50%" cy="50%" r="119%">
+  <stop offset="0" stop-color="#1a150e"/>
+  <stop offset="0.55" stop-color="#0f0c07"/>
+  <stop offset="1" stop-color="#050403"/>
+</radialGradient></defs>
+<rect width="573" height="344" fill="url(#plate)"/>
+</svg>

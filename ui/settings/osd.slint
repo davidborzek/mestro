@@ -1,0 +1,307 @@
+import {
+    SectionLabel,
+    PickerRow,
+    ToggleRow,
+    PickerRequest,
+    StepperRow,
+    OsdGates,
+} from "widgets.slint";
+
+// [osd]: the notification layer — tile style + placement, how
+// long each stays, which kinds surface at all, and the
+// per-context overrides ([osd.now-playing] / [osd.vu], shown
+// resolved: an unset override inherits the base flag).
+export component OsdSettings inherits VerticalLayout {
+    in property <string> osd-style: "translucent";
+    in property <bool> osd-style-overridden: false;
+    in property <string> osd-position: "bottom";
+    in property <bool> osd-position-overridden: false;
+    in property <string> osd-volume-position: "bottom";
+    in property <bool> osd-volume-position-overridden: false;
+    in property <float> osd-toast-duration: 2600;
+    in property <bool> osd-toast-duration-overridden: false;
+    in property <float> osd-volume-duration: 1800;
+    in property <bool> osd-volume-duration-overridden: false;
+    in property <OsdGates> osd-gates;
+    in property <OsdGates> osd-np-gates;
+    in property <OsdGates> osd-vu-gates;
+
+    callback request-picker(PickerRequest);
+    callback set-bool(string, bool);
+    callback set-num(string, float);
+    callback reset-value(string);
+
+    // the option index of an anchor (5 names)
+    function anchor-idx(a: string) -> int {
+        return a == "top" ? 1 : a == "left" ? 2 : a == "right" ? 3 : a == "center" ? 4 : 0;
+    }
+
+    spacing: 8px;
+
+    SectionLabel {
+        label: @tr("LOOK & PLACE");
+    }
+
+    PickerRow {
+        label: @tr("Style");
+        key: "osd.style";
+        value: root.osd-style;
+        overridden: root.osd-style-overridden;
+        open => {
+            root.request-picker({
+                key: "osd.style",
+                title: "OSD style",
+                options: ["translucent", "solid"],
+                selected: root.osd-style == "solid" ? 1 : 0,
+                is-bool: false
+            });
+        }
+        reset-key(k) => {
+            root.reset-value(k);
+        }
+    }
+
+    PickerRow {
+        label: @tr("Toast position");
+        key: "osd.position";
+        value: root.osd-position;
+        overridden: root.osd-position-overridden;
+        open => {
+            root.request-picker({
+                key: "osd.position",
+                title: "Toast position",
+                options: ["bottom", "top", "left", "right", "center"],
+                selected: root.anchor-idx(root.osd-position),
+                is-bool: false
+            });
+        }
+        reset-key(k) => {
+            root.reset-value(k);
+        }
+    }
+
+    PickerRow {
+        label: @tr("Volume position");
+        key: "osd.volume-position";
+        value: root.osd-volume-position;
+        overridden: root.osd-volume-position-overridden;
+        open => {
+            root.request-picker({
+                key: "osd.volume-position",
+                title: "Volume position",
+                options: ["bottom", "top", "left", "right", "center"],
+                selected: root.anchor-idx(root.osd-volume-position),
+                is-bool: false
+            });
+        }
+        reset-key(k) => {
+            root.reset-value(k);
+        }
+    }
+
+    SectionLabel {
+        label: @tr("HOW LONG");
+    }
+
+    StepperRow {
+        label: @tr("Toast duration");
+        key: "osd.toast-duration";
+        value: root.osd-toast-duration;
+        step: 200;
+        min: 400;
+        max: 10000;
+        unit: "ms-as-s";
+        overridden: root.osd-toast-duration-overridden;
+        set-num(k, v) => {
+            root.set-num(k, v);
+        }
+        reset-key(k) => {
+            root.reset-value(k);
+        }
+    }
+
+    StepperRow {
+        label: @tr("Volume duration");
+        key: "osd.volume-duration";
+        value: root.osd-volume-duration;
+        step: 200;
+        min: 400;
+        max: 10000;
+        unit: "ms-as-s";
+        overridden: root.osd-volume-duration-overridden;
+        set-num(k, v) => {
+            root.set-num(k, v);
+        }
+        reset-key(k) => {
+            root.reset-value(k);
+        }
+    }
+
+    SectionLabel {
+        label: @tr("WHAT SHOWS");
+    }
+
+    ToggleRow {
+        label: @tr("Transport toasts");
+        key: "osd.transport";
+        value: root.osd-gates.transport;
+        overridden: root.osd-gates.transport-overridden;
+        set-bool(k, v) => {
+            root.set-bool(k, v);
+        }
+        reset-key(k) => {
+            root.reset-value(k);
+        }
+    }
+
+    ToggleRow {
+        label: @tr("Track toasts");
+        key: "osd.track";
+        value: root.osd-gates.track;
+        overridden: root.osd-gates.track-overridden;
+        set-bool(k, v) => {
+            root.set-bool(k, v);
+        }
+        reset-key(k) => {
+            root.reset-value(k);
+        }
+    }
+
+    ToggleRow {
+        label: @tr("Queue toasts");
+        key: "osd.queue";
+        value: root.osd-gates.queue;
+        overridden: root.osd-gates.queue-overridden;
+        set-bool(k, v) => {
+            root.set-bool(k, v);
+        }
+        reset-key(k) => {
+            root.reset-value(k);
+        }
+    }
+
+    ToggleRow {
+        label: @tr("Volume OSD");
+        key: "osd.volume";
+        value: root.osd-gates.volume;
+        overridden: root.osd-gates.volume-overridden;
+        set-bool(k, v) => {
+            root.set-bool(k, v);
+        }
+        reset-key(k) => {
+            root.reset-value(k);
+        }
+    }
+
+    SectionLabel {
+        label: @tr("ON NOW PLAYING");
+    }
+
+    ToggleRow {
+        label: @tr("Transport");
+        key: "osd.now-playing.transport";
+        value: root.osd-np-gates.transport;
+        overridden: root.osd-np-gates.transport-overridden;
+        set-bool(k, v) => {
+            root.set-bool(k, v);
+        }
+        reset-key(k) => {
+            root.reset-value(k);
+        }
+    }
+
+    ToggleRow {
+        label: @tr("Track");
+        key: "osd.now-playing.track";
+        value: root.osd-np-gates.track;
+        overridden: root.osd-np-gates.track-overridden;
+        set-bool(k, v) => {
+            root.set-bool(k, v);
+        }
+        reset-key(k) => {
+            root.reset-value(k);
+        }
+    }
+
+    ToggleRow {
+        label: @tr("Queue");
+        key: "osd.now-playing.queue";
+        value: root.osd-np-gates.queue;
+        overridden: root.osd-np-gates.queue-overridden;
+        set-bool(k, v) => {
+            root.set-bool(k, v);
+        }
+        reset-key(k) => {
+            root.reset-value(k);
+        }
+    }
+
+    ToggleRow {
+        label: @tr("Volume");
+        key: "osd.now-playing.volume";
+        value: root.osd-np-gates.volume;
+        overridden: root.osd-np-gates.volume-overridden;
+        set-bool(k, v) => {
+            root.set-bool(k, v);
+        }
+        reset-key(k) => {
+            root.reset-value(k);
+        }
+    }
+
+    SectionLabel {
+        label: @tr("ON THE VU");
+    }
+
+    ToggleRow {
+        label: @tr("Transport");
+        key: "osd.vu.transport";
+        value: root.osd-vu-gates.transport;
+        overridden: root.osd-vu-gates.transport-overridden;
+        set-bool(k, v) => {
+            root.set-bool(k, v);
+        }
+        reset-key(k) => {
+            root.reset-value(k);
+        }
+    }
+
+    ToggleRow {
+        label: @tr("Track");
+        key: "osd.vu.track";
+        value: root.osd-vu-gates.track;
+        overridden: root.osd-vu-gates.track-overridden;
+        set-bool(k, v) => {
+            root.set-bool(k, v);
+        }
+        reset-key(k) => {
+            root.reset-value(k);
+        }
+    }
+
+    ToggleRow {
+        label: @tr("Queue");
+        key: "osd.vu.queue";
+        value: root.osd-vu-gates.queue;
+        overridden: root.osd-vu-gates.queue-overridden;
+        set-bool(k, v) => {
+            root.set-bool(k, v);
+        }
+        reset-key(k) => {
+            root.reset-value(k);
+        }
+    }
+
+    ToggleRow {
+        label: @tr("Volume");
+        key: "osd.vu.volume";
+        value: root.osd-vu-gates.volume;
+        overridden: root.osd-vu-gates.volume-overridden;
+        set-bool(k, v) => {
+            root.set-bool(k, v);
+        }
+        reset-key(k) => {
+            root.reset-value(k);
+        }
+    }
+}

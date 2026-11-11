@@ -1,0 +1,18 @@
+# mestro kiosk — network setup
+#
+# wlan0 comes up via wpa_supplicant (S39wifi) with the credentials
+# from the data partition (/data/wpa_supplicant.conf); eth0 works
+# out of the box for a wired setup.
+
+auto lo
+iface lo inet loopback
+
+auto eth0
+iface eth0 inet dhcp
+  wait-delay 15
+  hostname $(hostname)
+
+auto wlan0
+iface wlan0 inet dhcp
+  wait-delay 15
+  hostname $(hostname)

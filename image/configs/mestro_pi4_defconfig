@@ -1,0 +1,126 @@
+# mestro — flash-and-go kiosk image for Raspberry Pi
+#
+# Based on upstream raspberrypi4_64_defconfig. Deltas:
+# - BusyBox init (no systemd), dropbear for recovery access
+# - mesa3d v3d + EGL/GLESv2: the slint linuxkms skia renderer
+#   gets GPU acceleration on the Pi 4/5 (vc4/v3d KMS)
+# - mestro (prebuilt aarch64 binary) + squeezelite (VISEXPORT)
+# - rootfs as initramfs: the whole system runs from RAM,
+#   the SD card is only read at boot
+# - genimage builds boot FAT + data FAT around the kernel image
+
+# architecture + toolchain (upstream Pi 4)
+BR2_aarch64=y
+BR2_cortex_a72=y
+BR2_ARM_FPU_VFPV4=y
+BR2_TOOLCHAIN_EXTERNAL=y
+BR2_TOOLCHAIN_EXTERNAL_BOOTLIN=y
+BR2_TOOLCHAIN_EXTERNAL_BOOTLIN_AARCH64_GLIBC_STABLE=y
+BR2_DL_DIR="$(BR2_EXTERNAL_MESTROIMAGE_PATH)/../dl"
+BR2_DOWNLOAD_FORCE_CHECK_HASHES=y
+
+# system: busybox init, dhcp on eth0, dropbear for recovery
+BR2_TARGET_GENERIC_GETTY=y
+BR2_TARGET_GENERIC_GETTY_PORT="tty1"
+BR2_SYSTEM_DHCP="eth0"
+BR2_ROOTFS_OVERLAY="$(BR2_EXTERNAL_MESTROIMAGE_PATH)/board/mestro/rpi4/rootfs-overlay"
+BR2_PACKAGE_BUSYBOX=y
+BR2_PACKAGE_BUSYBOX_CONFIG_FRAGMENT_FILES="$(BR2_EXTERNAL_MESTROIMAGE_PATH)/board/mestro/common/busybox.fragment"
+# kmod tools replace busybox's applets: busybox modprobe cannot
+# decompress the xz-compressed kernel modules
+BR2_PACKAGE_BUSYBOX_SHOW_OTHERS=y
+BR2_PACKAGE_KMOD_TOOLS=y
+BR2_PACKAGE_DROPBEAR=y
+# root/kiosk: recovery access over SSH, change in shipped images
+# via /data or reflash
+
+# kernel: raspberrypi tree, vc4/v3d KMS + DSI panels (bcm2711 defconfig)
+BR2_LINUX_KERNEL=y
+BR2_LINUX_KERNEL_CUSTOM_TARBALL=y
+BR2_LINUX_KERNEL_CUSTOM_TARBALL_LOCATION="$(call github,raspberrypi,linux,21b410140c47ffab5668399f6f143c7d7b935c8b)/linux-21b410140c47ffab5668399f6f143c7d7b935c8b.tar.gz"
+BR2_LINUX_KERNEL_DEFCONFIG="bcm2711"
+BR2_LINUX_KERNEL_DTS_SUPPORT=y
+BR2_LINUX_KERNEL_INTREE_DTS_NAME="broadcom/bcm2711-rpi-4-b broadcom/bcm2711-rpi-400 broadcom/bcm2711-rpi-cm4"
+BR2_LINUX_KERNEL_NEEDS_HOST_OPENSSL=y
+BR2_PACKAGE_KMOD=y
+BR2_PACKAGE_KMOD_TOOLS=y
+BR2_PACKAGE_RPI_FIRMWARE=y
+BR2_PACKAGE_RPI_FIRMWARE_VARIANT_PI4=y
+BR2_PACKAGE_RPI_FIRMWARE_CONFIG_FILE="$(BR2_EXTERNAL_MESTROIMAGE_PATH)/board/mestro/rpi4/config.txt"
+BR2_PACKAGE_RPI_FIRMWARE_CMDLINE_FILE="$(BR2_EXTERNAL_MESTROIMAGE_PATH)/board/mestro/rpi4/cmdline.txt"
+
+# kernel patches (7" panel touch: single-byte i2c reads)
+BR2_GLOBAL_PATCH_DIR="$(BR2_EXTERNAL_MESTROIMAGE_PATH)/patches"
+
+# GPU + graphics stack for slint linuxkms (skia on GL ES via GBM/EGL)
+BR2_PACKAGE_LIBDRM=y
+BR2_PACKAGE_LIBGLIB2=y
+BR2_PACKAGE_LIBXKBCOMMON=y
+BR2_PACKAGE_FREETYPE=y
+BR2_PACKAGE_FONTCONFIG=y
+# runtime libs of the mestro binary: libseat (builtin seatd server),
+# libinput, libudev — eudev also autoloads modules via modalias
+BR2_ROOTFS_DEVICE_CREATION_DYNAMIC_EUDEV=y
+BR2_PACKAGE_SEATD=y
+BR2_PACKAGE_SEATD_BUILTIN=y
+BR2_PACKAGE_LIBINPUT=y
+BR2_PACKAGE_EUDEV=y
+BR2_PACKAGE_MESA3D=y
+BR2_PACKAGE_MESA3D_GALLIUM_DRIVER_V3D=y
+BR2_PACKAGE_MESA3D_OPENGL_EGL=y
+BR2_PACKAGE_MESA3D_OPENGL_ES=y
+BR2_PACKAGE_MESA3D_DRI_DRIVER=y
+
+# alsa (bit-perfect: no resampler in the squeezelite build, hw: output)
+BR2_PACKAGE_ALSA_LIB=y
+# zoneinfo + default timezone for the kiosk clock — baked as
+# /etc/localtime, overridable via TZ in /data/mestro.env
+BR2_TARGET_TZ_INFO=y
+BR2_TARGET_LOCALTIME="Europe/Berlin"
+BR2_PACKAGE_ALSA_UTILS=y
+BR2_PACKAGE_ALSA_UTILS_APLAY=y
+BR2_PACKAGE_ALSA_UTILS_AMIXER=y
+
+# the kiosk
+BR2_PACKAGE_MESTRO=y
+
+# boot splash: logo on the panel from the first frame vc4 can draw
+# until mestro takes over (custom logo via the image path)
+BR2_PACKAGE_PSPLASH=y
+BR2_PACKAGE_PSPLASH_IMAGE="$(BR2_EXTERNAL_MESTROIMAGE_PATH)/board/mestro/rpi4/splash.png"
+# BR2_PACKAGE_PSPLASH_PROGRESS_BAR is not set
+# BR2_PACKAGE_PSPLASH_STARTUP_MSG is not set
+BR2_PACKAGE_PSPLASH_FULL_SCREEN=y
+
+# kernel modules are xz-compressed: depmod (host-kmod) and the
+# target modprobe both need xz support or modules.dep stays empty
+BR2_PACKAGE_XZ=y
+BR2_PACKAGE_HOST_KMOD_XZ=y
+
+# wifi: onboard brcm module, firmware + wpa_supplicant (config on
+# the data partition, see S39wifi)
+BR2_PACKAGE_LINUX_FIRMWARE=y
+BR2_PACKAGE_LINUX_FIRMWARE_BRCM_BCM43XXX=y
+BR2_PACKAGE_WPA_SUPPLICANT=y
+BR2_PACKAGE_IW=y
+# i2c debugging (7" panel touch sits at 0x38/0x45 on i2c-10)
+BR2_PACKAGE_I2C_TOOLS=y
+
+# squeezelite: upstream package — VISEXPORT for the VU shm ring,
+# DSD on, no resampler (bit-perfect hw: output)
+BR2_PACKAGE_SQUEEZELITE=y
+BR2_PACKAGE_SQUEEZELITE_VISEXPORT=y
+BR2_PACKAGE_SQUEEZELITE_DSD=y
+# BR2_PACKAGE_SQUEEZELITE_FFMPEG is not set
+# BR2_PACKAGE_SQUEEZELITE_RESAMPLE is not set
+
+# rootfs: initramfs only — the system runs entirely in RAM
+BR2_TARGET_ROOTFS_INITRAMFS=y
+BR2_TARGET_ROOTFS_INITRAMFS_COMPRESSION_GZIP=y
+# BR2_TARGET_ROOTFS_TAR is not set
+
+# image assembly: boot FAT + data FAT via genimage
+BR2_ROOTFS_POST_IMAGE_SCRIPT="$(BR2_EXTERNAL_MESTROIMAGE_PATH)/board/mestro/rpi4/post-image.sh"
+BR2_PACKAGE_HOST_DOSFSTOOLS=y
+BR2_PACKAGE_HOST_GENIMAGE=y
+BR2_PACKAGE_HOST_MTOOLS=y

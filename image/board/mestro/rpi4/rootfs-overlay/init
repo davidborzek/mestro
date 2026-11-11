@@ -1,0 +1,92 @@
+#!/bin/sh
+# kinit — assemble the kiosk root before busybox init takes over.
+#
+# The whole system lives in the initramfs embedded in the kernel
+# image. This script (rdinit=/kinit on the kernel cmdline):
+#
+#   1. mounts proc/sys/dev and loads the overlay filesystem modules
+#   2. mounts the data partition
+#   3. loop-mounts every extension in /data/tce/*.tcz (squashfs,
+#      name order; /data/tce/onboot.lst limits the selection)
+#   4. lays an overlayfs over the root: lower layers = initramfs +
+#      extensions, upper layer = tmpfs (volatile, like the rest of
+#      the system)
+#   5. chroots into the merged tree and execs busybox init — the
+#      initramfs must stay mounted: it is the overlay's lower layer
+#
+# Extensions are the piCore-style package model: drop a squashfs
+# file on the data partition, reboot, done. See image/README.md.
+
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+
+mkdir -p /proc /sys /dev /tmp /data
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev 2>/dev/null || mdev -s
+
+modprobe squashfs 2>/dev/null
+modprobe overlay 2>/dev/null
+
+# ---- data partition: second partition on the boot device ----
+n=0
+while [ $n -lt 10 ]; do
+	for dev in /dev/mmcblk0p2 /dev/nvme0n1p2 /dev/sda2; do
+		if [ -b "$dev" ] && blkid "$dev" 2>/dev/null | grep -q "MESTRODATA"; then
+			mount -t vfat "$dev" /data && break 2
+		fi
+	done
+	n=$((n + 1))
+	sleep 1
+done
+# no data partition: boot without extensions and without persistence
+DATA_MOUNTED=false
+grep -q " /data " /proc/mounts && DATA_MOUNTED=true
+
+# ---- extensions: /data/tce/*.tcz in name order ----
+LOWER=""
+if [ "$DATA_MOUNTED" = true ] && [ -d /data/tce ]; then
+	mkdir -p /mnt/tce
+	# onboot.lst (one filename per line) limits the selection,
+	# piCore style; without it every *.tcz loads
+	LIST=""
+	if [ -s /data/tce/onboot.lst ]; then
+		# sanity: only accept names that exist as files
+		for name in $(grep -v '^\s*#' /data/tce/onboot.lst 2>/dev/null); do
+			[ -f "/data/tce/$name" ] && LIST="$LIST $name"
+		done
+	else
+		LIST=$(cd /data/tce && ls *.tcz 2>/dev/null | sort)
+	fi
+	for name in $LIST; do
+		mnt="/mnt/tce/$name"
+		mkdir -p "$mnt"
+		if mount -o loop,ro "/data/tce/$name" "$mnt" 2>/dev/null; then
+			# leftmost lower layer wins — earlier extensions
+			# shadow later ones, the base root comes last
+			LOWER="$mnt:$LOWER"
+		else
+			echo "kinit: cannot mount extension $name — skipping" >&2
+			rmdir "$mnt" 2>/dev/null
+		fi
+	done
+fi
+
+# ---- overlay: base root + extensions (ro) + volatile rw layer ----
+mkdir -p /tmp/rw/upper /tmp/rw/work /mnt/overlay
+mount -t tmpfs tmpfs /tmp/rw
+mkdir -p /tmp/rw/upper /tmp/rw/work
+if ! mount -t overlay overlay \
+	-o "lowerdir=${LOWER}/,upperdir=/tmp/rw/upper,workdir=/tmp/rw/work" \
+	/mnt/overlay; then
+	echo "kinit: overlay mount failed — booting unmerged" >&2
+	exec /sbin/init
+fi
+
+# fresh mounts inside the merged tree (the outer ones belong to the
+# overlay's lower layers and are not visible post-chroot)
+mkdir -p /mnt/overlay/proc /mnt/overlay/sys /mnt/overlay/dev
+mount -t proc proc /mnt/overlay/proc
+mount -t sysfs sysfs /mnt/overlay/sys
+mount -t devtmpfs devtmpfs /mnt/overlay/dev
+
+exec chroot /mnt/overlay /sbin/init

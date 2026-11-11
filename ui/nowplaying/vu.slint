@@ -1,0 +1,144 @@
+import { Theme } from "../common.slint";
+
+// the inline VUs for now-playing, driven by [now-playing]
+// inline-vu — one file so the styles stay comparable
+
+// segmented LED-style strips. Classic meter conventions: instant
+// attack, lazy release happens on the Rust side; the top of the
+// scale is the red zone. Levels arrive ballistics-smoothed as
+// 0..1 across -48..0 dBFS.
+export component VuMeter inherits Rectangle {
+    in property <float> level-l: 0;
+    in property <float> level-r: 0;
+    // red zone starts here (segment index >= level * SEGMENTS)
+    in property <int> red-from: 21;
+    in property <int> segments: 24;
+
+    height: 26px;
+
+    VerticalLayout {
+        alignment: center;
+        spacing: 3px;
+
+        HorizontalLayout {
+            spacing: 5px;
+            Text {
+                width: 8px;
+                text: "L";
+                font-size: 8px;
+                color: Theme.text-mute;
+                vertical-alignment: center;
+            }
+
+            HorizontalLayout {
+                horizontal-stretch: 1;
+                spacing: 2px;
+                for i in root.segments: Rectangle {
+                    horizontal-stretch: 1;
+                    height: 8px;
+                    border-radius: 1px;
+                    background: i < root.level-l * root.segments ? (i >= root.red-from ? Theme.danger : Theme.accent) : Theme.tile;
+                }
+            }
+        }
+
+        HorizontalLayout {
+            spacing: 5px;
+            Text {
+                width: 8px;
+                text: "R";
+                font-size: 8px;
+                color: Theme.text-mute;
+                vertical-alignment: center;
+            }
+
+            HorizontalLayout {
+                horizontal-stretch: 1;
+                spacing: 2px;
+                for i in root.segments: Rectangle {
+                    horizontal-stretch: 1;
+                    height: 8px;
+                    border-radius: 1px;
+                    background: i < root.level-r * root.segments ? (i >= root.red-from ? Theme.danger : Theme.accent) : Theme.tile;
+                }
+            }
+        }
+    }
+}
+
+// two thin minimal bars — the eversolo reading of a level
+// meter: hairline tracks, accent fill, nothing else
+export component ThinMeter inherits Rectangle {
+    in property <float> level-l: 0;
+    in property <float> level-r: 0;
+
+    height: 12px;
+
+    VerticalLayout {
+        alignment: center;
+        spacing: 4px;
+
+        Rectangle {
+            height: 3px;
+            border-radius: 1.5px;
+            background: Theme.tile;
+            clip: true;
+
+            Rectangle {
+                x: 0;
+                width: parent.width * root.level-l;
+                height: 100%;
+                border-radius: 1.5px;
+                background: Theme.accent;
+            }
+        }
+
+        Rectangle {
+            height: 3px;
+            border-radius: 1.5px;
+            background: Theme.tile;
+            clip: true;
+
+            Rectangle {
+                x: 0;
+                width: parent.width * root.level-r;
+                height: 100%;
+                border-radius: 1.5px;
+                background: Theme.accent;
+            }
+        }
+    }
+}
+
+// the spectrum as a dim bar matrix behind the whole view — the
+// eversolo background visualizer: full-width bars growing from
+// the bottom, transparentized so content keeps reading on top.
+// Bands are the same 32 log-spaced 0..1 floats the spectrum
+// faceplate uses
+export component VuMatrix inherits Rectangle {
+    in property <[float]> bands;
+    in property <bool> has-media: false;
+
+    if root.has-media && root.bands.length > 0: HorizontalLayout {
+        x: 0;
+        y: 0;
+        width: 100%;
+        height: 100%;
+        padding-left: 6px;
+        padding-right: 6px;
+        padding-top: 44px;
+        padding-bottom: 44px;
+        spacing: 2px;
+
+        for b[i] in root.bands: Rectangle {
+            horizontal-stretch: 1;
+
+            Rectangle {
+                y: parent.height - self.height;
+                height: parent.height * 0.66 * b;
+                border-radius: 1px;
+                background: Theme.accent.transparentize(0.74);
+            }
+        }
+    }
+}

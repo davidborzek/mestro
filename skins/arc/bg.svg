@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180">
+<!-- the half-round dial face: warm dark, a soft shadow below
+     the base line; the chrome bezel is a separate topmost
+     layer (bezel.svg) -->
+<defs>
+  <radialGradient id="face" cx="0.5" cy="0.34" r="0.78">
+    <stop offset="0" stop-color="#2e2517"/>
+    <stop offset="0.55" stop-color="#1a150e"/>
+    <stop offset="1" stop-color="#0b0906"/>
+  </radialGradient>
+</defs>
+<!-- soft shadow under the base line -->
+<ellipse cx="90" cy="131" rx="84" ry="6" fill="#000000" opacity="0.5"/>
+<!-- the half-disc face, pivot at (90,128), r=78 -->
+<path d="M 12 128 A 78 78 0 0 1 168 128 Z" fill="url(#face)"/>
+</svg>

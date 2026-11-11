@@ -1,0 +1,35 @@
+#!/bin/sh
+# S39wifi — bring up wlan0 via wpa_supplicant before ifup (S40network).
+# Credentials live on the data partition so they survive re-flashes
+# and are editable from any OS.
+
+CONF=/data/wpa_supplicant.conf
+
+case "$1" in
+start)
+	[ -f "$CONF" ] || {
+		echo "wifi: no $CONF — wlan0 stays down (copy the template from /etc/mestro-defaults)" >&2
+		exit 0
+	}
+	# wait for brcmfmac to register the interface
+	n=0
+	while [ $n -lt 10 ] && ! ip link show wlan0 >/dev/null 2>&1; do
+		n=$((n + 1))
+		sleep 1
+	done
+	ip link show wlan0 >/dev/null 2>&1 || {
+		echo "wifi: wlan0 not found" >&2
+		exit 0
+	}
+	start-stop-daemon -S -b -x /usr/sbin/wpa_supplicant -- \
+		-i wlan0 -c "$CONF"
+	;;
+stop)
+	start-stop-daemon -K -x /usr/sbin/wpa_supplicant
+	;;
+restart)
+	"$0" stop
+	sleep 1
+	"$0" start
+	;;
+esac

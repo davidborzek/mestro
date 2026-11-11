@@ -1,0 +1,384 @@
+import { Theme, Icon, Icons } from "../common.slint";
+import { ToggleSwitch } from "../components/toggle-switch.slint";
+import {
+    SectionLabel,
+    GlyphBtn,
+    ToggleRow,
+    StepperRow,
+    PickerRow,
+    PickerRequest,
+} from "widgets.slint";
+import { VuPreviewData } from "../vu/overview.slint";
+
+// one row in the VU list: name, mini-preview, active flag and
+// whether the skin exposes editable options
+export struct VuListEntry {
+    name: string,
+    active: bool,
+    has-options: bool,
+    preview: image,
+}
+
+// The VU settings family: the ordered skin list (level 1) and
+// per-skin options (level 2). The hub routes by view id
+// (8 list, 9 options). Cycle reorder and membership are
+// structural — Rust owns the array arithmetic; per-skin
+// scalars ride the standard SetSetting/ResetSetting path.
+export component VuSettings inherits VerticalLayout {
+    in property <int> view: 0;
+    // level 1: the ordered VU list
+    in property <[VuListEntry]> vu-list: [];
+    // level 2: which skin is being edited
+    in property <string> edit-name: "";
+    in property <image> edit-preview;
+    // level 2: per-skin option values (effective)
+    in property <float> glow-value: 0;
+    in property <bool> glow-overridden: false;
+    in property <[string]> info-order: [];
+    in property <[string]> info-inactive: [];
+    in property <bool> info-overridden: false;
+    in property <bool> meters-value: false;
+    in property <bool> meters-overridden: false;
+    in property <bool> gradient-value: false;
+    in property <bool> gradient-overridden: false;
+
+    // structural edits (cycle array)
+    callback vu-move(string, int);
+    callback vu-toggle-cycle(string);
+    callback vu-open-options(string);
+    // per-skin scalar edits ride the generic path
+    callback set-num(string, float);
+    callback set-bool(string, bool);
+    callback reset-value(string);
+    // info-line chips (same pattern as NP quality)
+    callback toggle-info(string);
+    callback move-info(string, int);
+    callback push-subview(int);
+    callback request-picker(PickerRequest);
+
+    spacing: 8px;
+
+    // ── level 1: VU list ──
+    if root.view == 8: VerticalLayout {
+        spacing: 6px;
+
+        SectionLabel {
+            label: @tr("VUS");
+        }
+
+        VerticalLayout {
+            spacing: 4px;
+
+            for entry[i] in root.vu-list: Rectangle {
+                height: 44px;
+                background: Theme.tile;
+                border-radius: 10px;
+                opacity: entry.active ? 1 : 0.45;
+
+                HorizontalLayout {
+                    padding-left: 6px;
+                    padding-right: 6px;
+                    spacing: 6px;
+
+                    // mini preview
+                        VerticalLayout {
+                        alignment: center;
+                        Rectangle {
+                            width: 56px;
+                            height: 34px;
+                            border-radius: 5px;
+                            clip: true;
+                            Image {
+                                x: 0;
+                                y: 0;
+                                width: 100%;
+                                height: 100%;
+                                source: entry.preview;
+                                image-fit: fill;
+                            }
+                        }
+                    }
+
+                    // name
+                        Text {
+                        text: entry.name;
+                        font-size: 13px;
+                        letter-spacing: 1px;
+                        font-weight: 600;
+                        color: entry.active ? Theme.text : Theme.text-mute;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                        overflow: elide;
+                    }
+
+                    // reorder
+                        VerticalLayout {
+                        alignment: center;
+                        GlyphBtn {
+                            glyph: "↑";
+                            enabled: i > 0;
+                            clicked => {
+                                root.vu-move(entry.name, -1);
+                            }
+                        }
+                    }
+
+                    VerticalLayout {
+                        alignment: center;
+                        GlyphBtn {
+                            glyph: "↓";
+                            enabled: i < root.vu-list.length - 1;
+                            clicked => {
+                                root.vu-move(entry.name, 1);
+                            }
+                        }
+                    }
+
+                    // active toggle
+                        VerticalLayout {
+                        alignment: center;
+                        ToggleSwitch {
+                            checked: entry.active;
+                            clicked => {
+                                root.vu-toggle-cycle(entry.name);
+                            }
+                        }
+                    }
+
+                    // options
+                        VerticalLayout {
+                        alignment: center;
+                        GlyphBtn {
+                            glyph: "⚙";
+                            enabled: entry.has-options;
+                            clicked => {
+                                root.vu-open-options(entry.name);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── level 2: per-skin options ──
+    if root.view == 9: VerticalLayout {
+        spacing: 6px;
+
+        SectionLabel {
+            label: root.edit-name + @tr(" OPTIONS");
+        }
+
+        HorizontalLayout {
+            alignment: center;
+            Rectangle {
+                width: 250px;
+                height: 150px;
+                border-radius: 8px;
+                clip: true;
+                Image {
+                    width: 100%;
+                    height: 100%;
+                    source: root.edit-preview;
+                    image-fit: fill;
+                }
+            }
+        }
+
+        VerticalLayout {
+            spacing: 4px;
+
+            // glow slider (cream, round, wall-light)
+                if root.edit-name == "cream" || root.edit-name == "round" || root.edit-name == "wall-light": SectionLabel {
+                label: @tr("GLOW");
+            }
+            if root.edit-name == "cream" || root.edit-name == "round" || root.edit-name == "wall-light": Rectangle {
+                height: 44px;
+                background: Theme.tile;
+                border-radius: 10px;
+
+                HorizontalLayout {
+                    padding-left: 14px;
+                    padding-right: 8px;
+                    spacing: 8px;
+                    Text {
+                        text: root.edit-name == "wall-light" ? @tr("Warm glow") : @tr("Glow");
+                        font-size: 14px;
+                        color: Theme.text;
+                        vertical-alignment: center;
+                        width: 80px;
+                    }
+
+                    Rectangle {
+                        horizontal-stretch: 1;
+                    }
+
+                    Text {
+                        text: @tr("{}", Math.round(root.glow-value * 100));
+                        font-size: 14px;
+                        color: Theme.accent;
+                        vertical-alignment: center;
+                        width: 34px;
+                        horizontal-alignment: right;
+                    }
+
+                    VerticalLayout {
+                        alignment: center;
+                        GlyphBtn {
+                            glyph: "−";
+                            enabled: root.glow-value > 0;
+                            clicked => {
+                                root.set-num("vu." + root.edit-name + ".glow",
+                                        Math.max(0, root.glow-value - 0.1));
+                            }
+                        }
+                    }
+
+                    VerticalLayout {
+                        alignment: center;
+                        GlyphBtn {
+                            glyph: "+";
+                            enabled: root.glow-value < 1;
+                            clicked => {
+                                root.set-num("vu." + root.edit-name + ".glow",
+                                        Math.min(1, root.glow-value + 0.1));
+                            }
+                        }
+                    }
+
+                    if root.glow-overridden: VerticalLayout {
+                        alignment: center;
+                        GlyphBtn {
+                            glyph: "↺";
+                            clicked => {
+                                root.reset-value("vu." + root.edit-name + ".glow");
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Info lines are ordered; tapping an available field appends it.
+                if root.edit-name != "wall-light": HorizontalLayout {
+                SectionLabel {
+                    label: @tr("INFO LINES");
+                    horizontal-stretch: 1;
+                }
+
+                if root.info-overridden: GlyphBtn {
+                    glyph: "↺";
+                    clicked => {
+                        root.reset-value("vu." + root.edit-name + ".info");
+                    }
+                }
+            }
+            if root.edit-name != "wall-light": VerticalLayout {
+                spacing: 4px;
+                for name[i] in root.info-order: Rectangle {
+                    height: 40px;
+                    background: Theme.tile;
+                    border-radius: 10px;
+                    HorizontalLayout {
+                        padding-left: 14px;
+                        padding-right: 8px;
+                        spacing: 8px;
+                        Text {
+                            text: name;
+                            font-size: 14px;
+                            color: Theme.text;
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
+                        }
+
+                        VerticalLayout {
+                            alignment: center;
+                            GlyphBtn {
+                                glyph: "↑";
+                                enabled: i > 0;
+                                clicked => {
+                                    root.move-info(name, -1);
+                                }
+                            }
+                        }
+
+                        VerticalLayout {
+                            alignment: center;
+                            GlyphBtn {
+                                glyph: "↓";
+                                enabled: i < root.info-order.length - 1;
+                                clicked => {
+                                    root.move-info(name, 1);
+                                }
+                            }
+                        }
+
+                        VerticalLayout {
+                            alignment: center;
+                            ToggleSwitch {
+                                checked: true;
+                                clicked => {
+                                    root.toggle-info(name);
+                                }
+                            }
+                        }
+                    }
+                }
+                for name in root.info-inactive: Rectangle {
+                    height: 40px;
+                    background: Theme.tile;
+                    border-radius: 10px;
+                    HorizontalLayout {
+                        padding-left: 14px;
+                        padding-right: 8px;
+                        Text {
+                            text: name;
+                            font-size: 14px;
+                            color: Theme.text-mute;
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
+                        }
+
+                        VerticalLayout {
+                            alignment: center;
+                            ToggleSwitch {
+                                checked: false;
+                                clicked => {
+                                    root.toggle-info(name);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // analyzer toggles (spectrum, bars)
+                if root.edit-name == "spectrum" || root.edit-name == "bars": SectionLabel {
+                label: @tr("ANALYZER");
+            }
+            if root.edit-name == "spectrum" || root.edit-name == "bars": ToggleRow {
+                label: @tr("LED meters");
+                key: "vu." + root.edit-name + ".meters";
+                value: root.meters-value;
+                overridden: root.meters-overridden;
+                set-bool(k, v) => {
+                    root.set-bool(k, v);
+                }
+                reset-key(k) => {
+                    root.reset-value(k);
+                }
+            }
+            if root.edit-name == "spectrum" || root.edit-name == "bars": ToggleRow {
+                label: @tr("Gradient");
+                key: "vu." + root.edit-name + ".gradient";
+                value: root.gradient-value;
+                overridden: root.gradient-overridden;
+                set-bool(k, v) => {
+                    root.set-bool(k, v);
+                }
+                reset-key(k) => {
+                    root.reset-value(k);
+                }
+            }
+        }
+    }
+}

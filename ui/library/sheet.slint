@@ -1,0 +1,78 @@
+import { Theme, Icon, Icons } from "../common.slint";
+import { BottomSheet } from "../components/bottom-sheet.slint";
+
+// the context-menu actions across sheets (library rows, queue
+// rows) — typed ids, dispatched in Rust per variant
+export enum MenuAction {
+    remove,
+    play_now,
+    play_shuffled,
+    play_next,
+    add_to_queue,
+    goto_artist,
+    goto_album,
+}
+
+// one action of the bottom sheet — Rust composes the list and
+// dispatches on the id, the sheet only renders
+export struct SheetAction {
+    id: MenuAction,
+    label: string,
+    icon: Icon,
+}
+
+// Action rows on the shared BottomSheet (components/
+// bottom-sheet.slint): data-driven — whatever the actions model
+// holds renders as rows.
+export component ActionSheet inherits BottomSheet {
+    in property <[SheetAction]> actions;
+    callback trigger(MenuAction);
+
+    // 44px rows, 6px gaps, the paddings of the rows layout
+    content-height: 34px + 50px * root.actions.length;
+
+    VerticalLayout {
+        width: parent.width;
+        padding-top: 6px;
+        padding-left: 14px;
+        padding-right: 14px;
+        // clears the 16px hang: the last row never leaves the
+        // window
+        padding-bottom: 28px;
+        spacing: 6px;
+
+        for action[index] in root.actions: Rectangle {
+            height: 44px;
+            border-radius: 10px;
+            background: (ata.pressed || ata.has-hover) ? Theme.panel-hover : #2b262180;
+
+            ata := TouchArea {
+                clicked => {
+                    root.trigger(action.id);
+                }
+            }
+
+            HorizontalLayout {
+                padding-left: 12px;
+                spacing: 12px;
+
+                Text {
+                    text: Icons.glyph(action.icon);
+                    font-family: Theme.icon-font;
+                    font-size: 18px;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                }
+
+                Text {
+                    text: action.label;
+                    font-size: 15px;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                }
+            }
+        }
+    }
+}

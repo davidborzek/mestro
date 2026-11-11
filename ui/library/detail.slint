@@ -1,0 +1,95 @@
+import { Theme, IconButton, Icon, Icons } from "../common.slint";
+import { LibEntry } from "entry.slint";
+
+// the detail level header: subject cover (glyph placeholder until
+// it arrives), name, meta line, and the round play button — the
+// subject's URI plays as a whole (album/playlist tracks, an artist
+// resolves on the MA side).
+export component DetailHeader inherits Rectangle {
+    in property <string> mode: "album";
+    in property <LibEntry> subject;
+    in property <string> meta;
+    in property <image> cover;
+    callback play();
+    callback open-menu();
+
+    height: 84px;
+
+    HorizontalLayout {
+        padding: 10px;
+        padding-left: 16px;
+        padding-right: 14px;
+        spacing: 14px;
+
+        Rectangle {
+            width: 64px;
+            border-radius: 8px;
+            clip: true;
+            background: #2b262180;
+
+            Image {
+                width: 100%;
+                height: 100%;
+                image-fit: ImageFit.cover;
+                source: root.cover;
+                visible: root.cover.width > 0;
+            }
+
+            // glyph placeholder until the cover arrives
+            if root.cover.width == 0: Text {
+                text: Icons.glyph(root.mode == "artist" ? Icon.artist : root.mode == "playlist" ? Icon.queue-music : Icon.album);
+                font-family: Theme.icon-font;
+                font-size: 24px;
+                color: Theme.text-mute;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+
+        VerticalLayout {
+            alignment: center;
+            spacing: 3px;
+
+            Text {
+                text: root.subject.name;
+                font-size: 17px;
+                font-weight: 600;
+                color: Theme.text;
+                overflow: TextOverflow.elide;
+            }
+
+            Text {
+                text: root.meta;
+                font-size: 13px;
+                color: Theme.text-mute;
+                overflow: TextOverflow.elide;
+            }
+        }
+
+        Rectangle {
+            horizontal-stretch: 1;
+        }
+
+        if (root.mode == "album" || root.mode == "playlist") && root.subject.uri != "": IconButton {
+            icon: Icon.more-vert;
+            icon-size: 22px;
+            width: 44px;
+            height: 44px;
+            clicked => {
+                root.open-menu();
+            }
+        }
+
+        IconButton {
+            enabled: root.subject.uri != "";
+            icon: Icon.play-arrow;
+            icon-size: 22px;
+            round: true;
+            width: 44px;
+            height: 44px;
+            clicked => {
+                root.play();
+            }
+        }
+    }
+}

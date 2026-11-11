@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180">
+  <defs>
+    <radialGradient id="glass" cx="50%" cy="43%" r="58%">
+      <stop offset="0%" stop-color="#20242b"/>
+      <stop offset="62%" stop-color="#11141a"/>
+      <stop offset="100%" stop-color="#07090d"/>
+    </radialGradient>
+    <linearGradient id="rim" x1="28" y1="16" x2="150" y2="166" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#d7dce4" stop-opacity=".32"/>
+      <stop offset=".52" stop-color="#59606b" stop-opacity=".12"/>
+      <stop offset="1" stop-color="#15181e" stop-opacity=".5"/>
+    </linearGradient>
+    <filter id="shadow" x="-25%" y="-25%" width="150%" height="150%">
+      <feGaussianBlur stdDeviation="4"/>
+    </filter>
+  </defs>
+  <circle cx="90" cy="90" r="78" fill="#020307" opacity=".75" filter="url(#shadow)"/>
+  <circle cx="90" cy="90" r="78" fill="url(#glass)" stroke="url(#rim)" stroke-width="2"/>
+  <circle cx="90" cy="90" r="67" fill="none" stroke="#b7c0cc" stroke-opacity=".1" stroke-width="1"/>
+</svg>

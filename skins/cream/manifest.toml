@@ -1,0 +1,73 @@
+# The cream VU as a manifest skin — the classic broadcast
+# faceplate: cream window, dark print, red overload zone, and
+# a warm lamp wash over the window (glow layer between face
+# and scale, driven by the config's [vu.cream] glow).
+
+glow = 0
+
+[faceplate]
+design-w = 573
+design-h = 344
+plate = "#12100c"
+
+[[dial]]
+side = "left"
+x = 39
+art-w = 232
+art-h = 158
+pivot-x = 116.5
+pivot-y = 135
+zero-angle = -60
+sweep = 120
+
+[[dial.layer]]
+role = "face"
+source = "bg.svg"
+
+[[dial.layer]]
+role = "glow"
+inset = 7
+radius = 9
+
+[[dial.layer]]
+role = "scale"
+source = "scale.svg"
+
+[[dial.layer]]
+role = "overlay"
+source = "overlay-l.svg"
+
+[[dial.layer]]
+role = "needle"
+source = "needle.svg"
+
+[[dial]]
+side = "right"
+x = 301
+art-w = 232
+art-h = 158
+pivot-x = 116.5
+pivot-y = 135
+zero-angle = -60
+sweep = 120
+
+[[dial.layer]]
+role = "face"
+source = "bg.svg"
+
+[[dial.layer]]
+role = "glow"
+inset = 7
+radius = 9
+
+[[dial.layer]]
+role = "scale"
+source = "scale.svg"
+
+[[dial.layer]]
+role = "overlay"
+source = "overlay-r.svg"
+
+[[dial.layer]]
+role = "needle"
+source = "needle.svg"

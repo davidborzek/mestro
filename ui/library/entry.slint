@@ -1,0 +1,29 @@
+// one row of a library listing; the Rust side builds this from the
+// provider's browse reply (duration preformatted as mm:ss).
+// Lives in its own file: rows, the detail header and the page all
+// reference it (a shared struct must not force import cycles).
+import { Icon } from "../common.slint";
+export struct LibEntry {
+    name: string,
+    // folder | artist | album | track | playlist — drives the row
+    // icon and what a tap does
+    kind: string,
+    path: string,
+    item-id: string,
+    provider: string,
+    uri: string,
+    duration: string,
+    // album rows carry these for the detail header
+    artist: string,
+    year: string,
+    image-url: string,
+    // references for the row context menu (go to artist/album)
+    artist-id: string,
+    artist-uri: string,
+    album-id: string,
+    album-name: string,
+    album-uri: string,
+    // optional icon override (provider rows in the root view);
+    // none = derive from kind
+    icon: Icon,
+}

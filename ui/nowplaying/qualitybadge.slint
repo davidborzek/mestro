@@ -1,0 +1,61 @@
+import { Theme } from "../common.slint";
+
+// one ordered quality-line part. primary renders emphasized
+// (the codec), the rest follow as plain detail
+export struct QualityItem {
+    text: string,
+    primary: bool,
+}
+
+// the quality line, Roon signal-path style: a small tier dot —
+// accent when lossless, mute when lossy — before a plain
+// typographic line. No container, no border: hierarchy comes
+// from typography alone, legibility from the scrim behind.
+// The root sizes itself to its content so parents can center it
+// over the bar. The parts arrive in the configured order —
+// [now-playing] quality decides what shows and where, including
+// the codec's position
+export component QualityBadge inherits Rectangle {
+    in property <[QualityItem]> items: [];
+    in property <bool> lossless;
+    // fonts, per [now-playing.font]
+    in property <float> detail-size: 12;
+    in property <int> detail-weight: 400;
+
+    property <bool> empty: root.items.length == 0;
+
+    width: contents.preferred-width;
+    height: root.empty ? 0px : 18px;
+    background: transparent;
+
+    contents := HorizontalLayout {
+        alignment: start;
+        spacing: 7px;
+
+        // the tier light
+        if !root.empty: Text {
+            text: "•";
+            font-size: 13px;
+            color: root.lossless ? Theme.accent : Theme.text-mute;
+            vertical-alignment: center;
+        }
+
+        for item[i] in root.items: HorizontalLayout {
+            spacing: 7px;
+            if i > 0: Text {
+                text: "·";
+                font-size: 1px * root.detail-size;
+                color: Theme.text-mute;
+                vertical-alignment: center;
+            }
+            Text {
+                text: item.text;
+                font-size: 1px * root.detail-size;
+                font-weight: item.primary ? 700 : root.detail-weight;
+                letter-spacing: 0.5px;
+                color: item.primary ? Theme.text : Theme.text-dim;
+                vertical-alignment: center;
+            }
+        }
+    }
+}

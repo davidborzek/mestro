@@ -1,0 +1,43 @@
+#!/bin/sh
+# S50mestro — the kiosk on the DRM plane.
+#
+# No args, no config file: the linuxkms backend picks the
+# connector's preferred mode itself (highest/preferred DRM mode,
+# SLINT_DRM_MODE to override). The first-run QR overlay pairs
+# the phone; the wizard + settings UI write everything into
+# /data. Escape hatch: /data/mestro.env sources env vars
+# (SLINT_DRM_OUTPUT, SLINT_DRM_MODE, RUST_LOG, …).
+
+case "$1" in
+start)
+	[ -d /data ] || exit 0
+	# hand the panel over from the boot splash (S12psplash)
+	psplash-write "QUIT" 2>/dev/null
+	killall psplash 2>/dev/null
+	export XDG_CONFIG_HOME=/data/config
+	export XDG_STATE_HOME=/data/state
+	export SLINT_BACKEND=linuxkms
+	export FONTCONFIG_FILE=/etc/fonts.conf
+	# the data partition is FAT and cannot host unix sockets — the
+	# ctl socket (web control, mestro ctl) lives on tmpfs instead
+	export MESTRO_CTL_SOCK=/tmp/mestro-ctl.sock
+	# no LIBSEAT_BACKEND: with the builtin seatd server, forcing the
+	# seatd socket client backend makes libseat panic (EINVAL)
+	# timezone comes from /etc/localtime (BR2_TARGET_LOCALTIME in
+	# the defconfig); TZ in /data/mestro.env overrides it
+	[ -f /data/mestro.env ] && . /data/mestro.env
+	# log to tmpfs (RAM, gone on reboot): the backlight writes and
+	# config problems land here — `tail /tmp/mestro.log` over SSH.
+	# The previous run's log is kept once as .old
+	: "${RUST_LOG:=info}"
+	export RUST_LOG
+	[ -f /tmp/mestro.log ] && mv /tmp/mestro.log /tmp/mestro.log.old
+	# plain background start: start-stop-daemon would match any
+	# running /bin/sh for the redirecting shell and refuse
+	pidof mestro >/dev/null && exit 0
+	/usr/bin/mestro >>/tmp/mestro.log 2>&1 </dev/null &
+	;;
+stop)
+	killall mestro 2>/dev/null
+	;;
+esac

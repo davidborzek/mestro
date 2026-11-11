@@ -1,0 +1,48 @@
+import { Theme, Icon, Icons } from "../common.slint";
+
+// artwork with a square, rounded clip; the square column sizing
+// belongs to the layout (set width at the instantiation site) —
+// never rely on parent.* across the component boundary. The clip
+// MUST be square: the art fills it exactly, so the rounded corners
+// actually cut the artwork corners. empty swaps the art for a dim
+// note placeholder (cleared queue / idle player)
+export component CoverArt {
+    in property <image> source;
+    in property <bool> empty: false;
+
+    Rectangle {
+        Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: Math.min(parent.width, parent.height) - 24px;
+            height: Math.min(parent.width, parent.height) - 24px;
+            border-radius: 8px;
+            clip: true;
+
+            if !root.empty: Image {
+                x: 0;
+                y: 0;
+                width: parent.width;
+                height: parent.height;
+                source: root.source;
+                image-fit: ImageFit.contain;
+            }
+            if root.empty: Rectangle {
+                x: 0;
+                y: 0;
+                width: parent.width;
+                height: parent.height;
+                background: Theme.panel;
+
+                Text {
+                    text: Icons.glyph(Icon.music-note);
+                    font-family: Theme.icon-font;
+                    font-size: 44px;
+                    color: Theme.text-mute;
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                }
+            }
+        }
+    }
+}

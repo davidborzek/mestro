@@ -1,0 +1,154 @@
+// The bar analyzer skin: the same data as the LED-matrix
+// spectrum (bands + peaks from the reader's FFT), drawn as
+// smooth continuous bars — the cava look. Peak caps ride the
+// bars as thin bright lines.
+//
+// Optional below the bars ([vu.bars]): full-width horizontal LED
+// meters (L/R, `meters = false` hides them), an info block
+// (`info = [...]`, like the VU presets) and `gradient = false` to
+// flatten the built-in two-tone bar ramp.
+export component SpectrumBars inherits Rectangle {
+    in property <[float]> bands;
+    in property <[float]> peaks;
+    in property <color> palette: #d8a657;
+    // second cover color: the bar gradient runs two-tone —
+    // hue-distant from the primary, extracted with it
+    in property <color> palette-2: #b45f31;
+    // the overload tone: red hue harmonized with the accent
+    in property <color> danger: #e14c44;
+    // [vu.bars] gradient: the built-in two-tone ramp
+    // (palette → palette-2), or a flat palette fill
+    in property <bool> gradient: true;
+    in property <float> level-l: 0;
+    in property <float> level-r: 0;
+    in property <bool> meters: false;
+    in property <bool> show-info: false;
+    in property <[string]> info-lines;
+    in property <int> info-count: 0;
+
+    background: @radial-gradient(circle, #12100c 0%, #0a0806 55%, #050403 100%);
+
+    // the bottom zone: meters, then info; the bars yield
+    property <bool> info-shown: root.show-info && root.info-count > 0;
+    property <length> meters-h: root.meters ? 26px : 0px;
+    property <length> info-h: root.info-shown ? root.info-count * 17px : 0px;
+    property <length> meters-y: root.height - 24px - info-h - (root.info-shown ? 10px : 0px) - meters-h - (root.meters ? 12px : 0px);
+
+    if root.bands.length > 0: Rectangle {
+        x: 24px;
+        y: 24px;
+        width: parent.width - 48px;
+        height: meters-y - 24px - (root.meters ? 10px : 0px);
+
+        property <length> gap: 4px;
+        property <length> bar-w: (self.width - gap * 31) / 32;
+
+        // baseline hairline under the bars
+        Rectangle {
+            y: parent.height - 1px;
+            width: parent.width;
+            height: 1px;
+            background: #d8a65740;
+        }
+
+        for b[i] in root.bands: Rectangle {
+            x: (bar-w + gap) * i;
+            y: 0;
+            width: bar-w;
+            height: parent.height;
+
+            // the bar itself, bottom-anchored
+            Rectangle {
+                y: parent.height - self.height;
+                width: parent.width;
+                height: parent.height * Math.max(b, 0.004);
+                border-radius: 2px;
+                background: b > 0.8 ? (root.gradient ? @linear-gradient(180deg, danger.brighter(1.2) 0%, danger 100%) : danger.brighter(1.1)) : (root.gradient ? @linear-gradient(180deg, palette 0%, palette-2 100%) : palette);
+            }
+
+            // the peak cap: a thin bright line, slowly falling
+            if root.peaks.length > i && root.peaks[i] > 0.01: Rectangle {
+                y: parent.height - parent.height * root.peaks[i] - 2px;
+                width: parent.width;
+                height: 2px;
+                border-radius: 1px;
+                background: root.peaks[i] > 0.8 ? danger.brighter(1.2) : palette.brighter(1.3);
+            }
+        }
+    }
+
+    // full-width horizontal level bars — L above R, the VU scale
+    // -20..+3 with the red zone at the right end; smooth style
+    // matching the analyzer bars (ghost track + gradient fill)
+    if root.meters: Rectangle {
+        x: 24px;
+        y: meters-y;
+        width: parent.width - 48px;
+        height: meters-h;
+
+        property <length> strip-h: (self.height - 6px) / 2;
+
+        LBar := Rectangle {
+            x: 0px;
+            y: 0;
+            width: 100%;
+            height: strip-h;
+            // ghost track
+            Rectangle {
+                x: 0px;
+                width: 100%;
+                height: 100%;
+                border-radius: 2px;
+                background: palette.transparentize(0.93);
+            }
+            // the fill, anchored left
+            Rectangle {
+                x: 0px;
+                width: parent.width * Math.max(root.level-l, 0.004);
+                height: 100%;
+                border-radius: 2px;
+                background: root.level-l > 0.87 ? (root.gradient ? @linear-gradient(90deg, danger.transparentize(0.07) 0%, danger.brighter(1.2) 100%) : danger) : (root.gradient ? @linear-gradient(90deg, palette 0%, palette-2 100%) : palette);
+            }
+        }
+
+        RBar := Rectangle {
+            x: 0px;
+            y: strip-h + 6px;
+            width: 100%;
+            height: strip-h;
+            Rectangle {
+                x: 0px;
+                width: 100%;
+                height: 100%;
+                border-radius: 2px;
+                background: palette.transparentize(0.93);
+            }
+
+            Rectangle {
+                x: 0px;
+                width: parent.width * Math.max(root.level-r, 0.004);
+                height: 100%;
+                border-radius: 2px;
+                background: root.level-r > 0.87 ? (root.gradient ? @linear-gradient(90deg, danger.transparentize(0.07) 0%, danger.brighter(1.2) 100%) : danger) : (root.gradient ? @linear-gradient(90deg, palette 0%, palette-2 100%) : palette);
+            }
+        }
+    }
+    // the info block: fixed hierarchy like the VU presets
+    // (16px bold, 13px dim, 12px muted)
+    if root.info-shown: Rectangle {
+        x: 24px;
+        y: root.height - 24px - info-h;
+        width: parent.width - 48px;
+        height: info-h;
+
+        for line[i] in root.info-lines: Text {
+            y: i * 17px;
+            width: parent.width;
+            horizontal-alignment: center;
+            text: line;
+            font-size: i == 0 ? 16px : (i == 1 ? 13px : 12px);
+            font-weight: i == 0 ? 700 : 400;
+            color: i == 0 ? #e8dcc8 : (i == 1 ? #a89a7e : #6b6353);
+        }
+    }
+}

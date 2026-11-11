@@ -1,0 +1,76 @@
+# The orbit VU: two dark glass dials with an amber comet ring.
+# The bright arc rides the rotating needle layer; the small hub
+# stays fixed at the dial center.
+glow = 0
+
+[faceplate]
+design-w = 573
+design-h = 344
+plate = "#0b0c10"
+plate-art = "plate.svg"
+
+# the needle SVG carries the comet arc and hub, rotated around
+# the dial center over the usual VU range
+[[dial]]
+side = "left"
+x = 94
+art-w = 180
+art-h = 180
+pivot-x = 90
+pivot-y = 90
+zero-angle = -135
+sweep = 270
+
+[[dial.layer]]
+role = "face"
+source = "bg.svg"
+
+[[dial.layer]]
+role = "glow"
+radius = 82
+inset = 2
+
+[[dial.layer]]
+role = "label"
+text = "L"
+y = 124
+size = 11
+weight = 700
+color = "#8b93a0"
+
+[[dial.layer]]
+role = "needle"
+source = "needle.svg"
+tint = "palette"
+
+[[dial]]
+side = "right"
+x = 298
+art-w = 180
+art-h = 180
+pivot-x = 90
+pivot-y = 90
+zero-angle = -135
+sweep = 270
+
+[[dial.layer]]
+role = "face"
+source = "bg.svg"
+
+[[dial.layer]]
+role = "glow"
+radius = 82
+inset = 2
+
+[[dial.layer]]
+role = "label"
+text = "R"
+y = 124
+size = 11
+weight = 700
+color = "#8b93a0"
+
+[[dial.layer]]
+role = "needle"
+source = "needle.svg"
+tint = "palette"

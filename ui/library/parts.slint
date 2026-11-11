@@ -1,0 +1,65 @@
+import { Theme, Icon, Icons } from "../common.slint";
+
+// full-area loading overlay: spinner on a small glass disc,
+// centered over whatever is below (empty level or the stale list).
+// The area is not transparent — it blocks touches on stale rows.
+export component Spinner inherits Rectangle {
+    background: transparent;
+
+    HorizontalLayout {
+        alignment: center;
+
+        VerticalLayout {
+            alignment: center;
+
+            Rectangle {
+                width: 72px;
+                height: 72px;
+                border-radius: 36px;
+                // same glass recipe as the capsule: translucent fill,
+                // hairline edge — it floats instead of a dark disc
+                background: Theme.glass;
+                border-width: 1px;
+                border-color: Theme.hairline;
+
+                spinner := Text {
+                    width: parent.width;
+                    height: parent.height;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    text: Icons.glyph(Icon.progress-activity);
+                    font-family: Theme.icon-font;
+                    font-size: 30px;
+                    color: Theme.text;
+                    transform-rotation: mod(animation-tick(), 900ms) / 900ms * 360deg;
+                }
+            }
+        }
+    }
+}
+
+// full-area empty state: dim icon + hint, centered
+export component EmptyHint inherits Rectangle {
+    background: transparent;
+
+    HorizontalLayout {
+        alignment: center;
+        spacing: 10px;
+        padding-top: 60px;
+
+        Text {
+            text: Icons.glyph(Icon.library-music);
+            font-family: Theme.icon-font;
+            font-size: 22px;
+            color: Theme.text-mute;
+            vertical-alignment: center;
+        }
+
+        Text {
+            text: @tr("nothing here");
+            font-size: 16px;
+            color: Theme.text-mute;
+            vertical-alignment: center;
+        }
+    }
+}

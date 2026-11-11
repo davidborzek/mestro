@@ -1,0 +1,85 @@
+import { Theme } from "../theme.slint";
+
+// Generic bottom sheet: dim scrim (tap dismisses, wheel never
+// reaches the page below), a panel sliding up from the bottom
+// edge (16px hang below the window so the rounding never shows),
+// a sticky title row and a flickable viewport — capped at the
+// window height, scrolling when the content doesn't fit.
+//
+// Callers pass their rows as children and the total row height
+// (content-height: n × row-height + spacing + padding) — the
+// sheet derives panel height and scroll range from it. See the
+// OptionSheet (settings) and ActionSheet (library) wrappers.
+export component BottomSheet inherits Rectangle {
+    in property <bool> open: false;
+    in property <string> title;
+    /// the rows' total height (caller computes: n × row height
+    /// + spacing + paddings)
+    in property <length> content-height: 0px;
+    callback dismissed();
+
+    background: transparent;
+
+    // scrim
+    if root.open: Rectangle {
+        x: 0;
+        y: 0;
+        width: 100%;
+        height: 100%;
+        background: #14120f99;
+
+        TouchArea {
+            clicked => {
+                root.dismissed();
+            }
+            // the wheel never reaches the page below
+            scroll-event(event) => {
+                return accept;
+            }
+        }
+    }
+
+    // the panel
+    sheet-panel := Rectangle {
+        x: 0;
+        width: 100%;
+        height: min(30px + root.content-height + 16px, parent.height - 24px);
+        y: root.open ? parent.height - self.height + 16px : parent.height;
+        animate y {
+            duration: 200ms;
+            easing: ease-out;
+        }
+        background: Theme.panel;
+        border-radius: 14px;
+        border-width: 1px;
+        border-color: Theme.bar;
+
+        VerticalLayout {
+            padding: 0px;
+            spacing: 0px;
+
+            // sticky title row
+            Rectangle {
+                height: 30px;
+                Text {
+                    x: 14px;
+                    width: parent.width - 28px;
+                    vertical-alignment: center;
+                    text: root.title;
+                    font-size: 13px;
+                    color: Theme.text-dim;
+                    overflow: elide;
+                }
+            }
+
+            // the rows: scroll when the capped panel is too short
+            Flickable {
+                width: 100%;
+                height: sheet-panel.height - 30px - 16px;
+                viewport-width: self.width;
+                viewport-height: root.content-height + 16px;
+                @children
+            }
+        }
+    }
+}

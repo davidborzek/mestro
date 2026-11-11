@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180">
+  <defs>
+    <filter id="glow" x="-35%" y="-35%" width="170%" height="170%">
+      <feGaussianBlur stdDeviation="4"/>
+    </filter>
+  </defs>
+
+  <!-- dim full orbit -->
+  <circle cx="90" cy="90" r="58" fill="none" stroke="#e7ebf2" stroke-opacity=".14" stroke-width="6" stroke-linecap="round"/>
+
+  <!-- comet arc: 96 degrees at the SVG top, around the pivot -->
+  <path d="M 63.3 41.6 A 58 58 0 0 1 116.7 41.6"
+        fill="none" stroke="#ffffff" stroke-opacity=".28" stroke-width="10"
+        stroke-linecap="round" filter="url(#glow)"/>
+  <path d="M 63.3 41.6 A 58 58 0 0 1 116.7 41.6"
+        fill="none" stroke="#ffffff" stroke-width="6" stroke-linecap="round"/>
+
+  <!-- fixed hub -->
+  <circle cx="90" cy="90" r="11" fill="#090c11" stroke="#c9d0da" stroke-opacity=".22" stroke-width="1.5"/>
+  <circle cx="90" cy="90" r="3.5" fill="#ffffff"/>
+</svg>

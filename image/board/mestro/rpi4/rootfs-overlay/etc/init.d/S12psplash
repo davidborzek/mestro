@@ -1,0 +1,22 @@
+#!/bin/sh
+# S12psplash — boot splash on the panel. The framebuffer only
+# exists once S11modules has bound vc4 + the DSI panel, hence the
+# wait loop. mestro's S50 start quits the splash when it takes the
+# DRM master.
+
+case "$1" in
+start)
+	(
+		n=0
+		while [ $n -lt 10 ] && [ ! -e /dev/fb0 ]; do
+			n=$((n + 1))
+			sleep 1
+		done
+		[ -e /dev/fb0 ] && psplash &
+	) &
+	;;
+stop)
+	psplash-write "QUIT" 2>/dev/null
+	killall psplash 2>/dev/null
+	;;
+esac

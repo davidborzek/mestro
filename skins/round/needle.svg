@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180">
+  <!-- the needle pointing up (zero = -60° sweep start), pivot at
+       the dial center; the engine rotates the whole image -->
+  <rect x="88.2" y="24" width="3.6" height="66" rx="1.8" fill="#241b10"/>
+  <circle cx="90" cy="90" r="7.2" fill="#241b10"/>
+</svg>

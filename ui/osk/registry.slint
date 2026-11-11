@@ -1,0 +1,34 @@
+import { OskRowData } from "keys.slint";
+import { DeLayouts } from "layouts/de.slint";
+import { EnLayouts } from "layouts/en.slint";
+
+// the layout registry: the single dispatch the dock calls —
+// a layout name (the [ui] osk-layout config value) + the
+// numeric mode to rows.
+//
+// ADDING A LANGUAGE:
+//   1. layouts/<lang>.slint — one global with `letters()` and
+//      `numbers()` returning [OskRowData]; build the keys with
+//      the OskKeys constructors (keys.slint): kl/klv for
+//      case-carrying letters, kv for accent-only keys, k for
+//      uncased ones, backspace/toggle/shift-key/space/enter/
+//      collapse for the chrome
+//   2. register the name here in resolve()
+//   3. add the name to OSK_LAYOUTS in src/config/ui.rs so the
+//      config validates it
+// Unknown names resolve to the German set; the dock engine
+// (osk.slint) never changes
+export global OskRegistry {
+    public function resolve(lang: string, numeric: bool) -> [OskRowData] {
+        if (numeric) {
+            if (lang == "en") {
+                return EnLayouts.numbers();
+            }
+            return DeLayouts.numbers();
+        }
+        if (lang == "en") {
+            return EnLayouts.letters();
+        }
+        return DeLayouts.letters();
+    }
+}

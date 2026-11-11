@@ -1,0 +1,4 @@
+# mount by filesystem label (S02data mounts the MESTRODATA partition)
+CONFIG_FEATURE_MOUNT_LABEL=y
+# time sync (S45time): one-shot ntpd after the network is up
+CONFIG_NTPD=y

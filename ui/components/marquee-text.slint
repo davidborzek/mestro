@@ -1,0 +1,39 @@
+import { Theme } from "../theme.slint";
+
+// Auto-scrolling text for labels that don't fit their space: pause,
+// scroll out at a constant speed, pause, snap back to the start.
+// Short labels stay static — the phase binding re-evaluates per
+// tick, but an unchanged x does not trigger a repaint.
+export component MarqueeText inherits Rectangle {
+    in property <string> text;
+    in property <length> font-size: 24px;
+    in property <int> font-weight: 400;
+    in property <color> text-color: Theme.text;
+    in property <duration> pause: 1s;
+    // horizontal alignment when the text FITS: 0 left (default),
+    // 1 center, 2 right. Overflowing text scrolls as usual
+    in property <int> text-align: 0;
+
+    clip: true;
+    height: txt.preferred-height;
+
+    property <bool> overflows: txt.preferred-width > root.width;
+    property <length> slack: root.width - txt.preferred-width;
+    // extra gap so the text fully leaves before snapping back
+    property <length> distance: txt.preferred-width - root.width + 24px;
+    // 30px per second, constant regardless of the text length
+    property <duration> scroll-time: distance / 30px * 1s;
+    property <duration> cycle: 2 * pause + scroll-time;
+    property <duration> phase: mod(animation-tick(), cycle);
+
+    txt := Text {
+        text: root.text;
+        font-size: root.font-size;
+        font-weight: root.font-weight;
+        color: root.text-color;
+        vertical-alignment: center;
+        height: parent.height;
+        width: self.preferred-width;
+        x: root.overflows ? (phase < pause ? 0px : phase < pause + scroll-time ? -distance * (phase - pause) / scroll-time : -distance) : root.text-align == 2 ? root.slack : root.text-align == 1 ? root.slack / 2 : 0px;
+    }
+}

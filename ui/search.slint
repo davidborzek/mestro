@@ -1,0 +1,270 @@
+import { Theme, Icon, Icons, IconButton } from "common.slint";
+import { LibEntry } from "library/entry.slint";
+import { LibRow } from "library/rows.slint";
+import { Spinner, EmptyHint } from "library/parts.slint";
+import { MenuAction, SheetAction, ActionSheet } from "library/sheet.slint";
+import { Osk } from "osk/osk.slint";
+
+// the search page: a real TextInput as the query field (physical
+// keyboard typing works — the focused field takes the keys away
+// from the global key scope), hairline under it, results as plain
+// library rows and the on-screen keyboard docked at the bottom —
+// collapsible from the keyboard itself, a touch on the field
+// brings it back. Track taps play immediately, artist/album taps
+// hand over to the library drill; query and results stay mounted
+// across roundtrips
+export component SearchPage inherits Rectangle {
+    // the OskLayouts registry key — see ui/osk.slint
+    in property <string> layout: "de";
+    in-out property <string> query;
+    // char count — focus places the caret at the end
+    in property <int> query-length;
+    // spinner while a search is in flight
+    in property <bool> loading;
+    in property <[LibEntry]> results;
+    // the keyboard dock state lives on the app root — it must
+    // survive page roundtrips
+    in-out property <bool> osk-visible;
+    // physical typing: the TextInput owns focus while editing
+    callback edited(string);
+    callback submitted();
+    // the OSK funnels every key through one callback: letters/
+    // space as-is, "backspace"/"return" for the specials
+    callback osk-key(string);
+    callback open(LibEntry);
+    callback clear();
+    // the result-row context menu: the same composition +
+    // dispatch the library rows use
+    callback menu-request(LibEntry) -> [SheetAction];
+    callback menu-trigger(MenuAction, LibEntry);
+
+    private property <bool> menu-open: false;
+    private property <LibEntry> menu-entry;
+    private property <[SheetAction]> menu-actions;
+
+    property <bool> queried: root.query != "";
+
+    // uniform key size derived from the page width (11-key rows,
+    // 6px gaps): the keyboard fits kiosk windows too; capped at
+    // the touch-friendly 46 so the dock never eats the page
+    property <length> unit: Math.min((self.width - 66px) / 11, 46px);
+    property <length> dock-h: 4 * root.unit + 3 * 6px + 24px;
+
+    // focus the field on entry: the window forward-focus stays
+    // with the global key scope, so the page hands focus over
+    // itself (mount-init runs outside pointer processing —
+    // focus changes there stick)
+    init => {
+        input.focus();
+        // fresh focus parks the caret at 0 — the text end is
+        // where it belongs
+        input.set-selection-offsets(root.query-length, root.query-length);
+    }
+
+    Rectangle {
+        background: transparent;
+
+        // the query field: no box — the TextInput IS the field.
+        // The OSK edits the same two-way bound string
+        Rectangle {
+            height: 44px;
+            y: 10px;
+            width: 100%;
+
+            HorizontalLayout {
+                padding-left: 22px;
+                padding-right: 14px;
+                spacing: 12px;
+
+                Rectangle {
+                    horizontal-stretch: 1;
+
+                    // placeholder only — the TextInput paints text
+                    // and caret itself
+                    if root.query == "": Text {
+                        text: @tr("Search…");
+                        font-size: 20px;
+                        font-weight: 500;
+                        color: Theme.text-mute;
+                        height: parent.height;
+                        vertical-alignment: center;
+                    }
+
+                    input := TextInput {
+                        text <=> root.query;
+                        width: 100%;
+                        // fill the row and center the text inside:
+                        // a bare TextInput defaults to a 0 height
+                        height: parent.height;
+                        vertical-alignment: center;
+                        font-size: 20px;
+                        font-weight: 500;
+                        color: Theme.text;
+                        // typing on the physical keyboard: arm the
+                        // debounce like an OSK keystroke would;
+                        // Enter submits
+                        edited => {
+                            root.edited(root.query);
+                        }
+                        // enter submits AND drops the dock:
+                        // results take the stage, the query keeps
+                        accepted => {
+                            root.osk-visible = false;
+                            root.submitted();
+                        }
+                    }
+
+                    // the field tap handler: raises the dock AND
+                    // hands focus for physical typing — the
+                    // TextInput stays unfocused otherwise (a
+                    // focused field eats the first outside tap,
+                    // which turned every OSK key into a
+                    // double-press)
+                    fta := TouchArea {
+                        clicked => {
+                            root.osk-visible = true;
+                            input.focus();
+                            // fresh focus parks the caret at 0 —
+                            // it belongs at the text end
+                            input.set-selection-offsets(root.query-length, root.query-length);
+                        }
+                    }
+                }
+
+                if root.query != "": IconButton {
+                    icon: Icon.close;
+                    icon-size: 18px;
+                    clicked => {
+                        root.clear();
+                        input.focus();
+                    }
+                }
+            }
+        }
+
+        Rectangle {
+            y: 56px;
+            width: 100%;
+            height: 1px;
+            background: Theme.hairline;
+        }
+
+        if root.loading: Spinner {
+            width: 100%;
+            height: 100%;
+        }
+        if !root.loading && root.queried && root.results.length == 0: EmptyHint {
+            width: 100%;
+            height: 100%;
+        }
+
+        fl := Flickable {
+            width: 100%;
+            height: parent.height - 62px - (root.osk-visible ? root.dock-h : 0px);
+            y: 62px;
+            animate height {
+                duration: 180ms;
+                easing: ease-out;
+            }
+            viewport-height: content.preferred-height;
+
+            content := VerticalLayout {
+                padding-top: 10px;
+                padding-bottom: 10px;
+                spacing: 0px;
+
+                for entry in root.results: LibRow {
+                    entry: entry;
+                    two-line: true;
+                    open(e) => {
+                        root.open(e);
+                    }
+                    hold(e) => {
+                        // the sheet takes over the bottom — the
+                        // keyboard dock slides away
+                        root.osk-visible = false;
+                        root.menu-actions = root.menu-request(e);
+                        root.menu-entry = e;
+                        root.menu-open = true;
+                    }
+                }
+            }
+        }
+    }
+
+    // the generic bottom sheet, driven by the held entry's
+    // actions — the same menu the library composes
+    ActionSheet {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        open: root.menu-open;
+        title: root.menu-entry.name;
+        actions: root.menu-actions;
+        trigger(id) => {
+            root.menu-open = false;
+            root.menu-trigger(id, root.menu-entry);
+        }
+        dismissed => {
+            root.menu-open = false;
+        }
+    }
+
+    // the keyboard dock: a drawer — fixed height, animated y.
+    // Closed it sits fully below the window edge (the window
+    // clips it), opening slides it UP over the results
+    Rectangle {
+        y: parent.height - (root.osk-visible ? root.dock-h : 0px);
+        width: 100%;
+        height: root.dock-h;
+        background: #14120fb3;
+        animate y {
+            duration: 180ms;
+            easing: ease-out;
+        }
+
+        Rectangle {
+            y: 0;
+            width: 100%;
+            height: 1px;
+            background: Theme.hairline;
+        }
+
+        Osk {
+            width: 100%;
+            height: root.dock-h;
+            unit: root.unit;
+            layout: root.layout;
+            // re-focus before dispatching the synthetic key: the
+            // press may have moved focus away — the dispatch needs
+            // the field focused to land in it (and NOT in the
+            // global key scope, where letters/space would trigger
+            // transport commands)
+            key-pressed(k) => {
+                input.focus();
+                root.osk-key(k);
+            }
+            // the space-bar slide moves the caret — the cursor's
+            // byte offset is a stable out-property of TextInput
+            // in this slint rev
+            cursor-step(n) => {
+                input.focus();
+                root.move-caret(n);
+            }
+            hide => {
+                root.osk-visible = false;
+            }
+        }
+    }
+
+    /// move the caret by n bytes, clamped to the query — a
+    /// byte offset inside a multi-byte char lands on its start,
+    /// good enough for a search field
+    public function move-caret(n: int) {
+        input.set-selection-offsets(
+            Math.max(0, Math.min(input.cursor-position_byte-offset + n, root.query-length)),
+            Math.max(0, Math.min(input.cursor-position_byte-offset + n, root.query-length)),
+        );
+    }
+}

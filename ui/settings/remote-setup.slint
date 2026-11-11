@@ -1,0 +1,178 @@
+import { Theme, Icon, Icons } from "../common.slint";
+
+// one numbered step of the pairing walkthrough
+component Step inherits HorizontalLayout {
+    in property <int> number;
+    in property <string> label;
+    spacing: 10px;
+    alignment: start;
+    Rectangle {
+        width: 24px;
+        height: 24px;
+        border-radius: 12px;
+        background: Theme.accent.with-alpha(0.16);
+        Text {
+            text: root.number;
+            font-size: 13px;
+            font-weight: 700;
+            color: Theme.accent;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            width: parent.width;
+            height: parent.height;
+        }
+    }
+
+    Text {
+        text: root.label;
+        font-size: 14px;
+        color: Theme.text;
+        vertical-alignment: center;
+        wrap: word-wrap;
+        horizontal-stretch: 1;
+    }
+}
+
+// The remote setup subpage: pair a phone by scanning the wizard
+// QR. The code is the hero (a white plate, readable from a phone
+// at arm's length), the three steps sit beside it, the URL is the
+// fallback below. Editing itself happens on the phone.
+export component RemoteSetupSettings inherits Rectangle {
+    // wizard URL incl. pairing PIN
+    in property <string> remote-url: "";
+    // the QR (baked with its quiet zone)
+    in property <image> remote-qr;
+
+    // the shared settings-scroll sizes its viewport from the
+    // children's preferred heights — a Rectangle root must forward
+    // its content's (all other pages inherit VerticalLayout)
+    preferred-height: content.preferred-height;
+
+    content := VerticalLayout {
+        spacing: 14px;
+        padding-bottom: 8px;
+
+        HorizontalLayout {
+            spacing: 12px;
+            alignment: start;
+            Rectangle {
+                width: 40px;
+                height: 40px;
+                border-radius: 11px;
+                background: Theme.accent;
+                Text {
+                    text: Icons.glyph(Icon.smartphone);
+                    font-family: Theme.icon-font;
+                    font-size: 24px;
+                    color: Theme.bg;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    width: parent.width;
+                    height: parent.height;
+                }
+            }
+
+            VerticalLayout {
+                alignment: center;
+                spacing: 1px;
+                Text {
+                    text: @tr("Pair your phone");
+                    font-size: 20px;
+                    font-weight: 700;
+                    color: Theme.text;
+                }
+
+                Text {
+                    text: @tr("Set up and control mestro from your phone");
+                    font-size: 13px;
+                    color: Theme.text-dim;
+                }
+            }
+        }
+
+        // the code beside the steps
+        HorizontalLayout {
+            spacing: 18px;
+
+            // white plate: scanners want dark-on-light, and the
+            // plate reads as "this is the thing to aim at"
+            Rectangle {
+                width: 196px;
+                height: 196px;
+                border-radius: 16px;
+                background: #ffffff;
+                drop-shadow-blur: 18px;
+                drop-shadow-color: Theme.accent.with-alpha(0.25);
+
+                if root.remote-qr.width > 0: Image {
+                    x: 8px;
+                    y: 8px;
+                    width: parent.width - 16px;
+                    height: parent.height - 16px;
+                    source: root.remote-qr;
+                    image-rendering: pixelated;
+                }
+                if root.remote-qr.width == 0: Text {
+                    text: Icons.glyph(Icon.progress-activity);
+                    font-family: Theme.icon-font;
+                    font-size: 32px;
+                    color: #888888;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    width: parent.width;
+                    height: parent.height;
+                }
+            }
+
+            VerticalLayout {
+                alignment: center;
+                spacing: 14px;
+                horizontal-stretch: 1;
+                Step {
+                    number: 1;
+                    label: @tr("Open the camera and scan the code");
+                }
+
+                Step {
+                    number: 2;
+                    label: @tr("Sign in to Music Assistant");
+                }
+
+                Step {
+                    number: 3;
+                    label: @tr("Pick the player — done");
+                }
+            }
+        }
+
+        // fallback: type it in
+        Rectangle {
+            height: 44px;
+            border-radius: 10px;
+            background: Theme.tile;
+            border-width: 1px;
+            border-color: Theme.hairline;
+            HorizontalLayout {
+                padding-left: 14px;
+                padding-right: 14px;
+                spacing: 10px;
+                Text {
+                    text: @tr("or open");
+                    font-size: 13px;
+                    color: Theme.text-dim;
+                    vertical-alignment: center;
+                }
+
+                Text {
+                    text: root.remote-url == "" ? @tr("starting…") : root.remote-url;
+                    font-size: 14px;
+                    font-weight: 600;
+                    color: root.remote-url == "" ? Theme.text-mute : Theme.accent;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                }
+            }
+        }
+    }
+}

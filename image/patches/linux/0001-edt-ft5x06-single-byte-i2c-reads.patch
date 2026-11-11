@@ -1,0 +1,65 @@
+diff --git a/drivers/input/touchscreen/edt-ft5x06.c b/drivers/input/touchscreen/edt-ft5x06.c
+index 1111111..2222222 100644
+@@ -306,6 +306,28 @@
+ 	.write = edt_M06_i2c_write,
+ };
+ 
++static int edt_i2c_read_byte(struct i2c_client *client, u8 reg, u8 *val)
++{
++	struct i2c_msg msg[2];
++	int ret;
++
++	msg[0].addr = client->addr;
++	msg[0].flags = 0;
++	msg[0].len = 1;
++	msg[0].buf = &reg;
++
++	msg[1].addr = client->addr;
++	msg[1].flags = I2C_M_RD;
++	msg[1].len = 1;
++	msg[1].buf = val;
++
++	ret = i2c_transfer(client->adapter, msg, 2);
++	if (ret == 2)
++		return 0;
++
++	return ret < 0 ? ret : -EIO;
++}
++
+ static irqreturn_t edt_ft5x06_ts_isr(int irq, void *dev_id)
+ {
+ 	struct edt_ft5x06_ts_data *tsdata = dev_id;
+@@ -319,8 +341,15 @@
+ 	int b = 0;
+ 
+ 	memset(rdbuf, 0, sizeof(rdbuf));
+-	error = regmap_bulk_read(tsdata->regmap, tsdata->tdata_cmd, rdbuf,
+-				 tsdata->tdata_len);
++	/* The panel's onboard microcontroller corrupts multi-byte i2c
++	 * reads (bytes after the first read back 0xff) and regmap
++	 * accesses fail outright on this panel, so fetch the report
++	 * registers with single-byte raw i2c transfers — exactly what
++	 * works from userspace (i2cget). Read TD_STATUS first; the
++	 * point registers are only fetched when a touch is present.
++	 */
++	error = edt_i2c_read_byte(tsdata->client, tsdata->tdata_cmd + 2,
++				  &rdbuf[2]);
+ 	if (tsdata->version == EDT_M06) {
+ 		num_points = tsdata->max_support_points;
+ 	} else {
+@@ -343,11 +372,10 @@
+ 			tsdata->init_td_status = 0;
+ 		}
+ 
+-		if (!error && num_points)
+-			error = regmap_bulk_read(tsdata->regmap,
+-						 tsdata->tdata_offset,
+-						 &rdbuf[tsdata->tdata_offset],
+-						 tsdata->point_len * num_points);
++		for (i = 0; !error && i < tsdata->point_len * num_points; i++)
++			error = edt_i2c_read_byte(tsdata->client,
++						  tsdata->tdata_offset + i,
++						  &rdbuf[tsdata->tdata_offset + i]);
+ 	}
+ 	if (error) {
+ 		dev_err_ratelimited(dev, "Unable to fetch data, error: %d\n",

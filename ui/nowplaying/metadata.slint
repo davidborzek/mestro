@@ -1,0 +1,116 @@
+import { Theme, MarqueeText, Icon, Icons } from "../common.slint";
+import { VuMeter, ThinMeter } from "vu.slint";
+
+// The title/artist/album lines with their empty state and the
+// inline VU meter rows — the shared metadata stack of every
+// now-playing arrangement (side column and all four fullbleed
+// cluster cells).
+//
+// Device truth: component wrappers only survive on STRETCHED
+// cells — every call site binds horizontal-stretch/min-width on
+// this element itself and the lines inside behave exactly like
+// the former inline form (this is the pattern that replaced the
+// collapsed NpMetadata wrapper).
+export component NpMetadata {
+    in property <string> title;
+    in property <string> artist;
+    in property <string> album;
+    in property <bool> has-media: false;
+    // 0 left, 1 center, 2 right (applies when a line FITS;
+    // overflowing lines scroll)
+    in property <int> text-align: 0;
+    in property <float> title-size: 24;
+    in property <int> title-weight: 700;
+    in property <float> artist-size: 18;
+    in property <int> artist-weight: 400;
+    in property <float> album-size: 14;
+    in property <int> album-weight: 400;
+    // 0 off, 1 LED strips, 2 thin bars (3 = the background
+    // matrix — no local meter row here)
+    in property <int> inline-vu: 1;
+    in property <float> vu-l: 0;
+    in property <float> vu-r: 0;
+    // the cluster config addresses the lines as separate cells
+    // ("title", "artist", "album", "metadata") — gates make one
+    // component cover all of them; the empty-state hint lands
+    // in the first metadata-ish cell (empty-cell from Rust)
+    in property <bool> show-title: true;
+    in property <bool> show-artist: true;
+    in property <bool> show-album: true;
+    // the inline VU rows ride the "metadata" cell
+    in property <bool> show-vu: true;
+    in property <bool> show-empty: true;
+
+    // tapping the metadata lines opens the go-to sheet (artist /
+    // album drill) — one full-area trigger under the texts; the
+    // lines themselves don't consume clicks
+    callback line-tapped();
+
+    if root.has-media: TouchArea {
+        clicked => {
+            root.line-tapped();
+        }
+    }
+
+    VerticalLayout {
+        spacing: 6px;
+
+        // empty state: dim note + hint instead of stale metadata
+        // from the track that played before the clear
+        if !root.has-media && root.show-empty: HorizontalLayout {
+            alignment: center;
+            padding-top: 30px;
+            spacing: 10px;
+
+            Text {
+                text: Icons.glyph(Icon.music-note);
+                font-family: Theme.icon-font;
+                font-size: 22px;
+                color: Theme.text-mute;
+                vertical-alignment: center;
+            }
+
+            Text {
+                text: @tr("Nothing playing");
+                font-size: 16px;
+                color: Theme.text-mute;
+                vertical-alignment: center;
+            }
+        }
+        if root.has-media && root.show-title: HorizontalLayout {
+            spacing: 8px;
+            MarqueeText {
+                text: root.title;
+                font-size: 1px * root.title-size;
+                font-weight: root.title-weight;
+                text-align: root.text-align;
+                horizontal-stretch: 1;
+            }
+        }
+        if root.has-media && root.show-artist: MarqueeText {
+            text: root.artist;
+            font-size: 1px * root.artist-size;
+            font-weight: root.artist-weight;
+            text-align: root.text-align;
+            text-color: Theme.text;
+        }
+        if root.has-media && root.show-album: MarqueeText {
+            text: root.album;
+            font-size: 1px * root.album-size;
+            font-weight: root.album-weight;
+            text-align: root.text-align;
+            text-color: Theme.text;
+        }
+        if root.has-media && root.show-vu && (root.inline-vu == 1 || root.inline-vu == 2): Rectangle {
+            height: 8px;
+        }
+        if root.has-media && root.show-vu && root.inline-vu == 1: VuMeter {
+            level-l: root.vu-l;
+            level-r: root.vu-r;
+        }
+        if root.has-media && root.show-vu && root.inline-vu == 2: ThinMeter {
+            level-l: root.vu-l;
+            level-r: root.vu-r;
+        }
+    }
+}

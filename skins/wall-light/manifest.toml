@@ -1,0 +1,71 @@
+# The wall-light VU as a manifest skin. The seamless plate
+# radial ships as ONE stretched plate-art SVG (the plate
+# contract, docs/vu.md): the engine fills the whole zone with
+# it on any aspect — no band tones, no half tiles. The dials
+# sit 50:50 on top, uniform-fitted. Geometry in faceplate
+# design units; the engine scales the faceplate to fit any
+# window.
+
+glow = 0
+# the cream plate needs dark ink on the ghost arrow
+light = true
+
+[faceplate]
+design-w = 573
+design-h = 344
+plate = "#d9ccab"   # fallback band tone (only if plate art misses)
+plate-art = "plate.svg"
+
+# the straight-scale meters: the needle sweeps -42..+42°
+# (the linear VU angle mapping), ticks sit on the horizontal
+# scale line, numbers print above it
+
+[[dial]]
+side = "left"
+x = 0
+art-w = 286.5
+art-h = 344
+pivot-x = 145.75
+pivot-y = 328
+zero-angle = -42
+sweep = 84
+
+[[dial.layer]]
+role = "glow"
+inset = 0
+radius = 0
+
+[[dial.layer]]
+role = "scale"
+source = "scale.svg"
+
+[[dial.layer]]
+role = "needle"
+source = "needle.svg"
+
+[[dial]]
+side = "right"
+x = 286.5
+art-w = 286.5
+art-h = 344
+pivot-x = 145.75
+pivot-y = 328
+zero-angle = -42
+sweep = 84
+
+[[dial.layer]]
+role = "glow"
+inset = 0
+radius = 0
+
+[[dial.layer]]
+role = "overlay"
+source = "separator.svg"
+
+[[dial.layer]]
+role = "scale"
+source = "scale.svg"
+
+[[dial.layer]]
+role = "needle"
+source = "needle.svg"

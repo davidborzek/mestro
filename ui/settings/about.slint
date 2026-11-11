@@ -1,0 +1,86 @@
+import { Theme } from "../common.slint";
+import { AboutSlint } from "std-widgets.slint";
+
+// The About subpage: the app's own identity first, the restart,
+// and the toolkit credit at the bottom. The AboutSlint widget is a
+// license condition (Slint Royalty-free 2.0, §2a) — a text credit
+// does not satisfy it, so it stays, just out of the way
+export component AboutView inherits VerticalLayout {
+    in property <string> app-version;
+    callback restart-app();
+    spacing: 6px;
+
+    Rectangle {
+        vertical-stretch: 1;
+    }
+
+    Text {
+        text: "mestro";
+        font-size: 34px;
+        font-weight: 800;
+        color: Theme.accent;
+        horizontal-alignment: center;
+    }
+
+    Text {
+        text: @tr("Music Assistant kiosk");
+        font-size: 14px;
+        color: Theme.text-dim;
+        horizontal-alignment: center;
+    }
+
+    Text {
+        text: "v" + root.app-version;
+        font-size: 13px;
+        color: Theme.text-dim;
+        horizontal-alignment: center;
+    }
+
+    Rectangle {
+        height: 16px;
+    }
+
+    HorizontalLayout {
+        alignment: center;
+        Rectangle {
+            width: 200px;
+            height: 44px;
+            border-radius: 10px;
+            background: rt.has-hover ? Theme.tile-hover : Theme.tile;
+            border-width: 1px;
+            border-color: Theme.hairline;
+            rt := TouchArea {
+                clicked => {
+                    root.restart-app();
+                }
+            }
+
+            Text {
+                text: @tr("Restart mestro");
+                font-size: 15px;
+                color: Theme.text;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                width: 100%;
+                height: 100%;
+            }
+        }
+    }
+
+    Rectangle {
+        vertical-stretch: 1;
+    }
+
+    HorizontalLayout {
+        alignment: center;
+        // its own minimum height fits logo + version line
+        AboutSlint {
+            width: 240px;
+            height: self.min-height;
+        }
+    }
+
+    Rectangle {
+        height: 12px;
+    }
+}

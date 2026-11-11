@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180">
+<!-- instrument-cluster bezel: brushed aluminium ring with a
+     chrome lip at the outer edge and a specular arc across the
+     top. Strokes, not a filled disc — this renders as the
+     TOPMOST dial layer, a disc would swallow the whole face.
+     The glow wash (radius 82, inset 8) never touches the ring;
+     the needle stays inside r=66, far from it -->
+<defs>
+  <linearGradient id="ring" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#efeadb"/>
+    <stop offset="0.45" stop-color="#c3bca6"/>
+    <stop offset="0.55" stop-color="#a99f86"/>
+    <stop offset="1" stop-color="#6f6852"/>
+  </linearGradient>
+  <linearGradient id="lip" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#ffffff"/>
+    <stop offset="0.5" stop-color="#c9c2ad"/>
+    <stop offset="1" stop-color="#5d5744"/>
+  </linearGradient>
+</defs>
+<!-- outer hairline -->
+<circle cx="90" cy="90" r="88.5" fill="none" stroke="#00000066" stroke-width="1"/>
+<!-- chrome lip: the outermost 2-unit band -->
+<circle cx="90" cy="90" r="87" fill="none" stroke="url(#lip)" stroke-width="4"/>
+<!-- brushed aluminium ring: r 83..85 -->
+<circle cx="90" cy="90" r="84" fill="none" stroke="url(#ring)" stroke-width="5"/>
+<!-- crisp inner edge against the face -->
+<circle cx="90" cy="90" r="82" fill="none" stroke="#00000026" stroke-width="1"/>
+<!-- specular highlight arc riding the chrome lip, ±40° around top -->
+<path d="M 35 24.5 A 85.5 85.5 0 0 1 145 24.5" fill="none"
+      stroke="#ffffff85" stroke-width="1.6"/>
+</svg>

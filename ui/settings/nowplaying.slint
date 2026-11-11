@@ -1,0 +1,333 @@
+import { Theme } from "../common.slint";
+import {
+    SectionLabel,
+    SettingsRow,
+    PickerRow,
+    StepperRow,
+    OrderEditor,
+    PickerRequest,
+} from "widgets.slint";
+
+// The Now Playing settings family: options (layout, meter),
+// fonts per metadata line, and the controls/quality order
+// editors. One component, four subviews — the hub routes by
+// view id (1 options, 2 fonts, 4 controls, 5 quality).
+export component NowPlayingSettings inherits VerticalLayout {
+    in property <int> view: 0;
+    in property <int> np-layout: 0;
+    in property <int> np-inline-vu: 1;
+    in property <string> meter-name;
+    in property <float> np-title-size: 24;
+    in property <int> np-title-weight: 700;
+    in property <float> np-artist-size: 18;
+    in property <int> np-artist-weight: 400;
+    in property <float> np-album-size: 14;
+    in property <int> np-album-weight: 400;
+    in property <float> np-quality-size: 12;
+    in property <int> np-quality-weight: 400;
+    in property <bool> np-layout-overridden: false;
+    in property <bool> np-inline-vu-overridden: false;
+    in property <bool> np-title-size-overridden: false;
+    in property <bool> np-title-weight-overridden: false;
+    in property <bool> np-artist-size-overridden: false;
+    in property <bool> np-artist-weight-overridden: false;
+    in property <bool> np-album-size-overridden: false;
+    in property <bool> np-album-weight-overridden: false;
+    in property <bool> np-quality-size-overridden: false;
+    in property <bool> np-quality-weight-overridden: false;
+    in property <bool> np-controls-overridden: false;
+    in property <bool> np-quality-overridden: false;
+    in property <[string]> ctrl-order: [];
+    in property <[string]> ctrl-inactive: [];
+    in property <[string]> quality-order: [];
+    in property <[string]> quality-inactive: [];
+    callback set-num(string, float);
+    callback reset-value(string);
+    callback push-subview(int);
+    callback move-control(string, int);
+    callback move-quality-part(string, int);
+    callback toggle-control(string);
+    callback toggle-quality-part(string);
+    // pickers open the hub's generic sheet
+    callback request-picker(PickerRequest);
+    spacing: 8px;
+
+    if root.view == 1: VerticalLayout {
+        spacing: 8px;
+        SectionLabel {
+            label: ("LAYOUT");
+        }
+
+        PickerRow {
+            label: ("Layout");
+            key: "now-playing.layout";
+            value: root.np-layout == 1 ? "fullbleed" : "side";
+            overridden: root.np-layout-overridden;
+            open => {
+                root.request-picker({
+                    key: "now-playing.layout",
+                    title: "Layout",
+                    options: ["side", "fullbleed"],
+                    selected: root.np-layout,
+                    is-bool: false
+                });
+            }
+            reset-key(k) => {
+                root.reset-value(k);
+            }
+        }
+
+        SectionLabel {
+            label: @tr("BUTTONS");
+        }
+
+        SettingsRow {
+            label: @tr("Controls");
+            clicked => {
+                root.push-subview(4);
+            }
+        }
+
+        SectionLabel {
+            label: @tr("QUALITY LINE");
+        }
+
+        SettingsRow {
+            label: @tr("Quality parts");
+            clicked => {
+                root.push-subview(5);
+            }
+        }
+
+        SectionLabel {
+            label: @tr("FONTS");
+        }
+
+        SettingsRow {
+            label: ("Font");
+            clicked => {
+                root.push-subview(2);
+            }
+        }
+
+        SectionLabel {
+            label: ("METER");
+        }
+
+        PickerRow {
+            label: ("Meter");
+            key: "now-playing.inline-vu";
+            value: root.meter-name;
+            overridden: root.np-inline-vu-overridden;
+            open => {
+                root.request-picker({
+                    key: "now-playing.inline-vu",
+                    title: "Meter",
+                    options: ["off", "led", "thin", "matrix"],
+                    selected: root.np-inline-vu,
+                    is-bool: false
+                });
+            }
+            reset-key(k) => {
+                root.reset-value(k);
+            }
+        }
+    }
+
+    if root.view == 2: VerticalLayout {
+        spacing: 8px;
+                // grouped per line: each metadata line gets its own
+                // size + weight pair
+                SectionLabel {
+            label: @tr("TITLE");
+        }
+
+        StepperRow {
+            label: @tr("Size");
+            key: "now-playing.font.title-size";
+            value: root.np-title-size;
+            overridden: root.np-title-size-overridden;
+            min: 8;
+            max: 48;
+            unit: "px";
+            set-num(k, v) => {
+                root.set-num(k, v);
+            }
+            reset-key(k) => {
+                root.reset-value(k);
+            }
+        }
+
+        StepperRow {
+            label: @tr("Weight");
+            key: "now-playing.font.title-weight";
+            value: root.np-title-weight;
+            overridden: root.np-title-weight-overridden;
+            min: 100;
+            max: 900;
+            step: 100;
+            unit: "weight";
+            set-num(k, v) => {
+                root.set-num(k, v);
+            }
+            reset-key(k) => {
+                root.reset-value(k);
+            }
+        }
+
+        SectionLabel {
+            label: @tr("ARTIST");
+        }
+
+        StepperRow {
+            label: @tr("Size");
+            key: "now-playing.font.artist-size";
+            value: root.np-artist-size;
+            overridden: root.np-artist-size-overridden;
+            min: 8;
+            max: 48;
+            unit: "px";
+            set-num(k, v) => {
+                root.set-num(k, v);
+            }
+            reset-key(k) => {
+                root.reset-value(k);
+            }
+        }
+
+        StepperRow {
+            label: @tr("Weight");
+            key: "now-playing.font.artist-weight";
+            value: root.np-artist-weight;
+            overridden: root.np-artist-weight-overridden;
+            min: 100;
+            max: 900;
+            step: 100;
+            unit: "weight";
+            set-num(k, v) => {
+                root.set-num(k, v);
+            }
+            reset-key(k) => {
+                root.reset-value(k);
+            }
+        }
+
+        SectionLabel {
+            label: @tr("ALBUM");
+        }
+
+        StepperRow {
+            label: @tr("Size");
+            key: "now-playing.font.album-size";
+            value: root.np-album-size;
+            overridden: root.np-album-size-overridden;
+            min: 8;
+            max: 48;
+            unit: "px";
+            set-num(k, v) => {
+                root.set-num(k, v);
+            }
+            reset-key(k) => {
+                root.reset-value(k);
+            }
+        }
+
+        StepperRow {
+            label: @tr("Weight");
+            key: "now-playing.font.album-weight";
+            value: root.np-album-weight;
+            overridden: root.np-album-weight-overridden;
+            min: 100;
+            max: 900;
+            step: 100;
+            unit: "weight";
+            set-num(k, v) => {
+                root.set-num(k, v);
+            }
+            reset-key(k) => {
+                root.reset-value(k);
+            }
+        }
+
+        SectionLabel {
+            label: @tr("QUALITY");
+        }
+
+        StepperRow {
+            label: @tr("Size");
+            key: "now-playing.font.quality-size";
+            value: root.np-quality-size;
+            overridden: root.np-quality-size-overridden;
+            min: 8;
+            max: 48;
+            unit: "px";
+            set-num(k, v) => {
+                root.set-num(k, v);
+            }
+            reset-key(k) => {
+                root.reset-value(k);
+            }
+        }
+
+        StepperRow {
+            label: @tr("Weight");
+            key: "now-playing.font.quality-weight";
+            value: root.np-quality-weight;
+            overridden: root.np-quality-weight-overridden;
+            min: 100;
+            max: 900;
+            step: 100;
+            unit: "weight";
+            set-num(k, v) => {
+                root.set-num(k, v);
+            }
+            reset-key(k) => {
+                root.reset-value(k);
+            }
+        }
+    }
+
+    if root.view == 4: VerticalLayout {
+        spacing: 8px;
+        OrderEditor {
+            key: "now-playing.controls";
+            overridden: root.np-controls-overridden;
+            items: root.ctrl-order;
+            inactive: root.ctrl-inactive;
+            move-item(n, d) => {
+                root.move-control(n, d);
+            }
+            add-item(n) => {
+                root.toggle-control(n);
+            }
+            toggle-item(n) => {
+                root.toggle-control(n);
+            }
+            reset-key(k) => {
+                root.reset-value(k);
+            }
+        }
+    }
+
+    if root.view == 5: VerticalLayout {
+        spacing: 8px;
+        OrderEditor {
+            key: "now-playing.quality";
+            overridden: root.np-quality-overridden;
+            items: root.quality-order;
+            inactive: root.quality-inactive;
+            move-item(n, d) => {
+                root.move-quality-part(n, d);
+            }
+            add-item(n) => {
+                root.toggle-quality-part(n);
+            }
+            toggle-item(n) => {
+                root.toggle-quality-part(n);
+            }
+            reset-key(k) => {
+                root.reset-value(k);
+            }
+        }
+    }
+}

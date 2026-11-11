@@ -1,0 +1,223 @@
+import { RepeatMode } from "../../common.slint";
+import { TransportRow } from "../transport.slint";
+import { NpMetadata } from "../metadata.slint";
+
+// fullbleed cluster: ONE fixed arrangement — the title breaks
+// out as a full-width line, artist/album and the transport row
+// share the line below; when the width gets tight the controls
+// wrap to their own line below. Lines sit left, the wrapped
+// row starts at the left edge — no config, on purpose.
+//
+// Device truth (bought with live bugs):
+// - NO for loops and NO model-driven layout: for+if wrapper
+//   chains don't propagate preferred sizes on-device and the
+//   row overflowed behind the rail — every cell is explicit
+// - the transport cell is always a VerticalLayout guard:
+//   stretched rows oval the round play button
+// - metadata cells stretch 1 (fill — line alignment is
+//   text-align's job)
+// - the rows pack bottom over the scrim
+export component FullbleedLayout {
+    callback line-tapped();
+    in property <string> title;
+    in property <string> artist;
+    in property <string> album;
+    in property <bool> has-media: false;
+    in property <float> title-size: 24;
+    in property <int> title-weight: 700;
+    in property <float> artist-size: 18;
+    in property <int> artist-weight: 400;
+    in property <float> album-size: 14;
+    in property <int> album-weight: 400;
+    in property <int> inline-vu: 1;
+    in property <float> vu-l: 0;
+    in property <float> vu-r: 0;
+    in property <[string]> controls: ["shuffle", "previous", "play-pause", "next", "repeat"];
+    in property <bool> playing: false;
+    in property <bool> loading: false;
+    in property <float> loading-opacity: 0;
+    in property <bool> shuffle: false;
+    in property <RepeatMode> repeat: RepeatMode.off;
+    // the cluster's available width, passed from the caller:
+    // reading own width for the wrap decision is a binding loop
+    // (the cluster layout feeds the very width it would measure)
+    in property <length> avail: 300px;
+
+    callback toggle-play();
+    callback next-track();
+    callback prev-track();
+    callback shuffle-toggle();
+    callback repeat-cycle();
+
+    // the transport row's width (button slots minus the last
+    // gap) and the wrap condition: below controls + a 200px
+    // metadata minimum the line would squeeze the text — let
+    // the controls wrap to their own line instead
+    property <length> controls-w: 54px * root.controls.length - 10px;
+    property <bool> wrap: root.controls.length == 0 || root.avail < root.controls-w + 212px;
+
+    VerticalLayout {
+        // pack at the bottom edge over the scrim — default
+        // stretch would split the free space between the rows
+        // and float the controls mid-air
+        alignment: LayoutAlignment.end;
+        spacing: 14px;
+
+        // the title — full width, always its own line on top
+        // (carries the empty-state hint)
+        NpMetadata {
+            line-tapped => {
+                root.line-tapped();
+            }
+            horizontal-stretch: 1;
+            show-title: true;
+            show-artist: false;
+            show-album: false;
+            show-vu: false;
+            show-empty: true;
+
+            title: root.title;
+            artist: root.artist;
+            album: root.album;
+            has-media: root.has-media;
+            text-align: 0;
+            title-size: root.title-size;
+            title-weight: root.title-weight;
+            artist-size: root.artist-size;
+            artist-weight: root.artist-weight;
+            album-size: root.album-size;
+            album-weight: root.album-weight;
+            inline-vu: root.inline-vu;
+            vu-l: root.vu-l;
+            vu-r: root.vu-r;
+        }
+
+        // artist/album beside the controls — the guard keeps the
+        // row at preferred height and the buttons on the
+        // metadata baseline
+        if !root.wrap: HorizontalLayout {
+            spacing: 12px;
+
+            NpMetadata {
+                line-tapped => {
+                    root.line-tapped();
+                }
+                horizontal-stretch: 1;
+                show-title: false;
+                show-artist: true;
+                show-album: true;
+                show-vu: true;
+                show-empty: false;
+
+                title: root.title;
+                artist: root.artist;
+                album: root.album;
+                has-media: root.has-media;
+                text-align: 0;
+                title-size: root.title-size;
+                title-weight: root.title-weight;
+                artist-size: root.artist-size;
+                artist-weight: root.artist-weight;
+                album-size: root.album-size;
+                album-weight: root.album-weight;
+                inline-vu: root.inline-vu;
+                vu-l: root.vu-l;
+                vu-r: root.vu-r;
+            }
+
+            VerticalLayout {
+                // guard: a stretched row ovals the round play
+                // button; end keeps the buttons on the baseline
+                alignment: end;
+
+                if root.has-media: TransportRow {
+                    controls: root.controls;
+                    playing: root.playing;
+                    loading: root.loading;
+                    loading-opacity: root.loading-opacity;
+                    shuffle: root.shuffle;
+                    repeat: root.repeat;
+                    toggle-play => {
+                        root.toggle-play();
+                    }
+                    next-track => {
+                        root.next-track();
+                    }
+                    prev-track => {
+                        root.prev-track();
+                    }
+                    shuffle-toggle => {
+                        root.shuffle-toggle();
+                    }
+                    repeat-cycle => {
+                        root.repeat-cycle();
+                    }
+                }
+            }
+        }
+
+        // wrapped: artist/album full width, the controls on
+        // their own line below (alignment positions the group)
+        if root.wrap: NpMetadata {
+            line-tapped => {
+                root.line-tapped();
+            }
+            horizontal-stretch: 1;
+            show-title: false;
+            show-artist: true;
+            show-album: true;
+            show-vu: true;
+            show-empty: false;
+
+            title: root.title;
+            artist: root.artist;
+            album: root.album;
+            has-media: root.has-media;
+            text-align: 0;
+            title-size: root.title-size;
+            title-weight: root.title-weight;
+            artist-size: root.artist-size;
+            artist-weight: root.artist-weight;
+            album-size: root.album-size;
+            album-weight: root.album-weight;
+            inline-vu: root.inline-vu;
+            vu-l: root.vu-l;
+            vu-r: root.vu-r;
+        }
+
+        if root.wrap && root.controls.length > 0: HorizontalLayout {
+            VerticalLayout {
+                alignment: center;
+
+                HorizontalLayout {
+                    width: 100%;
+                    alignment: LayoutAlignment.start;
+
+                    if root.has-media: TransportRow {
+                        controls: root.controls;
+                        playing: root.playing;
+                        loading: root.loading;
+                        loading-opacity: root.loading-opacity;
+                        shuffle: root.shuffle;
+                        repeat: root.repeat;
+                        toggle-play => {
+                            root.toggle-play();
+                        }
+                        next-track => {
+                            root.next-track();
+                        }
+                        prev-track => {
+                            root.prev-track();
+                        }
+                        shuffle-toggle => {
+                            root.shuffle-toggle();
+                        }
+                        repeat-cycle => {
+                            root.repeat-cycle();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

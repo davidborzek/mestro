@@ -1,0 +1,230 @@
+import { Theme, SkinLayer } from "../common.slint";
+
+// one dial: renders its ordered layer stack (bottom first),
+// scaling the art design space with `f`. The engine animates
+// only needle layers (rotated around the pivot) and glow
+// layers (opacity = the glow property)
+component Dial {
+    in property <float> level: 0;
+    in property <float> f: 1;      // faceplate fit factor
+    in property <angle> zero-angle: -60deg;
+    in property <angle> sweep: 120deg;
+    in property <length> pivot-x: 90px;
+    in property <length> pivot-y: 90px;
+    in property <float> glow: 0;
+    // the cover palette ([theme] palette = "cover"); layers
+    // with tint = "palette" in the manifest ride it
+    in property <color> palette: #d8a657;
+    in property <[SkinLayer]> layers;
+
+    Rectangle {
+        clip: true;
+
+        for layer in root.layers: Rectangle {
+            // label layers span the full dial width (their x
+            // stays 0), every other kind places freely
+            x: (layer.kind == 3 ? 0 : layer.x) * 1px * root.f;
+            y: layer.y * 1px * root.f;
+            width: (layer.w > 0 ? layer.w : root.width / root.f / 1px) * 1px * root.f;
+            height: (layer.h > 0 ? layer.h : root.height / root.f / 1px) * 1px * root.f;
+
+            // 0 = image art (face or scale)
+            if layer.kind == 0: Image {
+                x: 0;
+                y: 0;
+                width: parent.width;
+                height: parent.height;
+                source: layer.source;
+            }
+
+            // 1 = engine glow wash; circular clip + edge fade
+            // keeps the wash round (a square gradient behind a
+            // round dial reads as a visible orange box)
+            if layer.kind == 1: Rectangle {
+                x: layer.inset * 1px * root.f;
+                y: layer.inset * 1px * root.f;
+                width: parent.width - 2 * layer.inset * 1px * root.f;
+                height: parent.height - 2 * layer.inset * 1px * root.f;
+                border-radius: self.width / 2;
+                clip: true;
+                opacity: Math.min(root.glow, 1);
+                background: layer.tint ? @radial-gradient(circle, root.palette 0%, root.palette.transparentize(0.35) 50%, root.palette.transparentize(1.0) 100%,) : @radial-gradient(circle, #f0a24e 0%, #d9863a 50%, #a86e2c.transparentize(1.0) 100%,);
+            }
+
+            // 2 = needle: rotated around the dial's pivot.
+            // Two branches: tinted needles ride the cover palette
+            // (colorize REPLACES the art's colors, so tinted art
+            // ships white); untinted needles render raw — a
+            // colorize would repaint their designed colors
+            if layer.kind == 2 && layer.tint: Image {
+                x: 0;
+                y: 0;
+                width: parent.width;
+                height: parent.height;
+                transform-rotation: root.zero-angle + root.level * root.sweep;
+                transform-origin: { x: root.pivot-x * root.f, y: root.pivot-y * root.f };
+                source: layer.source;
+                colorize: root.palette;
+            }
+            if layer.kind == 2 && !layer.tint: Image {
+                x: 0;
+                y: 0;
+                width: parent.width;
+                height: parent.height;
+                transform-rotation: root.zero-angle + root.level * root.sweep;
+                transform-origin: { x: root.pivot-x * root.f, y: root.pivot-y * root.f };
+                source: layer.source;
+            }
+
+            // 3 = live text label
+            if layer.kind == 3: Text {
+                text: layer.text;
+                x: 0;
+                y: 0;
+                width: parent.width;
+                horizontal-alignment: center;
+                font-size: layer.size * 1px * root.f;
+                font-weight: layer.weight;
+                color: layer.color;
+            }
+        }
+    }
+}
+
+// the manifest-driven VU skin: one generic engine renders any
+// skins/…/manifest.toml (built-in and custom alike — see the
+// README "custom VUs" section). Each dial declares an ordered
+// layer stack; the geometry arrives as properties (see
+// src/vu/manifest.rs), this component implements the
+// responsive faceplate layout: uniform fit, centered
+// meters+info group, and the fixed info hierarchy.
+//
+// Implements the VuSkin contract (README) plus the manifest
+// setup properties.
+export component SvgSkin inherits Rectangle {
+    in property <float> level-l: 0;
+    in property <float> level-r: 0;
+    in property <string> title;
+    in property <string> artist;
+    in property <string> codec;
+    in property <string> quality;
+    in property <bool> lossless;
+    in property <bool> has-media;
+    in property <bool> show-info: false;
+    // the configured info lines, one string per line
+    in property <[string]> info-lines;
+    in property <int> info-count: 0;
+    // the glow dial: scales every glow layer's opacity
+    in property <float> glow: 0;
+    // the cover palette ([theme] palette = "cover") — pushed
+    // by the Rust side like any skin contract property; tinted
+    // layers (needles, glow washes) ride it
+    in property <color> palette: #d8a657;
+
+    // ---- manifest setup (set once at activation) ----
+    // faceplate design space and plate
+    in property <float> m-design-w: 573;
+    in property <float> m-design-h: 344;
+    in property <color> m-plate: #000000;
+    // stretched plate art (the plate contract): covers the whole
+    // zone BEFORE the fitted faceplate — seamless plates stay
+    // band-free on any aspect; empty when the skin ships none
+    in property <image> m-plate-art;
+    // dial boxes: art design size, faceplate position, needle
+    // geometry (the manifest lists the LEFT dial first)
+    in property <float> m-art-w: 180;
+    in property <float> m-art-h: 180;
+    in property <float> m-x-l: 104;
+    in property <float> m-x-r: 288;
+    in property <float> m-pivot-x: 90;
+    in property <float> m-pivot-y: 90;
+    in property <angle> m-zero-angle: -60deg;
+    in property <angle> m-sweep: 120deg;
+    // the ordered layer stacks, bottom first
+    in property <[SkinLayer]> layers-l;
+    in property <[SkinLayer]> layers-r;
+
+    // the plate paints the WHOLE zone: uniform fit centers the
+    // faceplate and letterbox bands take the plate color — the
+    // manifest's plate IS the band tone. Skins stay intact on
+    // any zone aspect (rail, kiosk) when it matches the bg
+    // edge color (see docs/vu.md — the plate contract)
+    background: root.m-plate;
+
+    if root.m-plate-art.width > 0: Image {
+        x: 0;
+        y: 0;
+        width: 100%;
+        height: 100%;
+        source: root.m-plate-art;
+        image-fit: fill;
+    }
+
+    // the faceplate scales uniformly to fit and centers in the
+    // actual window — any window size works
+    property <float> fit: Math.min(
+        self.width / (root.m-design-w * 1px),
+        self.height / (root.m-design-h * 1px));
+    property <length> fit-x: (self.width - root.m-design-w * 1px * fit) / 2;
+    property <length> dial-w: root.m-art-w * 1px * fit;
+    property <length> dial-h: root.m-art-h * 1px * fit;
+    // meters + info form one group, vertically centered as a
+    // whole: the gap between meters and info only reserves
+    // space when an info block exists — full-height meters
+    // (the wall) bleed edge to edge
+    property <length> info-h: root.info-count > 0 ? (root.info-count * 20px + (root.info-count - 1) * 4px + 6px) * fit : 0px;
+    property <length> meters-y:
+        (self.height - dial-h - info-h - (root.info-count > 0 ? 24px * fit : 0px)) / 2;
+
+    Dial {
+        level: root.level-l;
+        f: root.fit;
+        zero-angle: root.m-zero-angle;
+        sweep: root.m-sweep;
+        pivot-x: root.m-pivot-x * 1px;
+        pivot-y: root.m-pivot-y * 1px;
+        glow: root.glow;
+        palette: root.palette;
+        layers: root.layers-l;
+        x: root.fit-x + root.m-x-l * 1px * root.fit;
+        y: root.meters-y;
+        width: root.dial-w;
+        height: root.dial-h;
+    }
+
+    Dial {
+        level: root.level-r;
+        f: root.fit;
+        zero-angle: root.m-zero-angle;
+        sweep: root.m-sweep;
+        pivot-x: root.m-pivot-x * 1px;
+        pivot-y: root.m-pivot-y * 1px;
+        glow: root.glow;
+        palette: root.palette;
+        layers: root.layers-r;
+        x: root.fit-x + root.m-x-r * 1px * root.fit;
+        y: root.meters-y;
+        width: root.dial-w;
+        height: root.dial-h;
+    }
+
+    // the info block: fixed hierarchy (16px bold, 13px dim,
+    // 12px muted) directly under the meters
+    if root.info-count > 0: VerticalLayout {
+        x: root.fit-x;
+        width: root.m-design-w * 1px * root.fit;
+        y: root.meters-y + dial-h + 24px * root.fit;
+        height: root.info-h;
+        alignment: start;
+        spacing: 4px * root.fit;
+
+        for line[i] in root.info-lines: Text {
+            text: line;
+            horizontal-alignment: center;
+            font-size: (i == 0 ? 16px : i == 1 ? 13px : 12px) * root.fit;
+            font-weight: i == 0 ? 700 : 400;
+            color: i == 0 ? Theme.text : i == 1 ? Theme.text-dim : Theme.text-mute;
+            overflow: elide;
+        }
+    }
+}

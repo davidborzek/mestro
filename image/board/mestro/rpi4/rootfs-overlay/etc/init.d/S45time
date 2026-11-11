@@ -1,0 +1,59 @@
+#!/bin/sh
+# S45time — NTP time sync (runs after S40network). The Pi has no
+# RTC: S03time restores the last saved time at boot, this script
+# corrects it as soon as the network answers and re-syncs hourly.
+#
+# busybox ntpd needs -n here: without it, -q daemonizes right away
+# and returns 0 before any server answered — the retry loop used
+# to stop on that fake success, saved the stale boot time and
+# left the clock wrong until the next hourly run.
+
+STATE=/data/state/hwclock
+NTP_POOL=pool.ntp.org
+# seconds one sync attempt may take (busybox has no `timeout`)
+DEADLINE=15
+
+save() {
+	mkdir -p "$(dirname "$STATE")"
+	date +%s >"$STATE" 2>/dev/null
+}
+
+# one sync, foreground, bounded: 0 only when a server answered and
+# the clock was set
+sync_once() {
+	ntpd -n -q -p "$NTP_POOL" >/dev/null 2>&1 &
+	pid=$!
+	n=0
+	while [ $n -lt $DEADLINE ]; do
+		sleep 1
+		if ! kill -0 "$pid" 2>/dev/null; then
+			wait "$pid"
+			return $?
+		fi
+		n=$((n + 1))
+	done
+	kill "$pid" 2>/dev/null
+	wait "$pid" 2>/dev/null
+	return 1
+}
+
+case "$1" in
+start)
+	(
+		# WLAN/DHCP/DNS can take a while after boot — keep trying
+		# every 10s until a real answer sets the clock
+		until sync_once; do
+			sleep 10
+		done
+		logger -t time "clock synced: $(date)"
+		save
+		while :; do
+			sleep 3600
+			sync_once && save
+		done
+	) &
+	;;
+stop)
+	save
+	;;
+esac
