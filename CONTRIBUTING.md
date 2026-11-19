@@ -46,10 +46,6 @@ files stay untouched). The dev shell installs the pre-commit hook
 (`.githooks/`) that formats the staged files and refuses the commit
 when anything changes.
 
-The one-shot reformat commit is in `.git-blame-ignore-revs`; the
-dev shell points `blame.ignoreRevsFile` at it, so `git blame` skips
-the formatting-only diff.
-
 ## Slint is pinned to a git rev
 
 `Cargo.toml` pins slint to a commit of its main branch for the

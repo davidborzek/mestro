@@ -25,7 +25,8 @@ system that runs entirely from RAM — piCorePlayer-style.
     `/etc/mestro-defaults/wpa_supplicant.conf` is the template).
     mestro keeps the last working one as `wpa_supplicant.conf.good`
   - `squeezelite.env` — `OUTPUT` (bit-perfect ALSA device),
-    `SERVER` (LMS), `NAME`, `EXTRA`; applied with
+    `SERVER` (Music Assistant host, empty = discovery), `NAME`,
+    `EXTRA`; applied with
     `/etc/init.d/S60squeezelite restart`
 - Squeezelite: the **upstream Buildroot package** with
   `BR2_PACKAGE_SQUEEZELITE_VISEXPORT` (the shm ring mestro's VU

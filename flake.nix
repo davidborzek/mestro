@@ -127,13 +127,10 @@
             export PATH="$PWD/web/node_modules/.bin:$PATH"
             if git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
               && [ "$(git rev-parse --show-toplevel)" = "$PWD" ]; then
-              # the pre-commit hook and the blame ignore list are
-              # per-clone git config; set them once, keep custom values
+              # the pre-commit hook is per-clone git config; set it
+              # once, keep a custom value
               [ -z "$(git config --get core.hooksPath)" ] \
                 && git config core.hooksPath .githooks
-              [ -f .git-blame-ignore-revs ] \
-                && [ -z "$(git config --get blame.ignoreRevsFile)" ] \
-                && git config blame.ignoreRevsFile .git-blame-ignore-revs
             fi
           '';
           nativeBuildInputs = [ pkgs.pkg-config ];

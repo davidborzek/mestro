@@ -1,4 +1,4 @@
-# mestro kiosk — network setup
+# mestro player — network setup
 #
 # wlan0 comes up via wpa_supplicant (S39wifi) with the credentials
 # from the data partition (/data/wpa_supplicant.conf); eth0 works
