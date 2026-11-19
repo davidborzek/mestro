@@ -1,0 +1,59 @@
+# treefmt v2 — one run formats the whole tree:
+#   nix develop -c treefmt       # from the repo root; the dev shell
+#                                # puts every command on PATH, prettier
+#                                # comes from web/node_modules
+#   treefmt --fail-on-change <files>   # what the pre-commit hook runs
+# Generated files are never formatted: lockfiles, the settings schema
+# goldens (must stay byte-identical) and web/dist.
+
+# markdown stays hand-wrapped prose, image/package C would need
+# clang-format, Kconfig/defconfig have no formatter — all left alone
+excludes = [
+  "*.md",
+  "src/settings/schema-golden.json",
+  "web/src/lib/mockSchema.json",
+  "web/node_modules/**",
+  "web/dist/**",
+]
+
+[formatter.rustfmt]
+command = "rustfmt"
+# the crate edition (rustfmt has no project file to read it from)
+options = ["--edition", "2021"]
+includes = ["*.rs"]
+
+[formatter.slint]
+command = "slint-lsp"
+# no --check mode; treefmt relies on the file diff and its cache.
+# nixpkgs' slint-lsp version need not match the pinned rev — the
+# formatted files just have to keep compiling
+options = ["format", "-i"]
+includes = ["*.slint"]
+
+[formatter.nixfmt]
+command = "nixfmt"
+includes = ["*.nix"]
+
+[formatter.shfmt]
+command = "shfmt"
+# tabs (the existing script style), POSIX; the extensionless init
+# scripts under image/board are covered by the extra includes
+options = ["-ln", "posix", "-i", "0", "-w"]
+includes = [
+  "*.sh",
+  "image/board/**/init.d/*",
+  "image/board/**/rootfs-overlay/init",
+  "image/board/**/usr/sbin/mestro-*",
+]
+
+[formatter.prettier]
+command = "prettier"
+# run from the tree root, so the plugin needs its path relative to it
+# (bare "prettier-plugin-svelte" would resolve against the root and
+# fail); web/.prettierrc carries the style, the plugin rides along
+options = [
+  "--write",
+  "--plugin",
+  "web/node_modules/prettier-plugin-svelte/plugin.js",
+]
+includes = ["web/**/*.{ts,js,svelte,json,css,html}"]

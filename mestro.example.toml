@@ -13,6 +13,15 @@ fullscreen = false
 # physical-width/factor logical pixels.
 scale = 1.0
 
+[display]
+# backlight brightness in percent (1..100); unset = keep what
+# the system booted with
+#brightness = 80
+# backlight in percent while the standby clock shows
+standby-brightness = 15
+# which backend sets it: auto | firmware (Pi mailbox) | sysfs | none
+backlight = "auto"
+
 [music-assistant]
 # websocket endpoint of the Music Assistant server
 url = "ws://ma.example.com:8095/ws"
@@ -32,7 +41,7 @@ palette = "amber"
 # monochrome | neutral | rainbow | vibrant
 #variant = "tonal-spot"
 
-# [keyboard]: key name -> control command (src/control.rs),
+# [keyboard]: key name -> control command (src/remote/control.rs),
 # overriding the built-in defaults. Key names: up, down, left,
 # right, escape, backspace, enter, tab, delete, space, home,
 # end, pageup, pagedown, f1..f12, or any single character.
@@ -136,6 +145,19 @@ order = ["library", "search", "settings", "standby"]
 # standby clock face: digital (dim HH:MM) or analog (dim dial)
 style = "digital"
 
+[clock.background]
+# what sits behind the clock: black | cover | folder
+source = "black"
+# darkening over the image, 0 (image as is)..1 (black)
+dim = 0.6
+# blurred instead of sharp (cover has a blurred variant ready,
+# folder images blur on load)
+blur = false
+# folder source: image directory (jpg/png), shuffled slideshow
+folder = "/data/backgrounds"
+# folder source: minutes per image (0 = never change)
+interval = 10
+
 [background]
 # blurred cover art as the now-playing background
 blurred_cover = true
@@ -143,7 +165,7 @@ blurred_cover = true
 [ui]
 # open the now-playing overlay when playback starts from a
 # library tap (track rows, the detail play button) or from
-# outside while the kiosk sits in standby (MA web UI, Home
+# outside while the player sits in standby (MA web UI, Home
 # Assistant)
 auto_open_now_playing = true
 # nav rail look: "dark" (bezel glass) or "glass" (translucent —
@@ -215,14 +237,14 @@ shm_prefix = "squeezelite"
 [vu.wall-light]
 #glow = 1.0
 
-# the embedded web endpoint: setup wizard + WS channel on the LAN
-# (docs/remote.md). Auth is the pairing PIN shown in the wizard
-# URL (restart-stable, stored 0600 in the state dir)
+# the embedded web endpoint: the web app + WS channel on the LAN
+# (docs/remote.md). Auth is the pairing PIN carried in the
+# pairing URL's hash (restart-stable, stored 0600 in the state dir)
 [remote]
 #enabled = true
 #port = 8787
 
-# the first-boot WiFi setup (kiosk images; config-file only — never
+# the first-boot WiFi setup (the player image; config-file only — never
 # in the settings editor). Everything resolves at runtime: one
 # binary per board, no paths in code
 [wifi]

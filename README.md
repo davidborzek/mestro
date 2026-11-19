@@ -49,7 +49,7 @@ on any Linux desktop for trying it out.
 - **Robust config** — a broken setting is skipped and reported,
   never a black screen.
 
-## Raspberry Pi kiosk image
+## Raspberry Pi image
 
 The image boots straight into mestro (Buildroot, runs from RAM,
 about 80 MB). Your settings, WiFi and pictures live on a small FAT
@@ -119,4 +119,4 @@ mestro is free software under the
 
 It is built on [Slint](https://slint.dev), used under Slint's
 GPLv3 option — which is what allows mestro to run on dedicated
-devices like the kiosk image at no cost.
+devices like the player image at no cost.

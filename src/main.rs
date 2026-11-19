@@ -23,10 +23,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 #[derive(Parser)]
-#[command(
-    version,
-    about = "mestro - a kiosk display for Music Assistant players"
-)]
+#[command(version, about = "mestro - a touch player display for Music Assistant")]
 struct Args {
     /// window size as WIDTHxHEIGHT logical pixels
     #[arg(long, value_parser = mestro::config::parse_size)]
@@ -297,7 +294,7 @@ fn main() {
     // the [osd] placement + show/hide wiring
     osd::wire(&ui);
 
-    // the abstract control channel (src/control.rs): keyboard, ctl
+    // the abstract control channel (src/remote/control.rs): keyboard, ctl
     // socket, web endpoint and the settings page all speak it
     let dispatch = Rc::new(Dispatch {
         ui: ui_weak.clone(),

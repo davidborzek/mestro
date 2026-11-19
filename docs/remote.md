@@ -1,9 +1,9 @@
 # The embedded remote endpoint (`[remote]`)
 
 mestro serves a small web endpoint on the LAN: an **installable
-PWA** whose main screen is a **device remote** — kiosk power, the
-kiosk views, volume, brightness — plus a **WS JSON channel**.
-One port (default `8787`; the kiosk image runs 80 via
+PWA** whose main screen is a **device remote** — player power, the
+player views, volume, brightness — plus a **WS JSON channel**.
+One port (default `8787`; the player image runs 80 via
 `MESTRO_REMOTE_PORT`, so URLs carry no port), no TLS — LAN-only by
 design. One listener: the setup hotspot's captive portal rides the
 same port, gated per connection on the peer address (below).
@@ -38,7 +38,7 @@ enabled = true    # serve at all (false: no server, no PIN file)
 port = 8787       # on all interfaces
 ```
 
-`MESTRO_REMOTE_PORT` (env) overrides the port — the kiosk image
+`MESTRO_REMOTE_PORT` (env) overrides the port — the player image
 exports `MESTRO_REMOTE_PORT=80` in its init script, so the wizard,
 the QR code and the captive portal are reachable at
 `http://<ip>/` without a port. mestro omits `:80` from every URL
@@ -50,7 +50,7 @@ it shows or advertises; any other port is spelled out.
   `/dev/urandom`) gates the protocol. It is **restart-stable** —
   persisted `0600` in the XDG state dir (`web-pin`) so the URL a
   phone scanned survives app updates.
-- The kiosk URL carries the PIN in the **hash**
+- The player URL carries the PIN in the **hash**
   (`http://host:port/#pair=…`): HTTP middlemen never log a
   fragment. The PWA consumes the hash once (drops it from the
   address bar) and `POST`s it to `/pair`.
@@ -68,13 +68,13 @@ it shows or advertises; any other port is spelled out.
   compare stays constant-time. The PIN is never rotated
   automatically (`reset-connection` keeps it; re-pairing means a
   new PIN file).
-- The pairing URL is shown on the kiosk (Connection page +
+- The pairing URL is shown on the player (Connection page +
   first-run QR code) and logged once at startup. `GET /pair/status`
   tells the PWA whether it is paired.
 
 ### The setup hotspot (AP mode, feature `wifi-setup`)
 
-While the kiosk runs its setup hotspot (no usable wifi conf, or a
+While the player runs its setup hotspot (no usable wifi conf, or a
 configured player lost its route), an **unpaired** client may use
 exactly two things: `hello` and the wifi vocabulary
 (`scan`/`join`/`status`). There is no second listener for this —
@@ -116,7 +116,7 @@ keeps the regular behavior.
 | actor | can do |
 |---|---|
 | no PIN, no cookie | fetch the app shell and assets, nothing else (`401`) |
-| paired | read the effective config **redacted**, write/reset any setting, reset-all, restart, run MA probe/login/players, drive the transport (`ctl`) and volume, mirror the kiosk views, upload a system image (`ota`) |
+| paired | read the effective config **redacted**, write/reset any setting, reset-all, restart, run MA probe/login/players, drive the transport (`ctl`) and volume, mirror the player views, upload a system image (`ota`) |
 | unpaired, from the setup hotspot (peer inside the hotspot subnet, hotspot confirmed up) | wifi ops only (`scan`/`join`/`status`) and `hello` — no settings, no player data, **no pushes**; the socket closes the moment AP mode ends (a successful join leaves it) |
 | on the wire | plaintext HTTP/WS on a trusted LAN — no TLS, treat the LAN as the trust boundary |
 
@@ -197,7 +197,7 @@ volume, navigation and standby (`play-pause`, `next-track`,
 
 `player` carries the one transport value `ctl` cannot express:
 absolute volume. It maps onto the same source command the
-kiosk's own slider uses (the volume OSD suppression included).
+player's own slider uses (the volume OSD suppression included).
 Playback beyond volume — queue, seek, shuffle — lives in
 Music Assistant's own web UI (`ma_url` in the state frame),
 and player power is `ctl`'s `standby-toggle`:
@@ -213,18 +213,18 @@ player — the state frame reports the truth.
 
 Every **paired** socket receives `{"event":"state","data":…}` right
 after the upgrade (a snapshot) and on every change afterwards —
-coalesced to at most one frame per 100 ms, except kiosk view
+coalesced to at most one frame per 100 ms, except player view
 changes (np/queue/vu/standby/vu-index), which are published at
 once. Unpaired sockets (the hotspot's setup clients) receive no
 pushes. A lagged socket gets a fresh snapshot instead of a replay
 burst. After any successful settings write (any source: web,
-kiosk, `ctl`) every paired socket also receives
+player, `ctl`) every paired socket also receives
 `{"event":"settings"}` — no payload, clients refetch the
 settings state.
 
 ```jsonc
 {
-  "connected": true,            // kiosk ↔ Music Assistant
+  "connected": true,            // player ↔ Music Assistant
   "ma_url": "http://ma.local:8095",  // the MA web UI, "" = unknown
   "player": {
     "name": "wohnzimmer",      // configured/auto-picked player
@@ -248,7 +248,7 @@ settings state.
 
 `ma_url` derives from the configured `music-assistant.url`'s
 ws endpoint: `ws`→`http`, `wss`→`https`, the trailing `/ws`
-stripped. `vu_index`/`vu_count` mirror the kiosk's
+stripped. `vu_index`/`vu_count` mirror the player's
 `vu-view-index`/`vu-view-count`; VU skin switching rides `ctl`'s
 `cycle-forward`/`cycle-back` (they cycle the skin only while
 the VU view is up).
@@ -275,7 +275,7 @@ per key. A custom skin whose art files changed on disk without
 a config edit stays stale until the day-long browser cache
 expires.
 
-Settings writes map 1:1 onto the kiosk's `control::Command`
+Settings writes map 1:1 onto the player's `control::Command`
 vocabulary (`SetSetting`/`ResetSetting`/`ResetAllSettings`) — one
 dispatch path for touch UI, keyboard and web.
 
@@ -287,9 +287,9 @@ step persists `url` + `player`. Connection changes **rewire the
 live provider session** (`SourceCommand::Reconnect`) — no app
 restart is needed; the done screen polls until the provider
 reports connected. The wizard takes over the app on an
-unconfigured kiosk; afterwards the remote tab is the default.
+unconfigured player; afterwards the remote tab is the default.
 
-While `music-assistant.url` is empty the kiosk shows the first-run
+While `music-assistant.url` is empty the player shows the first-run
 overlay (QR code + wizard URL) until a verified connection exists.
 
 ## Threading
@@ -300,5 +300,5 @@ thread through the `web-op` callback (`Bridge`); blocking work (UI
 roundtrips, `ureq`, cover JPEG encodes) runs on the blocking pool
 or the socket thread, never on the async worker. The state frames
 are built on the UI thread (the player update loop plus a 250 ms
-poll of the kiosk view props) and cross into the web thread via a
+poll of the player view props) and cross into the web thread via a
 broadcast channel.

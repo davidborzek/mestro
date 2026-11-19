@@ -1,0 +1,19 @@
+#!/bin/sh
+# formats the staged files; refuses the commit if anything changes.
+# treefmt lives in the dev shell — outside it, run
+# `nix develop -c treefmt` or commit with --no-verify.
+
+if ! command -v treefmt >/dev/null 2>&1; then
+	echo "pre-commit: treefmt not on PATH — run: nix develop -c treefmt (or commit with --no-verify)" >&2
+	exit 1
+fi
+
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+[ -n "$staged" ] || exit 0
+
+# no whitespace in tracked paths — word splitting on the newline
+# list is safe here
+treefmt --fail-on-change --quiet $staged || {
+	echo "pre-commit: unformatted files — run: nix develop -c treefmt" >&2
+	exit 1
+}

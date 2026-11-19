@@ -60,7 +60,7 @@ pub struct Config {
     pub window: Window,
     pub display: Display,
     pub theme: Theme,
-    /// [keyboard]: key name -> control command (src/control.rs);
+    /// [keyboard]: key name -> control command (src/remote/control.rs);
     /// overrides the built-in defaults, e.g. right = "cycle-forward"
     #[serde(default)]
     pub keyboard: std::collections::BTreeMap<String, String>,
@@ -327,6 +327,11 @@ mod tests {
         assert_eq!(cfg.now_playing.inline_vu, super::nowplaying::InlineVu::Led);
         assert_eq!(cfg.now_playing.font.title_size, 24.0);
         assert_eq!(cfg.osd.toast_duration, 2600);
+        assert_eq!(cfg.display.standby_brightness, 15);
+        assert_eq!(
+            cfg.clock.background.folder,
+            PathBuf::from("/data/backgrounds")
+        );
     }
 
     #[test]

@@ -6,6 +6,9 @@ driven by `src/vu/manifest.rs`). The built-ins under
 `skins/` — `night`, `cream`, `round`, `wall`, `wall-light`, `arc`, `orbit`, `modern` —
 take exactly the same path as your own: ship a directory with
 a `manifest.toml` and the art it references, and register it.
+The default cycle also includes the two analyzer views,
+`spectrum` and `bars` — built-in compiled faces, not manifest
+skins (see "The spectrum face" below).
 
 ```toml
 [vu.skins]

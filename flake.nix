@@ -114,8 +114,28 @@
             clippy
             rust-analyzer
             slint-viewer
+            slint-lsp
             bun
+            # formatters driven by treefmt (treefmt.toml); prettier
+            # comes from web/node_modules (.bin prepended below)
+            treefmt
+            nixfmt
+            shfmt
           ];
+          shellHook = ''
+            # prettier + prettier-plugin-svelte live in web/node_modules
+            export PATH="$PWD/web/node_modules/.bin:$PATH"
+            if git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+              && [ "$(git rev-parse --show-toplevel)" = "$PWD" ]; then
+              # the pre-commit hook and the blame ignore list are
+              # per-clone git config; set them once, keep custom values
+              [ -z "$(git config --get core.hooksPath)" ] \
+                && git config core.hooksPath .githooks
+              [ -f .git-blame-ignore-revs ] \
+                && [ -z "$(git config --get blame.ignoreRevsFile)" ] \
+                && git config blame.ignoreRevsFile .git-blame-ignore-revs
+            fi
+          '';
           nativeBuildInputs = [ pkgs.pkg-config ];
           buildInputs = with pkgs; [
             fontconfig

@@ -17,9 +17,12 @@ src/
   ui/              navigation stack, OSD, accent palette
   providers/       PlaybackSource trait + the Music Assistant client
   remote/          control vocabulary, ctl socket, web endpoint, QR
+  system/          wifi hotspot + first-boot setup, factory reset
+                   (behind the `wifi-setup` feature)
+  restart.rs       self-restart after a settings change or update
 ui/                the slint views (mestro.slint is the root)
-web/               the phone setup wizard (Svelte)
-image/             the Buildroot kiosk image (see image/README.md)
+web/               the companion web app (Svelte PWA)
+image/             the Buildroot player image (see image/README.md)
 tools/             dev tools: wscap (MA protocol capture), vu-feed
 ```
 
@@ -35,6 +38,18 @@ MESTRO_TOKEN=eyJ… ./target/debug/mestro --kiosk
 every manual test run so layout work happens at the real aspect
 ratio.
 
+## Formatting
+
+`nix develop -c treefmt` formats the whole tree (Rust, Slint, Nix,
+shell, the web app — see `treefmt.toml`; markdown and generated
+files stay untouched). The dev shell installs the pre-commit hook
+(`.githooks/`) that formats the staged files and refuses the commit
+when anything changes.
+
+The one-shot reformat commit is in `.git-blame-ignore-revs`; the
+dev shell points `blame.ignoreRevsFile` at it, so `git blame` skips
+the formatting-only diff.
+
 ## Slint is pinned to a git rev
 
 `Cargo.toml` pins slint to a commit of its main branch for the
@@ -45,7 +60,7 @@ linuxkms fixes mestro relies on. Consequences:
 
 ## Music Assistant protocol notes
 
-Useful when touching `src/providers/ma.rs` or talking to MA's
+Useful when touching `src/providers/ma/` or talking to MA's
 WebSocket API elsewhere:
 
 - the auth frame needs a `message_id`, or the session silently
@@ -55,7 +70,7 @@ WebSocket API elsewhere:
 - the event stream is incoherent during transitions: `queue_updated`
   replays the previous `current_item` for ~1.5s after a skip and
   replays the old clock on `queue_time`; natural advances surface
-  seconds late. The state machine (`src/state.rs`) guards all of
+  seconds late. The state machine (`src/player/state.rs`) guards all of
   this — providers only emit resolved events, guards never live in
   a provider
 - queue lists must be fetched via `player_queues/items`;
@@ -92,16 +107,22 @@ MESTRO_TOKEN=eyJ… cargo run --example wscap -- 16
 and position corrections at debug, config problems at warn/error.
 Keep stderr quiet in the normal path.
 
-## Web wizard (`web/`)
+## Web app (`web/`)
 
-Svelte 5 + Vite single-file SPA, embedded in the binary.
+Svelte 5 + Vite, a PWA the binary serves over the LAN and embeds
+at compile time.
 
 - **dev loop**: `bun install && bun run dev` in `web/`, then open
   `http://localhost:5173/#pair=<PIN>` — Vite serves with HMR and
   proxies `/ws` to `ws://localhost:8787` (a running mestro; the PIN
-  is in the kiosk's connection page, the startup log or
-  `~/.local/state/mestro/web-pin`). No rebuild needed, the wizard
-  is always live.
-- **release**: `bun run build` → `web/dist/index.html` (generated,
-  gitignored). `build.rs` embeds `$MESTRO_WEB_DIST` or that file.
-- **checks**: `bun run check` (svelte-check), plus `cargo test`.
+  is in the player's connection page, the startup log or
+  `~/.local/state/mestro/web-pin`). No rebuild needed, the app is
+  always live.
+- **release**: `bun run build` → `web/dist/` (generated, gitignored) —
+  hashed assets plus the PWA manifest and icons. `build.rs` embeds
+  `$MESTRO_WEB_DIST` (that dist directory, or a single index.html as
+  a legacy fallback) — a release pipeline can pass its own dist.
+- **checks**: `bun run check` (svelte-check), `bun test`, plus
+  `bun run build` — and remember the binary embeds `web/dist/` at
+  compile time: build the web app before `cargo build`, or the
+  binary serves the old one.

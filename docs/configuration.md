@@ -3,7 +3,7 @@
 mestro reads one TOML file and keeps the changes made on the
 device in a second one. Everything has a working default — a
 fresh device needs nothing but the connection to Music Assistant,
-and the setup wizard on your phone writes that.
+and the web app's setup wizard writes that.
 
 [`mestro.example.toml`](../mestro.example.toml) lists every key
 with its default and an explanation. This page is the map.
@@ -12,8 +12,8 @@ with its default and an explanation. This page is the map.
 
 | | Path | Written by |
 |---|---|---|
-| config file | `$MESTRO_CONFIG`, else `$XDG_CONFIG_HOME/mestro/config.toml` (on the kiosk image: `/data/config/mestro/`) | you |
-| device settings | `$XDG_STATE_HOME/mestro/settings.toml` (on the kiosk image: `/data/state/mestro/`) | the settings page, the phone wizard |
+| config file | `$MESTRO_CONFIG`, else `$XDG_CONFIG_HOME/mestro/config.toml` (on the player image: `/data/config/mestro/`) | you |
+| device settings | `$XDG_STATE_HOME/mestro/settings.toml` (on the player image: `/data/state/mestro/`) | the settings page, the web app |
 
 The **config file** is yours: mestro never writes it. It can also
 be a directory — every `*.toml` inside is merged in name order
@@ -60,13 +60,13 @@ set the device up again on purpose.
 | `[osd]` | which notifications show, where and how long |
 | `[vu]` | VU source, the faceplates and their order, custom skins |
 | `[keyboard]` | key bindings for USB remotes and keyboards |
-| `[remote]` | the phone wizard / web endpoint |
-| `[wifi]` | the setup hotspot's device paths (kiosk) |
+| `[remote]` | the web app / web endpoint |
+| `[wifi]` | the setup hotspot's device paths (the player image) |
 
 Deep dives:
 [standby clocks and backgrounds](standby.md) ·
 [VU faceplates and custom skins](vu.md) ·
-[the phone wizard and remote protocol](remote.md)
+[the web app and remote protocol](remote.md)
 
 ### `[window]`
 
@@ -98,7 +98,7 @@ backlight = "auto"          # auto | firmware | sysfs | none
 [music-assistant]
 url = "ws://ma.example.com:8095/ws"
 player = "Living Room"      # empty = the one playing
-# token = "…"               # usually written by the phone wizard
+# token = "…"               # usually written by the web app
 ```
 
 ### `[clock]`
@@ -110,6 +110,7 @@ style = "digital"           # digital | analog | a [clock.skins] name
 [clock.background]
 source = "black"            # black | cover | folder
 dim = 0.6
+blur = false               # blurred backdrop instead of sharp
 folder = "/data/backgrounds"
 interval = 10               # minutes per picture
 ```
@@ -132,7 +133,7 @@ Commands: `cycle-forward` `cycle-back` `back` `home` `play-pause`
 
 ### `[wifi]`
 
-The first-boot WiFi setup (kiosk images only; config-file only —
+The first-boot WiFi setup (player images only; config-file only —
 never in the settings editor). All values resolve at runtime, so
 one binary covers every board: `interface = "auto"` picks the
 first wireless netdev (an entry under
@@ -158,8 +159,8 @@ ap-address = "10.42.0.1/24"    # private a.b.c.d/16-29; DHCP pool = .10-.50
 | `MESTRO_MA_URL` | overrides `[music-assistant] url` |
 | `MESTRO_PLAYER` | overrides `[music-assistant] player` |
 | `MESTRO_CLOCK` | overrides `[clock] style` |
-| `MESTRO_REMOTE_PORT` | overrides `[remote] port` (the kiosk image sets 80) |
-| `MESTRO_OUTPUT` | DRM output for the kiosk backend (`DSI-1`, `HDMI-A-1`) |
+| `MESTRO_REMOTE_PORT` | overrides `[remote] port` (the player image sets 80) |
+| `MESTRO_OUTPUT` | DRM output for the direct-render backend (`DSI-1`, `HDMI-A-1`) |
 | `RUST_LOG` | log filter, default `mestro=info` |
 
 | flag | effect |
