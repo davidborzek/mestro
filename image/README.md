@@ -118,7 +118,8 @@ upgrade only swaps the kernel image, never the data partition.
 From the web app: Settings → Info → System update, pick the
 `Image` file. The upload streams straight into the inactive slot.
 
-Over SSH — key-only access. Two ways to get a key in:
+Over SSH — key-only access; root has no password and there is no
+console login. Two ways to get a key in:
 
 - **Bake it into your image** (git-ignored, never committed):
   put your public key at
@@ -195,6 +196,5 @@ network. Addresses and paths are configurable in `[wifi]`
 - settings UI: squeezelite.env editor + `S60squeezelite restart`
 - kiosk polish: hide the clock until the first NTP sync (boots
   into 1970 for ~a minute on a fresh image)
-- lock the root console login on `tty1`
 - USB-C gadget network as a rescue path
 - release pipeline: versioned images + checksums as release assets
