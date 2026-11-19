@@ -1,8 +1,8 @@
 //! [window]
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Window {
     /// logical window size as WIDTHxHEIGHT

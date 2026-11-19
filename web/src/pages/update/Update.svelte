@@ -2,7 +2,7 @@
   import { device, socket } from "../../lib/connection.svelte";
   import type { HelloData } from "../../lib/protocol";
   import { t } from "../../lib/i18n.svelte";
-  import { pairCode } from "../../lib/ws";
+  import Icon from "../../components/Icon.svelte";
 
   type Phase = "idle" | "uploading" | "rebooting" | "done" | "error";
 
@@ -16,6 +16,13 @@
     file = (event.target as HTMLInputElement).files?.[0] ?? null;
   }
 
+  // image files run into megabytes — keep the unit readable
+  function formatSize(bytes: number): string {
+    if (bytes >= 1_000_000) return `${Math.round(bytes / 1_000_000)} MB`;
+    if (bytes >= 1_000) return `${Math.round(bytes / 1_000)} kB`;
+    return `${bytes} B`;
+  }
+
   function fail(message: string) {
     reason = message;
     phase = "error";
@@ -27,7 +34,8 @@
     phase = "uploading";
     percent = 0;
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", `/ota?pair=${encodeURIComponent(pairCode())}`);
+    // the pairing cookie rides along automatically
+    xhr.open("POST", "/ota");
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) percent = Math.floor((e.loaded * 100) / e.total);
     };
@@ -64,7 +72,7 @@
     const deadline = Date.now() + 5 * 60_000;
     for (;;) {
       if (Date.now() > deadline) {
-        fail(wentDown ? "the kiosk did not come back" : "the kiosk did not restart");
+        fail(wentDown ? t("update.notBack") : t("update.notRestarted"));
         return;
       }
       await sleep(3000);
@@ -87,12 +95,19 @@
 
   {#if phase === "idle" || phase === "error"}
     <p>{t("update.lead")}</p>
-    <label class="f">
-      {t("update.file")}
-      <input type="file" onchange={pick} />
+    <label class="picker">
+      <!-- the native input is invisible; the button carries it -->
+      <input class="file" type="file" onchange={pick} aria-label={t("update.chooseFile")} />
+      <span class="choose"><Icon name="upload" size={20} /> {t("update.chooseFile")}</span>
+      {#if file}
+        <span class="picked">
+          <strong class="name">{file.name}</strong>
+          <span class="size">{formatSize(file.size)}</span>
+        </span>
+      {/if}
     </label>
     {#if phase === "error"}
-      <div class="err">⚠ {t("update.error", { reason })}</div>
+      <div class="err"><Icon name="alert" size={16} /> {t("update.error", { reason })}</div>
     {/if}
     <button class="primary" disabled={!file} onclick={upload}>
       {phase === "error" ? t("update.retry") : t("update.start")}
@@ -109,9 +124,48 @@
 </section>
 
 <style>
-  .update {
-    flex: 1;
-    margin: 16px;
+  .picker {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2);
+  }
+  .file {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+  }
+  .choose {
+    align-self: flex-start;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-2);
+    padding: 0 var(--sp-4);
+    border: 1px solid var(--hairline);
+    border-radius: var(--r-14);
+    color: var(--text);
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: border-color var(--t-press) var(--ease);
+  }
+  .picker:focus-within .choose {
+    border-color: var(--accent-live);
+  }
+  .picked {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 13px;
+    overflow-wrap: anywhere;
+  }
+  .picked .name {
+    font-weight: 600;
+  }
+  .picked .size {
+    color: var(--mute);
+    font-variant-numeric: tabular-nums;
   }
   progress {
     width: 100%;

@@ -1,6 +1,6 @@
 //! [clock]: the standby clock face
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -8,7 +8,7 @@ use std::path::PathBuf;
 /// [clock.skins] entry
 pub const BUILTIN_STYLES: &[&str] = &["digital", "analog"];
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Clock {
     /// "digital", "analog" or a [clock.skins] name
@@ -31,7 +31,7 @@ impl Default for Clock {
 }
 
 /// [clock.background]: the standby backdrop behind the clock
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct StandbyBackground {
     pub source: BackgroundSource,
@@ -59,7 +59,7 @@ impl Default for StandbyBackground {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum BackgroundSource {
     /// plain black (darkest, the night setting)

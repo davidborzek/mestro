@@ -3,9 +3,9 @@
 //! LAN-only by design — auth is the pairing PIN shown on the
 //! kiosk (restart-stable, persisted 0600), there is no TLS.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Remote {
     /// serve the wizard + WS channel at all

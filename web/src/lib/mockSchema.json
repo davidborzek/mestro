@@ -1,0 +1,935 @@
+{
+  "sections": [
+    {
+      "id": "now-playing",
+      "title": "Now Playing",
+      "icon": "music_note",
+      "fields": [
+        {
+          "key": "now-playing.layout",
+          "label": "Layout",
+          "kind": {
+            "type": "choice",
+            "options": [
+              {
+                "value": "side",
+                "label": "Side"
+              },
+              {
+                "value": "fullbleed",
+                "label": "Fullbleed"
+              }
+            ]
+          }
+        },
+        {
+          "key": "now-playing.inline-vu",
+          "label": "Meter",
+          "kind": {
+            "type": "choice",
+            "options": [
+              {
+                "value": "off",
+                "label": "Off"
+              },
+              {
+                "value": "led",
+                "label": "LED"
+              },
+              {
+                "value": "thin",
+                "label": "Thin"
+              },
+              {
+                "value": "matrix",
+                "label": "Matrix"
+              }
+            ]
+          }
+        },
+        {
+          "key": "now-playing.font.title-size",
+          "label": "Title size",
+          "kind": {
+            "type": "number",
+            "min": 8.0,
+            "max": 48.0,
+            "step": 2.0,
+            "unit": "px"
+          }
+        },
+        {
+          "key": "now-playing.font.title-weight",
+          "label": "Title weight",
+          "kind": {
+            "type": "number",
+            "min": 100.0,
+            "max": 900.0,
+            "step": 100.0
+          }
+        },
+        {
+          "key": "now-playing.font.artist-size",
+          "label": "Artist size",
+          "kind": {
+            "type": "number",
+            "min": 8.0,
+            "max": 48.0,
+            "step": 2.0,
+            "unit": "px"
+          }
+        },
+        {
+          "key": "now-playing.font.artist-weight",
+          "label": "Artist weight",
+          "kind": {
+            "type": "number",
+            "min": 100.0,
+            "max": 900.0,
+            "step": 100.0
+          }
+        },
+        {
+          "key": "now-playing.font.album-size",
+          "label": "Album size",
+          "kind": {
+            "type": "number",
+            "min": 8.0,
+            "max": 48.0,
+            "step": 2.0,
+            "unit": "px"
+          }
+        },
+        {
+          "key": "now-playing.font.album-weight",
+          "label": "Album weight",
+          "kind": {
+            "type": "number",
+            "min": 100.0,
+            "max": 900.0,
+            "step": 100.0
+          }
+        },
+        {
+          "key": "now-playing.font.quality-size",
+          "label": "Quality size",
+          "kind": {
+            "type": "number",
+            "min": 8.0,
+            "max": 48.0,
+            "step": 2.0,
+            "unit": "px"
+          }
+        },
+        {
+          "key": "now-playing.font.quality-weight",
+          "label": "Quality weight",
+          "kind": {
+            "type": "number",
+            "min": 100.0,
+            "max": 900.0,
+            "step": 100.0
+          }
+        },
+        {
+          "key": "now-playing.controls",
+          "label": "Controls",
+          "kind": {
+            "type": "ordered-subset",
+            "options": [
+              {
+                "value": "shuffle",
+                "label": "Shuffle"
+              },
+              {
+                "value": "previous",
+                "label": "Previous"
+              },
+              {
+                "value": "play-pause",
+                "label": "Play/Pause"
+              },
+              {
+                "value": "next",
+                "label": "Next"
+              },
+              {
+                "value": "repeat",
+                "label": "Repeat"
+              }
+            ]
+          }
+        },
+        {
+          "key": "now-playing.quality",
+          "label": "Quality parts",
+          "kind": {
+            "type": "ordered-subset",
+            "options": [
+              {
+                "value": "codec",
+                "label": "Codec"
+              },
+              {
+                "value": "rate",
+                "label": "Rate"
+              },
+              {
+                "value": "depth",
+                "label": "Depth"
+              },
+              {
+                "value": "bitrate",
+                "label": "Bitrate"
+              },
+              {
+                "value": "channels",
+                "label": "Channels"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "theme",
+      "title": "Theme & UI",
+      "icon": "palette",
+      "fields": [
+        {
+          "key": "theme.palette",
+          "label": "Palette",
+          "kind": {
+            "type": "choice",
+            "options": [
+              {
+                "value": "amber",
+                "label": "Amber"
+              },
+              {
+                "value": "cover",
+                "label": "Cover"
+              }
+            ]
+          }
+        },
+        {
+          "key": "theme.variant",
+          "label": "Variant",
+          "kind": {
+            "type": "choice",
+            "options": [
+              {
+                "value": "tonal-spot",
+                "label": "tonal-spot"
+              },
+              {
+                "value": "content",
+                "label": "content"
+              },
+              {
+                "value": "expressive",
+                "label": "expressive"
+              },
+              {
+                "value": "fidelity",
+                "label": "fidelity"
+              },
+              {
+                "value": "fruit-salad",
+                "label": "fruit-salad"
+              },
+              {
+                "value": "monochrome",
+                "label": "monochrome"
+              },
+              {
+                "value": "neutral",
+                "label": "neutral"
+              },
+              {
+                "value": "rainbow",
+                "label": "rainbow"
+              },
+              {
+                "value": "vibrant",
+                "label": "vibrant"
+              }
+            ]
+          }
+        },
+        {
+          "key": "ui.rail",
+          "label": "Rail",
+          "kind": {
+            "type": "choice",
+            "options": [
+              {
+                "value": "dark",
+                "label": "Dark"
+              },
+              {
+                "value": "glass",
+                "label": "Glass"
+              }
+            ]
+          }
+        },
+        {
+          "key": "ui.auto_open_now_playing",
+          "label": "Auto-open Now Playing",
+          "kind": {
+            "type": "bool"
+          }
+        },
+        {
+          "key": "ui.osk_layout",
+          "label": "Keyboard layout",
+          "kind": {
+            "type": "choice",
+            "options": [
+              {
+                "value": "de",
+                "label": "de"
+              },
+              {
+                "value": "en",
+                "label": "en"
+              }
+            ]
+          }
+        },
+        {
+          "key": "background.blurred_cover",
+          "label": "Blurred cover backdrop",
+          "kind": {
+            "type": "bool"
+          }
+        }
+      ]
+    },
+    {
+      "id": "standby",
+      "title": "Standby",
+      "icon": "bedtime",
+      "fields": [
+        {
+          "key": "clock.style",
+          "label": "Clock style",
+          "kind": {
+            "type": "choice",
+            "options": [
+              {
+                "value": "digital",
+                "label": "digital",
+                "preview": "/clock-preview?style=digital&v=f4f5f7b2eec35ba4"
+              },
+              {
+                "value": "analog",
+                "label": "analog",
+                "preview": "/clock-preview?style=analog&v=f4f5f7b2eec35ba4"
+              }
+            ]
+          }
+        },
+        {
+          "key": "clock.background.source",
+          "label": "Background source",
+          "kind": {
+            "type": "choice",
+            "options": [
+              {
+                "value": "black",
+                "label": "Black"
+              },
+              {
+                "value": "cover",
+                "label": "Cover"
+              },
+              {
+                "value": "folder",
+                "label": "Folder"
+              }
+            ]
+          }
+        },
+        {
+          "key": "clock.background.dim",
+          "label": "Darken",
+          "kind": {
+            "type": "percent"
+          },
+          "visible_if": {
+            "key": "clock.background.source",
+            "not_in": [
+              "black"
+            ]
+          }
+        },
+        {
+          "key": "clock.background.blur",
+          "label": "Blur",
+          "kind": {
+            "type": "bool"
+          },
+          "visible_if": {
+            "key": "clock.background.source",
+            "not_in": [
+              "black"
+            ]
+          }
+        },
+        {
+          "key": "clock.background.interval",
+          "label": "Minutes per image",
+          "kind": {
+            "type": "number",
+            "min": 0.0,
+            "max": 120.0,
+            "step": 5.0,
+            "unit": "min"
+          },
+          "visible_if": {
+            "key": "clock.background.source",
+            "in": [
+              "folder"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "display",
+      "title": "Display",
+      "icon": "brightness_medium",
+      "fields": [
+        {
+          "key": "display.brightness",
+          "label": "Brightness",
+          "kind": {
+            "type": "number",
+            "min": 1.0,
+            "max": 100.0,
+            "step": 1.0,
+            "unit": "%"
+          },
+          "visible_if": {
+            "capability": "display"
+          }
+        },
+        {
+          "key": "display.standby-brightness",
+          "label": "Dim to",
+          "help": "While the standby clock shows. 0 turns the panel dark, 100 keeps it at full brightness.",
+          "kind": {
+            "type": "number",
+            "min": 0.0,
+            "max": 100.0,
+            "step": 1.0,
+            "unit": "%"
+          },
+          "visible_if": {
+            "capability": "display"
+          }
+        }
+      ]
+    },
+    {
+      "id": "home",
+      "title": "Home",
+      "icon": "dashboard",
+      "fields": [
+        {
+          "key": "hub.layout",
+          "label": "Layout",
+          "kind": {
+            "type": "choice",
+            "options": [
+              {
+                "value": "cards",
+                "label": "Cards"
+              },
+              {
+                "value": "list",
+                "label": "List"
+              }
+            ]
+          }
+        },
+        {
+          "key": "hub.order",
+          "label": "Entry order",
+          "kind": {
+            "type": "permutation",
+            "options": [
+              {
+                "value": "library",
+                "label": "Library"
+              },
+              {
+                "value": "search",
+                "label": "Search"
+              },
+              {
+                "value": "settings",
+                "label": "Settings"
+              },
+              {
+                "value": "standby",
+                "label": "Standby"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "notifications",
+      "title": "Notifications",
+      "icon": "notifications",
+      "fields": [
+        {
+          "key": "osd.style",
+          "label": "Style",
+          "kind": {
+            "type": "choice",
+            "options": [
+              {
+                "value": "translucent",
+                "label": "Translucent"
+              },
+              {
+                "value": "solid",
+                "label": "Solid"
+              }
+            ]
+          }
+        },
+        {
+          "key": "osd.position",
+          "label": "Toast position",
+          "kind": {
+            "type": "choice",
+            "options": [
+              {
+                "value": "bottom",
+                "label": "Bottom"
+              },
+              {
+                "value": "top",
+                "label": "Top"
+              },
+              {
+                "value": "left",
+                "label": "Left"
+              },
+              {
+                "value": "right",
+                "label": "Right"
+              },
+              {
+                "value": "center",
+                "label": "Center"
+              }
+            ]
+          }
+        },
+        {
+          "key": "osd.volume-position",
+          "label": "Volume position",
+          "kind": {
+            "type": "choice",
+            "options": [
+              {
+                "value": "bottom",
+                "label": "Bottom"
+              },
+              {
+                "value": "top",
+                "label": "Top"
+              },
+              {
+                "value": "left",
+                "label": "Left"
+              },
+              {
+                "value": "right",
+                "label": "Right"
+              },
+              {
+                "value": "center",
+                "label": "Center"
+              }
+            ]
+          }
+        },
+        {
+          "key": "osd.toast-duration",
+          "label": "Toast duration",
+          "kind": {
+            "type": "number",
+            "min": 400.0,
+            "max": 10000.0,
+            "step": 200.0,
+            "unit": "ms"
+          }
+        },
+        {
+          "key": "osd.volume-duration",
+          "label": "Volume duration",
+          "kind": {
+            "type": "number",
+            "min": 400.0,
+            "max": 10000.0,
+            "step": 200.0,
+            "unit": "ms"
+          }
+        },
+        {
+          "key": "osd.transport",
+          "label": "Transport toasts",
+          "kind": {
+            "type": "bool"
+          }
+        },
+        {
+          "key": "osd.track",
+          "label": "Track toasts",
+          "kind": {
+            "type": "bool"
+          }
+        },
+        {
+          "key": "osd.queue",
+          "label": "Queue toasts",
+          "kind": {
+            "type": "bool"
+          }
+        },
+        {
+          "key": "osd.volume",
+          "label": "Volume OSD",
+          "kind": {
+            "type": "bool"
+          }
+        },
+        {
+          "key": "osd.now-playing.transport",
+          "label": "Transport",
+          "kind": {
+            "type": "inherit-bool"
+          }
+        },
+        {
+          "key": "osd.now-playing.track",
+          "label": "Track",
+          "kind": {
+            "type": "inherit-bool"
+          }
+        },
+        {
+          "key": "osd.now-playing.queue",
+          "label": "Queue",
+          "kind": {
+            "type": "inherit-bool"
+          }
+        },
+        {
+          "key": "osd.now-playing.volume",
+          "label": "Volume",
+          "kind": {
+            "type": "inherit-bool"
+          }
+        },
+        {
+          "key": "osd.vu.transport",
+          "label": "Transport",
+          "kind": {
+            "type": "inherit-bool"
+          }
+        },
+        {
+          "key": "osd.vu.track",
+          "label": "Track",
+          "kind": {
+            "type": "inherit-bool"
+          }
+        },
+        {
+          "key": "osd.vu.queue",
+          "label": "Queue",
+          "kind": {
+            "type": "inherit-bool"
+          }
+        },
+        {
+          "key": "osd.vu.volume",
+          "label": "Volume",
+          "kind": {
+            "type": "inherit-bool"
+          }
+        }
+      ]
+    },
+    {
+      "id": "vu",
+      "title": "VU meters",
+      "icon": "graphic_eq",
+      "fields": [
+        {
+          "key": "vu.cycle",
+          "label": "Cycle",
+          "kind": {
+            "type": "ordered-subset",
+            "options": [
+              {
+                "value": "night",
+                "label": "night",
+                "preview": "/vu-preview?skin=night&v=7cc1f15b51b7bff9"
+              },
+              {
+                "value": "cream",
+                "label": "cream",
+                "preview": "/vu-preview?skin=cream&v=7cc1f15b51b7bff9"
+              },
+              {
+                "value": "round",
+                "label": "round",
+                "preview": "/vu-preview?skin=round&v=7cc1f15b51b7bff9"
+              },
+              {
+                "value": "wall",
+                "label": "wall",
+                "preview": "/vu-preview?skin=wall&v=7cc1f15b51b7bff9"
+              },
+              {
+                "value": "wall-light",
+                "label": "wall-light",
+                "preview": "/vu-preview?skin=wall-light&v=7cc1f15b51b7bff9"
+              },
+              {
+                "value": "arc",
+                "label": "arc",
+                "preview": "/vu-preview?skin=arc&v=7cc1f15b51b7bff9"
+              },
+              {
+                "value": "orbit",
+                "label": "orbit",
+                "preview": "/vu-preview?skin=orbit&v=7cc1f15b51b7bff9"
+              },
+              {
+                "value": "modern",
+                "label": "modern",
+                "preview": "/vu-preview?skin=modern&v=7cc1f15b51b7bff9"
+              },
+              {
+                "value": "spectrum",
+                "label": "spectrum",
+                "preview": "/vu-preview?skin=spectrum&v=7cc1f15b51b7bff9"
+              },
+              {
+                "value": "bars",
+                "label": "bars",
+                "preview": "/vu-preview?skin=bars&v=7cc1f15b51b7bff9"
+              }
+            ]
+          }
+        },
+        {
+          "key": "vu.night.info",
+          "label": "Info lines",
+          "kind": {
+            "type": "ordered-subset",
+            "options": [
+              {
+                "value": "title",
+                "label": "Title"
+              },
+              {
+                "value": "artist",
+                "label": "Artist"
+              },
+              {
+                "value": "codec",
+                "label": "Codec"
+              },
+              {
+                "value": "quality",
+                "label": "Quality"
+              },
+              {
+                "value": "time",
+                "label": "Time"
+              }
+            ]
+          }
+        },
+        {
+          "key": "vu.cream.info",
+          "label": "Info lines",
+          "kind": {
+            "type": "ordered-subset",
+            "options": [
+              {
+                "value": "title",
+                "label": "Title"
+              },
+              {
+                "value": "artist",
+                "label": "Artist"
+              },
+              {
+                "value": "codec",
+                "label": "Codec"
+              },
+              {
+                "value": "quality",
+                "label": "Quality"
+              },
+              {
+                "value": "time",
+                "label": "Time"
+              }
+            ]
+          }
+        },
+        {
+          "key": "vu.cream.glow",
+          "label": "Glow",
+          "kind": {
+            "type": "percent"
+          }
+        },
+        {
+          "key": "vu.round.info",
+          "label": "Info lines",
+          "kind": {
+            "type": "ordered-subset",
+            "options": [
+              {
+                "value": "title",
+                "label": "Title"
+              },
+              {
+                "value": "artist",
+                "label": "Artist"
+              },
+              {
+                "value": "codec",
+                "label": "Codec"
+              },
+              {
+                "value": "quality",
+                "label": "Quality"
+              },
+              {
+                "value": "time",
+                "label": "Time"
+              }
+            ]
+          }
+        },
+        {
+          "key": "vu.round.glow",
+          "label": "Glow",
+          "kind": {
+            "type": "percent"
+          }
+        },
+        {
+          "key": "vu.wall-light.glow",
+          "label": "Glow",
+          "kind": {
+            "type": "percent"
+          }
+        },
+        {
+          "key": "vu.spectrum.info",
+          "label": "Info lines",
+          "kind": {
+            "type": "ordered-subset",
+            "options": [
+              {
+                "value": "title",
+                "label": "Title"
+              },
+              {
+                "value": "artist",
+                "label": "Artist"
+              },
+              {
+                "value": "codec",
+                "label": "Codec"
+              },
+              {
+                "value": "quality",
+                "label": "Quality"
+              },
+              {
+                "value": "time",
+                "label": "Time"
+              }
+            ]
+          }
+        },
+        {
+          "key": "vu.spectrum.meters",
+          "label": "LED meters",
+          "kind": {
+            "type": "bool"
+          }
+        },
+        {
+          "key": "vu.spectrum.gradient",
+          "label": "Gradient",
+          "kind": {
+            "type": "bool"
+          }
+        },
+        {
+          "key": "vu.bars.info",
+          "label": "Info lines",
+          "kind": {
+            "type": "ordered-subset",
+            "options": [
+              {
+                "value": "title",
+                "label": "Title"
+              },
+              {
+                "value": "artist",
+                "label": "Artist"
+              },
+              {
+                "value": "codec",
+                "label": "Codec"
+              },
+              {
+                "value": "quality",
+                "label": "Quality"
+              },
+              {
+                "value": "time",
+                "label": "Time"
+              }
+            ]
+          }
+        },
+        {
+          "key": "vu.bars.meters",
+          "label": "LED meters",
+          "kind": {
+            "type": "bool"
+          }
+        },
+        {
+          "key": "vu.bars.gradient",
+          "label": "Gradient",
+          "kind": {
+            "type": "bool"
+          }
+        }
+      ]
+    }
+  ]
+}

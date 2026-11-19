@@ -10,16 +10,20 @@ system that runs entirely from RAM — piCorePlayer-style.
 | Partition | Type | Content |
 |---|---|---|
 | 1 (boot) | FAT32 | the system in two slots `Image.a`/`Image.b` (kernel with embedded initramfs), DTBs, firmware, `config.txt` |
-| 2 (data) | FAT32 `MESTRODATA` | `mestro.toml`, `squeezelite.env`, mestro state/config — survives reflashes, editable on Windows/macOS |
+| 2 (data) | FAT32 `MESTRODATA` | `squeezelite.env`, `wpa_supplicant.conf` (written by the setup hotspot), mestro state/config — survives reflashes, editable on Windows/macOS |
 
 - No root partition: the rootfs is an initramfs inside the kernel
   image. The SD card is only read at boot; zero wear afterwards.
 - **No mestro config file, no CLI flags**: the service runs bare
   `mestro` — the linuxkms backend picks the connector's preferred
   DRM mode itself (`SLINT_DRM_MODE` overrides). First boot shows
-  the pairing QR, the phone wizard + the settings UI write
-  everything into `/data`. `squeezelite.env` is the one file a
-  plain flash seeds
+  the setup hotspot's WiFi QR (no network yet) or the pairing QR;
+  the phone + the settings UI write everything into `/data`.
+  `squeezelite.env` is the one file a plain flash seeds
+  - `wpa_supplicant.conf` — written by mestro when you pick a
+    network on the setup page (a hand-written one works too;
+    `/etc/mestro-defaults/wpa_supplicant.conf` is the template).
+    mestro keeps the last working one as `wpa_supplicant.conf.good`
   - `squeezelite.env` — `OUTPUT` (bit-perfect ALSA device),
     `SERVER` (LMS), `NAME`, `EXTRA`; applied with
     `/etc/init.d/S60squeezelite restart`
@@ -109,9 +113,12 @@ Three sourcing recipes, pick by situation:
 Everything on `/data` survives re-flashes and OTA upgrades — the
 upgrade only swaps the kernel image, never the data partition.
 
-## Upgrades over SSH
+## Upgrades
 
-SSH access is key-only. Two ways to get a key in:
+From the web app: Settings → Info → System update, pick the
+`Image` file. The upload streams straight into the inactive slot.
+
+Over SSH — key-only access. Two ways to get a key in:
 
 - **Bake it into your image** (git-ignored, never committed):
   put your public key at
@@ -153,40 +160,41 @@ Without `--reboot` the trial starts at the next
 `mestro-reboot --tryboot`; plain `mestro-reboot` (never busybox
 `reboot`, it hangs the initramfs kiosk) stays on the current slot.
 
-## Status / known untested
+## WiFi setup (hotspot)
 
-This tree is the skeleton; a full build has **not** been run yet.
-Specifically:
+mestro owns the radio (feature `wifi-setup`, `src/system/wifi/`):
+without a usable `wpa_supplicant.conf` — or after 60 s without a
+route on a configured player — it runs wpa_supplicant in AP mode
+as the open hotspot `mestro-XXXX` (last four hex digits of the
+MAC) on `10.42.0.1/24`, with dnsmasq for DHCP, a wildcard DNS
+(every name resolves to the player, `mestro.setup` included) and
+the RFC 8910 captive-portal option. Phones open the setup page by
+themselves — the web endpoint runs on port 80 in the image
+(`MESTRO_REMOTE_PORT=80` in S50mestro), so `mestro.setup` and the
+portal URI carry no port. A fallback hotspot retries the saved
+network every two minutes (never while a phone is connected to
+it); a hotspot that cannot start falls back to the last working
+network. Addresses and paths are configurable in `[wifi]`
+(docs/configuration.md).
 
-- `configs/mestro_pi4_defconfig`: the mesa3d symbol set
-  (`_GALLIUM_DRIVER_V3D`, `_OPENGL_EGL`, `_OPENGL_ES`, GBM)
-  and the exact boot firmware file list need a first real
-  `make` pass to verify.
-- Squeezelite pin `45e711bb…` compiles VISEXPORT in theory
-  (Makefile verified); unverified in a real toolchain.
-- DSI panel backlight/touch overlay is not configured
-  (`config.txt`), Pi 3/5 and Pi Zero 2 W configs are follow-ups.
-- A release pipeline (GitHub Releases → `MESTRO_SITE`) replaces
-  the local tarball flow later.
+## Known limits
+
+- Raspberry Pi 4 only (Pi 3/5 and Zero 2 W defconfigs are
+  follow-ups).
+- The backlight at 0 % is dim, not fully off.
+- The panel's touch firmware can hang the display bus under heavy
+  backlight traffic; mestro routes backlight writes through the
+  firmware mailbox to avoid it.
+- The first network scan after boot can be incomplete.
 
 ## Follow-up backlog
-
-User-facing configuration should converge into the mestro UI
-(phone/panel) instead of editing files on the data partition:
 
 - settings UI: `[window] scale` picker (needs the app restart
   flow — SLINT_SCALE_FACTOR is read at backend init)
 - settings UI: timezone picker writing `/data/timezone`
-- settings UI: WiFi credentials writing `/data/wpa_supplicant.conf`
-  + `S39wifi restart`
 - settings UI: squeezelite.env editor + `S60squeezelite restart`
-- web UI: OTA update button — stream an uploaded Image into
-  `mestro-upgrade --reboot -`
 - kiosk polish: hide the clock until the first NTP sync (boots
   into 1970 for ~a minute on a fresh image)
-
-Infra follow-ups:
-
-- Pi 5 (cortex-a76) and Zero 2 W (armv7) defconfigs
-- release pipeline (GitHub Releases → `MESTRO_SITE`) replacing the
-  local tarball flow
+- lock the root console login on `tty1`
+- USB-C gadget network as a rescue path
+- release pipeline: versioned images + checksums as release assets

@@ -8,18 +8,22 @@
 use super::Dispatch;
 use crate::remote::control::Command;
 use crate::remote::web::protocol::InternalOp;
-use crate::remote::web::{Envelope, Request, Response, SettingsOp, WebInfo};
+use crate::remote::web::PlayerCtx;
+use crate::remote::web::{Envelope, PreviewRenderer, Request, Response, SettingsOp, WebInfo};
 use crate::settings::Handle;
 use crate::Mestro;
 
 /// one round on the UI thread. `dispatch` is the shared command
-/// path (it owns the UI resync after a write).
+/// path (it owns the UI resync after a write), `previews` renders
+/// the settings thumbnails.
 pub(crate) fn handle_ui(
     text: &str,
     ui: &Mestro,
     settings: &Handle,
     dispatch: &Dispatch,
     info: &WebInfo,
+    player: &PlayerCtx,
+    previews: &PreviewRenderer,
 ) -> String {
     // internal bridge ops (process-internal, never wire-visible:
     // the socket side is the only producer, `dispatch` rejects
@@ -46,6 +50,7 @@ pub(crate) fn handle_ui(
                     serde_json::json!({ "token": get("token"), "url": get("url") }),
                 )
             }
+            InternalOp::Preview { kind, name } => preview_response(previews, &kind, &name),
         };
         return serde_json::to_string(&response)
             .unwrap_or_else(|e| format!(r#"{{"id":0,"ok":false,"error":"{e}"}}"#));
@@ -58,6 +63,17 @@ pub(crate) fn handle_ui(
                 Request::Settings {
                     action: SettingsOp::State,
                 } => Response::ok(id, state_payload(ui, settings, info)),
+                Request::Settings {
+                    action: SettingsOp::Schema,
+                } => match settings.effective() {
+                    Ok(effective) => {
+                        match serde_json::to_value(crate::settings::schema(&effective)) {
+                            Ok(schema) => Response::ok(id, schema),
+                            Err(e) => Response::err(id, e.to_string()),
+                        }
+                    }
+                    Err(e) => Response::err(id, e),
+                },
                 Request::Settings {
                     action: SettingsOp::Set { key, value },
                 } => match settings.set(&key, value.clone()) {
@@ -96,8 +112,38 @@ pub(crate) fn handle_ui(
                     ui.invoke_restart_app();
                     Response::ok(id, serde_json::json!({ "restarting": true }))
                 }
+                Request::Settings {
+                    action: SettingsOp::FactoryReset { wifi },
+                } => {
+                    #[cfg(feature = "wifi-setup")]
+                    {
+                        match factory_reset(settings, dispatch, wifi) {
+                            Ok(outcome) => {
+                                ui.invoke_restart_app();
+                                Response::ok(
+                                    id,
+                                    serde_json::json!({
+                                        "restarting": true,
+                                        // what the wifi part did — kept |
+                                        // restored | removed
+                                        "wifi": outcome.as_str(),
+                                    }),
+                                )
+                            }
+                            Err(e) => Response::err(id, e),
+                        }
+                    }
+                    #[cfg(not(feature = "wifi-setup"))]
+                    {
+                        let _ = wifi;
+                        Response::err(id, "factory reset not available")
+                    }
+                }
                 Request::Ctl { cmd } => super::ctl::handle(id, &cmd, dispatch),
-                Request::Hello | Request::Ma { .. } => Response::err(id, "not a ui-bound request"),
+                Request::Player { action } => super::player::handle(id, &action, player),
+                Request::Hello | Request::Ma { .. } | Request::Wifi { .. } => {
+                    Response::err(id, "not a ui-bound request")
+                }
             }
         }
     };
@@ -106,10 +152,18 @@ pub(crate) fn handle_ui(
 }
 
 /// the effective config state for the wizard/remote editor:
-/// redacted config, override keys, provider status, wizard URL
+/// redacted config, effective config (defaults folded in),
+/// override keys, provider status, wizard URL
 fn state_payload(ui: &Mestro, settings: &Handle, info: &WebInfo) -> serde_json::Value {
+    // a broken base cannot fold defaults — the wizard keeps
+    // working on the built-in ones (config::load does the same)
+    let effective = settings.effective().unwrap_or_else(|e| {
+        tracing::warn!("web: effective config: {e}");
+        crate::config::Config::default()
+    });
     crate::remote::web::protocol::state_data(
         &settings.merged(),
+        &effective,
         &settings.override_keys(),
         settings
             .base_path()
@@ -118,4 +172,85 @@ fn state_payload(ui: &Mestro, settings: &Handle, info: &WebInfo) -> serde_json::
         ui.get_provider_status().as_ref(),
         &info.remote_url(),
     )
+}
+/// the preview op's reply: PNG bytes as hex
+fn preview_response(previews: &PreviewRenderer, kind: &str, name: &str) -> Response {
+    match previews(kind, name) {
+        Some(png) => Response::ok(
+            0,
+            serde_json::json!({ "png": super::http::hex_encode(&png) }),
+        ),
+        None => Response::err(0, format!("unknown preview {kind}/{name}")),
+    }
+}
+
+/// factory reset (pairing is enforced at the route): the state
+/// files go (settings overlay, web-pin — every phone re-pairs),
+/// the wifi credentials return to the template — or, without a
+/// template, are removed (the returned outcome says which) — and
+/// the fresh overlay keeps only the empty MA keys — first run
+/// shows even when config.toml carries a connection. The restart
+/// that follows persists the overlay and starts over
+#[cfg(feature = "wifi-setup")]
+fn factory_reset(
+    settings: &Handle,
+    dispatch: &Dispatch,
+    wifi: bool,
+) -> Result<crate::system::reset::WifiReset, String> {
+    use crate::system::reset::ResetPaths;
+    // the wifi conf is the configured one ([wifi] conf)
+    let conf_path = settings
+        .effective()
+        .map(|cfg| cfg.wifi.conf.clone())
+        .unwrap_or_else(|_| "/data/wpa_supplicant.conf".to_string());
+    let outcome = crate::system::reset::factory_reset(&ResetPaths::device(&conf_path), wifi)?;
+    // clears the in-memory overlay too; the dispatch owns the
+    // UI resync (the restart redraws everything anyway)
+    dispatch(&Command::ResetAllSettings);
+    for key in [
+        "music-assistant.url",
+        "music-assistant.token",
+        "music-assistant.player",
+    ] {
+        settings
+            .set(key, toml::Value::String(String::new()))
+            .map_err(|e| format!("could not clear {key}: {e}"))?;
+    }
+    Ok(outcome)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::rc::Rc;
+
+    fn renderer(png: Option<Vec<u8>>) -> PreviewRenderer {
+        Rc::new(move |_kind, _name| png.clone())
+    }
+
+    fn data_of(reply: &str) -> serde_json::Value {
+        let value: serde_json::Value = serde_json::from_str(reply).unwrap();
+        assert_eq!(value["ok"], true, "{reply}");
+        value["data"].clone()
+    }
+
+    #[test]
+    fn the_preview_op_returns_png_bytes_as_hex() {
+        let reply = preview_response(
+            &renderer(Some(vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a])),
+            "vu",
+            "round",
+        );
+        let data = data_of(&serde_json::to_string(&reply).unwrap());
+        assert_eq!(data["png"], "89504e470d0a");
+    }
+
+    #[test]
+    fn an_unknown_preview_is_an_error() {
+        let reply = preview_response(&renderer(None), "clock", "missing");
+        let text = serde_json::to_string(&reply).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(value["ok"], false);
+        assert!(value["error"].as_str().unwrap().contains("missing"));
+    }
 }

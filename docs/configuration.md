@@ -61,6 +61,7 @@ set the device up again on purpose.
 | `[vu]` | VU source, the faceplates and their order, custom skins |
 | `[keyboard]` | key bindings for USB remotes and keyboards |
 | `[remote]` | the phone wizard / web endpoint |
+| `[wifi]` | the setup hotspot's device paths (kiosk) |
 
 Deep dives:
 [standby clocks and backgrounds](standby.md) ·
@@ -129,6 +130,25 @@ m = "home"
 Commands: `cycle-forward` `cycle-back` `back` `home` `play-pause`
 `next-track` `prev-track` `volume-up` `volume-down`.
 
+### `[wifi]`
+
+The first-boot WiFi setup (kiosk images only; config-file only —
+never in the settings editor). All values resolve at runtime, so
+one binary covers every board: `interface = "auto"` picks the
+first wireless netdev (an entry under
+`/sys/class/net/<if>/wireless`, an up one preferred); the setup
+hotspot's DHCP pool and the captive portal derive from
+`ap-address`. Garbage falls back to the default with a config
+problem.
+
+```toml
+[wifi]
+interface = "auto"            # auto | an interface name
+ctrl-dir = "/run/wpa_supplicant" # wpa_supplicant's control socket dir
+conf = "/data/wpa_supplicant.conf" # the persistent credentials (must match the boot scripts)
+ap-address = "10.42.0.1/24"    # private a.b.c.d/16-29; DHCP pool = .10-.50
+```
+
 ## Environment and command line
 
 | env | effect |
@@ -138,6 +158,7 @@ Commands: `cycle-forward` `cycle-back` `back` `home` `play-pause`
 | `MESTRO_MA_URL` | overrides `[music-assistant] url` |
 | `MESTRO_PLAYER` | overrides `[music-assistant] player` |
 | `MESTRO_CLOCK` | overrides `[clock] style` |
+| `MESTRO_REMOTE_PORT` | overrides `[remote] port` (the kiosk image sets 80) |
 | `MESTRO_OUTPUT` | DRM output for the kiosk backend (`DSI-1`, `HDMI-A-1`) |
 | `RUST_LOG` | log filter, default `mestro=info` |
 

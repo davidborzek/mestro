@@ -28,6 +28,7 @@ pub struct StandbyClock {
     /// previews render once per accent: the gallery is static and a
     /// full render set costs a few hundred ms on a Pi
     preview_accent: Cell<Option<slint::Color>>,
+    ui: slint::Weak<Mestro>,
 }
 
 impl StandbyClock {
@@ -38,6 +39,7 @@ impl StandbyClock {
             skins: Rc::new(Skins::compile(&clock.skins)),
             backdrop: Backdrop::new(ui),
             preview_accent: Cell::new(None),
+            ui: ui.as_weak(),
         });
         ui.on_standby_bg_present({
             let backdrop = me.backdrop.clone();
@@ -80,6 +82,13 @@ impl StandbyClock {
 
     pub fn configure_backdrop(&self, background: &StandbyBackground) {
         self.backdrop.configure(background);
+    }
+
+    /// one face as PNG (the web settings thumbnail), at the live
+    /// accent like the gallery
+    pub fn preview_png(&self, name: &str) -> Option<Vec<u8>> {
+        let ui = self.ui.upgrade()?;
+        self.skins.preview_png(name, ui.get_accent_color())
     }
 
     /// the cover source follows the player's cover

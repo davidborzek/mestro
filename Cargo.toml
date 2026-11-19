@@ -34,6 +34,13 @@ material-colors = "0.4.2"
 indexmap = "2.3"
 ahash = "0.8"
 qrcode = { version = "0.14.1", default-features = false }
+# the pairing cookie token (web/): hex sha256 over the pairing PIN
+sha2 = "0.10"
+# the wpa PSK hash (PBKDF2-HMAC-SHA1, system/wifi): the sha1
+# sibling of sha2 plus hmac — the tiny RustCrypto pair, pulled
+# in only where the kiosk needs them
+sha1 = { version = "0.10", optional = true }
+hmac = { version = "0.12", optional = true }
 
 [features]
 # default = dev/desktop: the winit backend under a compositor.
@@ -51,6 +58,10 @@ linuxkms = ["slint/backend-linuxkms", "slint-interpreter/backend-linuxkms"]
 # the web endpoint's POST /ota: streams an uploaded system image
 # into mestro-upgrade (the Pi image enables it)
 ota = []
+# the wifi setup lane (src/system): wpa_supplicant ctrl client,
+# AP mode + captive portal policy, factory reset. Kiosk builds
+# enable it next to `ota`; desktop builds stay without it
+wifi-setup = ["dep:sha1", "dep:hmac"]
 
 # developer tools, not shipped (cargo run --example <name>)
 [[example]]
@@ -63,6 +74,11 @@ path = "tools/vu-feed.rs"
 
 [build-dependencies]
 slint-build = { git = "https://github.com/slint-ui/slint", rev = "47621c9d507476e3028200611266f91b5b7a19b8" }
+
+[dev-dependencies]
+# temp-dir state for the conf-writer and factory-reset tests
+tempfile = "3"
+
 
 [profile.release]
 opt-level = "s"

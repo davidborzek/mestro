@@ -31,6 +31,32 @@ pub enum Request {
         /// one kebab-case wire command ("play-pause", "queue", …)
         cmd: String,
     },
+    /// the player surface: absolute volume, the one transport
+    /// value the ctl vocabulary cannot express — mapped onto a
+    /// SourceCommand on the UI thread, with the same optimistic
+    /// bookkeeping the touch UI uses. Everything else playback
+    /// lives in Music Assistant's own web UI
+    Player {
+        #[serde(flatten)]
+        action: PlayerAction,
+    },
+    /// the wifi setup lane (`src/system`, feature `wifi-setup`):
+    /// scan/join/status against the wpa_supplicant ctrl socket.
+    /// Unpaired callers may use them in AP mode only (the setup
+    /// network is the trust boundary there) — the server enforces
+    /// that; the vocabulary here is pure data
+    Wifi {
+        #[serde(flatten)]
+        action: WifiOp,
+    },
+}
+
+/// the `player` op verbs (see [`Request::Player`])
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(tag = "action", rename_all = "kebab-case")]
+pub enum PlayerAction {
+    /// absolute volume 0..100
+    Volume { value: i32 },
 }
 
 /// the settings vocabulary — writes map 1:1 onto
@@ -39,6 +65,10 @@ pub enum Request {
 #[serde(tag = "action", rename_all = "kebab-case")]
 pub enum SettingsOp {
     State,
+    /// the full settings schema (sections/fields/options) the
+    /// web renders its settings pages from — single source with
+    /// the device UI, pinned by a drift test
+    Schema,
     Set {
         key: String,
         value: toml::Value,
@@ -51,6 +81,33 @@ pub enum SettingsOp {
     /// as a remote primitive — normal setup does not need it, the
     /// session rewires live on connection changes
     Restart,
+    /// factory reset (feature `wifi-setup`, pairing required):
+    /// settings overlay, pairing PIN and the MA connection keys
+    /// go, then the app restarts into first run. `wifi` also
+    /// restores the wpa_supplicant.conf template — the next boot
+    /// comes up as a setup hotspot
+    FactoryReset {
+        /// absent = false: the wifi credentials survive
+        #[serde(default)]
+        wifi: bool,
+    },
+}
+
+/// the wifi setup verbs (see [`Request::Wifi`]). `join` takes
+/// no `psk` for open networks — the device hashes the passphrase
+/// itself (PBKDF2-SHA1), the cleartext never leaves this request
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(tag = "action", rename_all = "kebab-case")]
+pub enum WifiOp {
+    /// scan and return the visible networks, strongest first,
+    /// one entry per SSID (hidden networks join by hand)
+    Scan,
+    /// join a network: write the credentials, leave AP mode when
+    /// in it, wait for an address — a failure restores the previous
+    /// configuration and returns to AP mode
+    Join { ssid: String, psk: Option<String> },
+    /// the current mode, SSIDs and the last error
+    Status,
 }
 
 /// MA setup operations (`src/providers/ma/auth.rs`)
@@ -78,6 +135,9 @@ pub enum MaOp {
 pub enum InternalOp {
     /// the raw MA token (redacted in `state`) for MA-side calls
     MaToken,
+    /// render one settings-preview thumbnail (the /vu-preview
+    /// and /clock-preview endpoints): PNG bytes as hex
+    Preview { kind: String, name: String },
 }
 
 /// a request with its correlation id (echoed in the response)
@@ -108,6 +168,15 @@ impl Response {
             error: None,
         }
     }
+    /// an ok with no payload (acks)
+    pub fn ack(id: u64) -> Self {
+        Self {
+            id,
+            ok: true,
+            data: None,
+            error: None,
+        }
+    }
     pub fn err(id: u64, error: impl Into<String>) -> Self {
         Self {
             id,
@@ -118,12 +187,15 @@ impl Response {
     }
 }
 
-/// the `state` payload: effective config (secrets redacted), the
-/// override keys, and enough context for the wizard chrome. The
-/// config is the merged file tree — explicitly configured keys
-/// only, defaults are not folded in.
+/// the `state` payload: the explicitly-configured tree (secrets
+/// redacted), the effective config (defaults folded in, secrets
+/// redacted), the override keys, and enough context for the
+/// wizard chrome. `config` is the merged file tree — defaults
+/// are not folded in; `effective` is, so an editor can show the
+/// current value of every field.
 pub fn state_data(
     config: &toml::Value,
+    effective: &crate::config::Config,
     overrides: &[String],
     base_path: Option<&str>,
     provider_status: &str,
@@ -135,8 +207,12 @@ pub fn state_data(
     // (an absent key means unset)
     ensure_flag(&mut config, "music-assistant", "token");
     ensure_flag(&mut config, "remote", "token");
+    // pure data types: serialization cannot fail — a null would
+    // at worst hide the effective values
+    let effective = redact(&serde_json::to_value(effective).unwrap_or(Value::Null));
     json!({
         "config": config,
+        "effective": effective,
         "overrides": overrides,
         "base_path": base_path,
         "provider_status": provider_status,
@@ -234,11 +310,139 @@ mod tests {
     }
 
     #[test]
+    fn player_op_parses_volume_and_rejects_the_rest() {
+        let env: Envelope = serde_json::from_value(
+            json!({ "id": 1, "op": "player", "action": "volume", "value": 42 }),
+        )
+        .unwrap();
+        assert_eq!(
+            env.request,
+            Request::Player {
+                action: PlayerAction::Volume { value: 42 }
+            }
+        );
+        // the removed player verbs are gone from the wire
+        for gone in [
+            json!({ "id": 2, "op": "player", "action": "seek", "position_ms": 65000 }),
+            json!({ "id": 3, "op": "player", "action": "shuffle", "value": true }),
+            json!({ "id": 4, "op": "player", "action": "repeat", "value": "one" }),
+            json!({ "id": 5, "op": "player", "action": "play-item", "item_id": "abc" }),
+            json!({ "id": 6, "op": "player", "action": "remove-item", "item_id": "abc" }),
+            json!({ "id": 7, "op": "player", "action": "clear-queue" }),
+            json!({ "id": 8, "op": "player", "action": "power", "value": false }),
+        ] {
+            assert!(serde_json::from_value::<Envelope>(gone).is_err());
+        }
+    }
+
+    #[test]
+    fn acks_carry_no_data_field() {
+        let text = serde_json::to_string(&Response::ack(9)).unwrap();
+        assert_eq!(text, r#"{"id":9,"ok":true}"#);
+    }
+
+    #[test]
+    fn internal_preview_op_parses_and_the_public_one_rejects_it() {
+        let op: InternalOp =
+            serde_json::from_str(r#"{"op":"preview","kind":"vu","name":"round"}"#).unwrap();
+        assert_eq!(
+            op,
+            InternalOp::Preview {
+                kind: "vu".into(),
+                name: "round".into()
+            }
+        );
+        // wire-visible parsing rejects the internal vocabulary
+        assert!(serde_json::from_value::<Envelope>(serde_json::json!({
+            "id": 1, "op": "preview", "kind": "vu", "name": "round"
+        }))
+        .is_err());
+    }
+
+    #[test]
+    fn wifi_ops_parse_and_the_psk_is_optional() {
+        let scan: Envelope =
+            serde_json::from_value(json!({ "id": 1, "op": "wifi", "action": "scan" })).unwrap();
+        assert_eq!(
+            scan.request,
+            Request::Wifi {
+                action: WifiOp::Scan
+            }
+        );
+        let join: Envelope = serde_json::from_value(json!({
+            "id": 2, "op": "wifi", "action": "join", "ssid": "Café"
+        }))
+        .unwrap();
+        assert_eq!(
+            join.request,
+            Request::Wifi {
+                action: WifiOp::Join {
+                    ssid: "Café".into(),
+                    psk: None
+                }
+            }
+        );
+        let join: Envelope = serde_json::from_value(json!({
+            "id": 3, "op": "wifi", "action": "join", "ssid": "Home", "psk": "secret"
+        }))
+        .unwrap();
+        assert_eq!(
+            join.request,
+            Request::Wifi {
+                action: WifiOp::Join {
+                    ssid: "Home".into(),
+                    psk: Some("secret".into())
+                }
+            }
+        );
+        let status: Envelope =
+            serde_json::from_value(json!({ "id": 4, "op": "wifi", "action": "status" })).unwrap();
+        assert_eq!(
+            status.request,
+            Request::Wifi {
+                action: WifiOp::Status
+            }
+        );
+        // an empty ssid never joins anything
+        assert!(serde_json::from_value::<Envelope>(json!({
+            "id": 5, "op": "wifi", "action": "join", "ssid": ""
+        }))
+        .is_ok());
+    }
+
+    #[test]
+    fn factory_reset_parses() {
+        let env: Envelope = serde_json::from_value(json!({
+            "id": 6, "op": "settings", "action": "factory-reset", "wifi": true
+        }))
+        .unwrap();
+        assert_eq!(
+            env.request,
+            Request::Settings {
+                action: SettingsOp::FactoryReset { wifi: true }
+            }
+        );
+        let env: Envelope = serde_json::from_value(json!({
+            "id": 7, "op": "settings", "action": "factory-reset"
+        }))
+        .unwrap();
+        assert_eq!(
+            env.request,
+            Request::Settings {
+                action: SettingsOp::FactoryReset { wifi: false }
+            }
+        );
+    }
+
+    #[test]
     fn request_roundtrips() {
         for req in [
             Request::Hello,
             Request::Settings {
                 action: SettingsOp::State,
+            },
+            Request::Settings {
+                action: SettingsOp::Schema,
             },
             Request::Settings {
                 action: SettingsOp::Set {
@@ -270,6 +474,27 @@ mod tests {
                 action: MaOp::Players {
                     url: "http://ma.local:8095".into(),
                 },
+            },
+            Request::Wifi {
+                action: WifiOp::Scan,
+            },
+            Request::Wifi {
+                action: WifiOp::Join {
+                    ssid: "Home".into(),
+                    psk: Some("secret".into()),
+                },
+            },
+            Request::Wifi {
+                action: WifiOp::Join {
+                    ssid: "Open".into(),
+                    psk: None,
+                },
+            },
+            Request::Wifi {
+                action: WifiOp::Status,
+            },
+            Request::Settings {
+                action: SettingsOp::FactoryReset { wifi: true },
             },
         ] {
             let env = Envelope {
@@ -306,8 +531,12 @@ mod tests {
             "[music-assistant]\nurl = \"http://ma\"\ntoken = \"super-secret\"\n",
         )
         .unwrap();
+        let mut effective = crate::config::Config::default();
+        effective.music_assistant.url = "http://ma".into();
+        effective.music_assistant.token = "super-secret".into();
         let data = state_data(
             &config,
+            &effective,
             &["music-assistant.token".into()],
             None,
             "",
@@ -318,13 +547,58 @@ mod tests {
         assert_eq!(data["config"]["music-assistant"]["token"], Value::Null);
         assert_eq!(data["config"]["music-assistant"]["token-set"], json!(true));
         assert_eq!(data["config"]["music-assistant"]["url"], json!("http://ma"));
+        assert_eq!(data["effective"]["music-assistant"]["token"], Value::Null);
+        assert_eq!(
+            data["effective"]["music-assistant"]["token-set"],
+            json!(true)
+        );
+        assert_eq!(
+            data["effective"]["music-assistant"]["url"],
+            json!("http://ma")
+        );
+    }
+
+    #[test]
+    fn effective_folds_defaults_and_redacts() {
+        // one configured key over an otherwise empty config: the
+        // effective tree carries every field's current value
+        let config =
+            toml::from_str::<toml::Value>("[music-assistant]\nurl = \"http://ma\"\n").unwrap();
+        let effective = crate::config::lenient::parse::<crate::config::Config>(config.clone())
+            .unwrap()
+            .0;
+        assert_eq!(effective.osd.toast_duration, 2600);
+        let data = state_data(&config, &effective, &[], None, "", "http://x");
+        assert_eq!(
+            data["config"]["osd"],
+            Value::Null,
+            "the merged tree stays sparse"
+        );
+        assert_eq!(data["effective"]["osd"]["toast-duration"], json!(2600));
+        assert_eq!(
+            data["effective"]["now-playing"]["font"]["title-size"],
+            json!(24.0)
+        );
+        assert_eq!(data["effective"]["theme"]["variant"], json!("tonal-spot"));
+        assert_eq!(data["effective"]["music-assistant"]["token"], Value::Null);
+        assert_eq!(
+            data["effective"]["music-assistant"]["token-set"],
+            json!(false)
+        );
     }
 
     #[test]
     fn missing_secret_reports_unset() {
         let config =
             toml::from_str::<toml::Value>("[music-assistant]\nurl = \"http://ma\"\n").unwrap();
-        let data = state_data(&config, &[], Some("/etc/mestro"), "ok", "http://x");
+        let data = state_data(
+            &config,
+            &crate::config::Config::default(),
+            &[],
+            Some("/etc/mestro"),
+            "ok",
+            "http://x",
+        );
         assert_eq!(data["config"]["music-assistant"]["token-set"], json!(false));
         assert_eq!(data["base_path"], json!("/etc/mestro"));
         assert_eq!(data["provider_status"], json!("ok"));
@@ -337,7 +611,14 @@ mod tests {
             "[music-assistant]\nurl = \"\"\ntoken = \"\"\nplayer = \"\"\n",
         )
         .unwrap();
-        let data = state_data(&config, &[], None, "", "http://x");
+        let data = state_data(
+            &config,
+            &crate::config::Config::default(),
+            &[],
+            None,
+            "",
+            "http://x",
+        );
         assert_eq!(data["config"]["music-assistant"]["token-set"], json!(false));
     }
 

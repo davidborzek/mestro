@@ -1,0 +1,98 @@
+import { Theme } from "common.slint";
+
+// why the hotspot is up: setup (nothing configured yet, the
+// portal is the only way in) or fallback (a saved network
+// exists and is retried every 2 minutes)
+export enum HotspotReason { setup, fallback }
+
+// The hotspot overlay: whenever the wifi manager runs the setup
+// hotspot — first run (no conf yet) or a configured player that
+// lost its network — the panel shows the WIFI QR to join it and
+// where the setup lives. The root mounts it while the hotspot is
+// up (the wifi manager's props), so it follows AP mode in and
+// out by itself. The texts are German by design (no @tr, like the
+// old first-run AP line: the hotspot name is dynamic)
+export component HotspotOverlay inherits Rectangle {
+    in property <HotspotReason> reason: HotspotReason.setup;
+    in property <string> ssid: "";
+    // the setup address line: mestro.setup, the web port spelled
+    // out when it is not the URL default 80
+    in property <string> portal: "mestro.setup";
+    in property <image> qr;
+    // the fallback's dim line names the network it retries
+    in property <string> saved-ssid: "";
+
+    background: Theme.bg;
+
+    // the QR follows the HEIGHT only (the width depends on the
+    // layout — sizing from it loops); capped so a 5" panel at
+    // scale 1.5 (533 x 320 logical) keeps room for the text
+    // column (the same geometry as the first-run view)
+    property <length> pad: 22px;
+    property <length> gap: 20px;
+    property <length> qr-size: Math.min(root.height * 0.62, 220px);
+    property <length> text-w: Math.min(260px, root.width - 2 * root.pad - root.gap - root.qr-size);
+
+    HorizontalLayout {
+        padding: root.pad;
+        spacing: root.gap;
+        alignment: center;
+
+        // the QR plate: quiet zone is baked into the image, the
+        // white plate keeps it scannable on the dark UI
+        Rectangle {
+            width: root.qr-size;
+            height: self.width;
+            border-radius: 10px;
+            background: #ffffff;
+            Image {
+                x: 8px;
+                y: 8px;
+                width: parent.width - 16px;
+                height: parent.height - 16px;
+                source: root.qr;
+                image-rendering: pixelated;
+            }
+        }
+
+        VerticalLayout {
+            alignment: center;
+            spacing: 8px;
+            width: root.text-w;
+
+            Text {
+                text: root.reason == HotspotReason.setup ? "WLAN einrichten" : "WLAN nicht erreichbar";
+                font-size: 21px;
+                font-weight: 700;
+                color: Theme.text;
+            }
+
+            Text {
+                // the hotspot's wildcard DNS makes the name
+                // resolve, the portal opens by itself
+                text: "Verbinde dein Handy mit dem WLAN \"" + root.ssid + "\" — die Einrichtung öffnet sich automatisch. Sonst im Browser:";
+                width: parent.width;
+                wrap: word-wrap;
+                font-size: 14px;
+                color: Theme.text;
+            }
+            // the URL on its own line: never broken after "http://"
+            Text {
+                text: root.portal;
+                font-size: 17px;
+                font-weight: 600;
+                color: Theme.accent;
+            }
+
+            Text {
+                visible: root.reason == HotspotReason.fallback;
+                text: "Versucht alle 2 Minuten erneut, \"" + root.saved-ssid + "\" zu erreichen.";
+                width: parent.width;
+                wrap: word-wrap;
+                font-size: 13px;
+                // dim, but readable from across the room
+                color: Theme.text-dim;
+            }
+        }
+    }
+}

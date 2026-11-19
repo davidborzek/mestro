@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from "../../../components/Icon.svelte";
   import { t } from "../../../lib/i18n.svelte";
 
   let {
@@ -11,7 +12,7 @@
 </script>
 
 <section class="card center">
-  <div class="check ok">{waiting ? "…" : "✓"}</div>
+  <div class="badge ok"><Icon name={waiting ? "restart" : "check"} size={32} /></div>
   <h2>{t("done.title")}</h2>
   {#if waiting}
     <p>{t("done.waiting")}</p>

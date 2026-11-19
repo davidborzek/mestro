@@ -1,8 +1,8 @@
 #![doc = "[music-assistant]"]
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize, Default, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct MusicAssistant {
     /// Music Assistant server — either the human `http(s)://host:port`

@@ -240,40 +240,7 @@ impl Vui {
     pub fn refresh_settings_preview(&self, name: &str, config: &Config) -> Option<slint::Image> {
         let inner = &self.0;
         let view = inner.compiled.iter().position(|skin| skin.name == name)?;
-        let (info, glow, meters, gradient): (
-            &[MetadataField],
-            Option<f64>,
-            Option<bool>,
-            Option<bool>,
-        ) = match name {
-            "night" => (&config.vu.night.info, None, None, None),
-            "cream" => (
-                &config.vu.cream.info,
-                Some(config.vu.cream.glow),
-                None,
-                None,
-            ),
-            "round" => (
-                &config.vu.round.info,
-                Some(config.vu.round.glow),
-                None,
-                None,
-            ),
-            "wall-light" => (&[], Some(config.vu.wall_light.glow), None, None),
-            "spectrum" => (
-                &config.vu.spectrum.info,
-                None,
-                Some(config.vu.spectrum.meters),
-                Some(config.vu.spectrum.gradient),
-            ),
-            "bars" => (
-                &config.vu.bars.info,
-                None,
-                Some(config.vu.bars.meters),
-                Some(config.vu.bars.gradient),
-            ),
-            _ => (&[], None, None, None),
-        };
+        let (info, glow, meters, gradient) = preview_inputs(name, config);
         let image = super::preview::render_with_options(
             &inner.compiled[view],
             info,
@@ -283,6 +250,16 @@ impl Vui {
         );
         inner.preview_cache.borrow_mut()[view] = Some(image.clone());
         Some(image)
+    }
+
+    /// one skin's preview as PNG bytes (the web settings
+    /// thumbnails): rendered on demand from the CURRENT effective
+    /// config, so the thumbnails track info/glow/meter edits
+    pub fn preview_png(&self, name: &str, config: &Config) -> Option<Vec<u8>> {
+        let inner = &self.0;
+        let view = inner.compiled.iter().position(|skin| skin.name == name)?;
+        let (info, glow, meters, gradient) = preview_inputs(name, config);
+        super::preview::render_png(&inner.compiled[view], info, glow, meters, gradient)
     }
 
     /// Render each cycle view once and retain its image until the
@@ -516,6 +493,43 @@ impl Vui {
                 _ => &inner.skin_options,
             },
         );
+    }
+}
+
+/// the preview pose inputs per skin: the built-ins' option
+/// tables from the effective config, empty for everything else
+fn preview_inputs<'c>(
+    name: &str,
+    config: &'c Config,
+) -> (&'c [MetadataField], Option<f64>, Option<bool>, Option<bool>) {
+    match name {
+        "night" => (&config.vu.night.info, None, None, None),
+        "cream" => (
+            &config.vu.cream.info,
+            Some(config.vu.cream.glow),
+            None,
+            None,
+        ),
+        "round" => (
+            &config.vu.round.info,
+            Some(config.vu.round.glow),
+            None,
+            None,
+        ),
+        "wall-light" => (&[], Some(config.vu.wall_light.glow), None, None),
+        "spectrum" => (
+            &config.vu.spectrum.info,
+            None,
+            Some(config.vu.spectrum.meters),
+            Some(config.vu.spectrum.gradient),
+        ),
+        "bars" => (
+            &config.vu.bars.info,
+            None,
+            Some(config.vu.bars.meters),
+            Some(config.vu.bars.gradient),
+        ),
+        _ => (&[], None, None, None),
     }
 }
 

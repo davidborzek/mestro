@@ -1,8 +1,8 @@
 //! [vu]: meter source, the faceplate cycle, per-preset options
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Vu {
     /// VU meter source: shmem reads squeezelite's visualizer ring
@@ -52,21 +52,24 @@ pub struct Vu {
     pub bars: BarsOptions,
 }
 
+/// the built-in faceplates, in design order — the default
+/// cycle and the schema's option base ([vu.skins] names append)
+pub const BUILTIN_SKINS: &[&str] = &[
+    "night",
+    "cream",
+    "round",
+    "wall",
+    "wall-light",
+    "arc",
+    "orbit",
+    "modern",
+    "spectrum",
+    "bars",
+];
+
 /// the default cycle: every built-in skin, in design order
 fn default_cycle() -> Vec<String> {
-    [
-        "night".to_string(),
-        "cream".to_string(),
-        "round".to_string(),
-        "wall".to_string(),
-        "wall-light".to_string(),
-        "arc".to_string(),
-        "orbit".to_string(),
-        "modern".to_string(),
-        "spectrum".to_string(),
-        "bars".to_string(),
-    ]
-    .into()
+    BUILTIN_SKINS.iter().map(|s| s.to_string()).collect()
 }
 
 impl Default for Vu {
@@ -91,7 +94,7 @@ impl Default for Vu {
 
 /// spectrum/bars analyzer options: info lines under the
 /// analyzer and a pair of small LED level meters, both optional
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AnalyzerOptions {
     /// info lines under the analyzer (same fields as the VU
@@ -112,7 +115,7 @@ pub struct AnalyzerOptions {
 /// bars options — same knobs as the analyzer, but the bar
 /// gradient is the skin's built-in two-tone look and stays on
 /// unless the config flattens it
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct BarsOptions {
     pub info: Vec<MetadataField>,
@@ -131,7 +134,7 @@ impl Default for BarsOptions {
 }
 
 /// night preset options
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct NightOptions {
     /// info lines under the meters, one field per line in a
@@ -142,7 +145,7 @@ pub struct NightOptions {
 }
 
 /// cream preset options
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct CreamOptions {
     #[serde(default)]
@@ -153,7 +156,7 @@ pub struct CreamOptions {
 }
 
 /// round preset options
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct RoundOptions {
     #[serde(default)]
@@ -164,12 +167,12 @@ pub struct RoundOptions {
 }
 
 /// wall preset options (none — the wall is meters only)
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct WallOptions {}
 
 /// wall-light preset options
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct WallLightOptions {
     /// backlight intensity of the orange plate glow, 0 (plain
@@ -184,7 +187,7 @@ impl Default for WallLightOptions {
 }
 
 /// one selectable info line
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum MetadataField {
     Title,
@@ -195,7 +198,7 @@ pub enum MetadataField {
     Time,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum VuMode {
     Off,

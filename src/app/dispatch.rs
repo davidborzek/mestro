@@ -10,6 +10,7 @@ use mestro::display::Display;
 use mestro::player::nowplaying::QualityVals;
 use mestro::providers::{ma, SourceCommand};
 use mestro::remote::control::Command;
+use mestro::remote::web::Events;
 use mestro::settings::{Handle, NpState, VuState};
 use mestro::ui::navigation::Navigation;
 use mestro::vu::wire::Vui;
@@ -36,6 +37,9 @@ pub struct Dispatch {
     /// (re)connect attempt
     pub ma_cfg: Arc<RwLock<ma::Config>>,
     pub cmd_tx: tokio::sync::mpsc::UnboundedSender<SourceCommand>,
+    /// the settings push: every successful settings command (from
+    /// any source — web, slint, ctl) tells the sockets to refetch
+    pub events: Events,
 }
 
 /// which settings families an edit touched
@@ -116,15 +120,24 @@ impl Dispatch {
                 self.volume_step(&ui, matches!(cmd, Command::VolumeUp));
             }
             Command::SetSetting { key, value } => match self.settings.set(key, value.clone()) {
-                Ok(effective) => self.apply(&ui, &effective, Families::of_key(key)),
+                Ok(effective) => {
+                    self.apply(&ui, &effective, Families::of_key(key));
+                    self.events.publish_settings();
+                }
                 Err(e) => tracing::warn!("settings: {e}"),
             },
             Command::ResetSetting { key } => match self.settings.reset(key) {
-                Ok(effective) => self.apply(&ui, &effective, Families::of_key(key)),
+                Ok(effective) => {
+                    self.apply(&ui, &effective, Families::of_key(key));
+                    self.events.publish_settings();
+                }
                 Err(e) => tracing::warn!("settings: {e}"),
             },
             Command::ResetAllSettings => match self.settings.reset_all() {
-                Ok(effective) => self.apply(&ui, &effective, Families::ALL),
+                Ok(effective) => {
+                    self.apply(&ui, &effective, Families::ALL);
+                    self.events.publish_settings();
+                }
                 Err(e) => tracing::warn!("settings: {e}"),
             },
         }

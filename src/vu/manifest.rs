@@ -98,7 +98,7 @@ pub struct Layer {
     pub color: Option<String>,
 }
 
-#[derive(serde::Deserialize, Clone, Copy)]
+#[derive(serde::Deserialize, PartialEq, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
     Face,
@@ -179,8 +179,76 @@ fn parse_color(hex: &str) -> slint::Color {
     )
 }
 
-/// build the SkinLayer model for one dial
-fn layer_model(dial: &Dial, art: &Art, read: &dyn Fn(&str) -> Option<Vec<u8>>) -> Value {
+/// wrap the needle art in a rotation group: the SVG pipeline
+/// (resvg) rasterizes the rotation, so the preview's software
+/// renderer sees a plain image. The pivot converts from dial
+/// (art box) units into the SVG's viewBox units — they differ
+/// when the art ships a scaled viewBox (modern: art box 250,
+/// viewBox 180)
+fn prerotate_needle(svg: &[u8], angle_deg: f64, dial: &Dial) -> Vec<u8> {
+    let Ok(text) = std::str::from_utf8(svg) else {
+        return svg.to_vec();
+    };
+    let Some((open_end, box_w, box_h)) = view_box(text) else {
+        return svg.to_vec();
+    };
+    let pivot_x = dial.pivot_x * box_w / dial.art_w;
+    let pivot_y = dial.pivot_y * box_h / dial.art_h;
+    let group = format!("<g transform=\"rotate({angle_deg:.3} {pivot_x:.3} {pivot_y:.3})\">");
+    let mut out = String::with_capacity(text.len() + group.len() + 5);
+    out.push_str(&text[..open_end]);
+    out.push_str(&group);
+    if let Some(close) = text.rfind("</svg>") {
+        out.push_str(&text[open_end..close]);
+        out.push_str("</g></svg>");
+    } else {
+        out.push_str(&text[open_end..]);
+    }
+    out.into_bytes()
+}
+
+/// the opening svg tag's end offset plus the viewBox size —
+/// from the `viewBox` attribute, else the width/height
+/// attributes (units stripped)
+fn view_box(svg: &str) -> Option<(usize, f64, f64)> {
+    let start = svg.find("<svg")?;
+    let open_end = svg[start..].find('>')? + start + 1;
+    let tag = &svg[start..open_end];
+    let attr = |name: &str| -> Option<String> {
+        let i = tag.find(name)? + name.len();
+        let value = tag[i..]
+            .trim_start()
+            .strip_prefix('=')?
+            .trim()
+            .strip_prefix('"')?;
+        Some(value[..value.find('"')?].to_string())
+    };
+    if let Some(vb) = attr("viewBox") {
+        let numbers: Vec<f64> = vb
+            .split_whitespace()
+            .filter_map(|n| n.parse().ok())
+            .collect();
+        if numbers.len() == 4 {
+            return Some((open_end, numbers[2], numbers[3]));
+        }
+    }
+    let size = |raw: Option<String>| -> Option<f64> {
+        raw?.trim_end_matches(|c: char| c.is_ascii_alphabetic())
+            .parse()
+            .ok()
+    };
+    Some((open_end, size(attr("width"))?, size(attr("height"))?))
+}
+
+/// build the SkinLayer model for one dial. `needle_angle` bakes
+/// a rotation into the needle art (the preview path — the
+/// software renderer cannot rotate); None keeps the art raw
+fn layer_model(
+    dial: &Dial,
+    art: &Art,
+    read: &dyn Fn(&str) -> Option<Vec<u8>>,
+    needle_angle: Option<f64>,
+) -> Value {
     let layers: Vec<Value> = dial
         .layer
         .iter()
@@ -189,6 +257,12 @@ fn layer_model(dial: &Dial, art: &Art, read: &dyn Fn(&str) -> Option<Vec<u8>>) -
             s.set_field("kind".into(), Value::Number(layer.role.kind() as f64));
             let image = layer.source.as_deref().and_then(|src| {
                 let bytes = art.get(src).cloned().or_else(|| read(src))?;
+                let bytes = if layer.role == Role::Needle {
+                    needle_angle
+                        .map_or(bytes.clone(), |angle| prerotate_needle(&bytes, angle, dial))
+                } else {
+                    bytes
+                };
                 match slint::Image::load_from_svg_data(&bytes) {
                     Ok(img) => Some(img),
                     Err(e) => {
@@ -267,11 +341,15 @@ fn compile_engine() -> Option<ComponentDefinition> {
 type ArtReader<'a> = Rc<dyn Fn(&str) -> Option<Vec<u8>> + 'a>;
 
 /// assemble the activation setup: geometry, art and labels
-/// from the manifest onto a fresh svgskin instance
+/// from the manifest onto a fresh svgskin instance. `preview`
+/// builds the preview variant instead: the needles baked into
+/// their images at the preview pose (see preview.rs) and the
+/// engine told not to rotate them again
 fn setup(
     manifest: &SkinManifest,
     art: &Art,
     read: &dyn Fn(&str) -> Option<Vec<u8>>,
+    preview: bool,
 ) -> impl Fn(&ComponentInstance) + 'static {
     let manifest = manifest.clone();
     let art = art.clone();
@@ -281,7 +359,14 @@ fn setup(
     let mut left: Option<(f64, Value)> = None;
     let mut right: Option<(f64, Value)> = None;
     for dial in &manifest.dial {
-        let model = layer_model(dial, &art, &*read_name);
+        let needle_angle = preview.then(|| {
+            let level = match dial.side {
+                Side::Left => super::preview::LEVEL_L,
+                Side::Right => super::preview::LEVEL_R,
+            };
+            dial.zero_angle + level * dial.sweep
+        });
+        let model = layer_model(dial, &art, &*read_name, needle_angle);
         let entry = Some((dial.x, model));
         match dial.side {
             Side::Left => left = entry,
@@ -338,6 +423,9 @@ fn setup(
             set("m-zero-angle", Value::Number(dial.zero_angle));
             set("m-sweep", Value::Number(dial.sweep));
         }
+        if preview {
+            set("prerotated", Value::Bool(true));
+        }
     }
 }
 
@@ -348,12 +436,14 @@ pub fn load(name: &str, path: &Path) -> Option<super::skin::Skin> {
     let read = move |src: &str| std::fs::read(dir.join(src)).ok();
     let (manifest, art) = parse(&manifest_str, &read)?;
     let definition = compile_engine()?;
-    let setup = setup(&manifest, &art, &read);
+    let live = setup(&manifest, &art, &read, false);
+    let preview = setup(&manifest, &art, &read, true);
     Some(super::skin::Skin {
         name: name.to_string(),
         definition,
         light: manifest.light,
-        setup: Some(Rc::new(setup)),
+        setup: Some(Rc::new(live)),
+        preview_setup: Some(Rc::new(preview)),
     })
 }
 
@@ -549,16 +639,122 @@ fn builtin(name: &'static str, glow: f32) -> Option<super::skin::Skin> {
     // the config's [vu.<name>] glow drives the built-in skin
     manifest.glow = glow as f64;
     let definition = compile_engine()?;
-    let setup = setup(&manifest, &parsed_art, &read);
+    let live = setup(&manifest, &parsed_art, &read, false);
+    let preview = setup(&manifest, &parsed_art, &read, true);
     Some(super::skin::Skin {
         name: name.to_string(),
         definition,
         light: manifest.light,
-        setup: Some(Rc::new(setup)),
+        setup: Some(Rc::new(live)),
+        preview_setup: Some(Rc::new(preview)),
     })
 }
 
 /// built-in manifest skins by name
 pub fn builtin_named(name: &'static str, glow: f32) -> Option<super::skin::Skin> {
     builtin(name, glow)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dial(art: f64, pivot: (f64, f64)) -> Dial {
+        Dial {
+            side: Side::Left,
+            x: 0.0,
+            art_w: art,
+            art_h: art,
+            pivot_x: pivot.0,
+            pivot_y: pivot.1,
+            zero_angle: -60.0,
+            sweep: 120.0,
+            layer: vec![],
+        }
+    }
+
+    fn rotate_group(svg: &str) -> String {
+        let start = svg.find("<g transform=").unwrap();
+        let end = svg[start..].find('>').unwrap() + start + 1;
+        svg[start..end].to_string()
+    }
+
+    fn numbers(transform: &str) -> Vec<f64> {
+        let inner = transform
+            .strip_prefix("<g transform=\"rotate(")
+            .and_then(|t| t.strip_suffix(")\">"))
+            .unwrap();
+        inner
+            .split_whitespace()
+            .map(|n| n.parse().unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn prerotation_wraps_the_whole_document() {
+        let svg =
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 180 180\">\n<rect/>\n</svg>";
+        let out = String::from_utf8(prerotate_needle(
+            svg.as_bytes(),
+            26.4,
+            &dial(180.0, (90.0, 90.0)),
+        ))
+        .unwrap();
+        let expected = "<g transform=\"rotate(26.400 90.000 90.000)\">";
+        assert!(
+            out.starts_with("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 180 180\">"),
+            "{out}"
+        );
+        let group_at = out.find(expected).unwrap();
+        assert_eq!(
+            group_at,
+            svg.find('>').unwrap() + 1,
+            "the group opens right after the svg tag"
+        );
+        assert!(out.ends_with("<rect/>\n</g></svg>"), "{out}");
+        assert_eq!(numbers(&rotate_group(&out)), [26.4, 90.0, 90.0]);
+    }
+
+    #[test]
+    fn the_pivot_scales_into_a_smaller_viewbox() {
+        // modern: art box 250, viewBox 180, manifest pivot
+        // (125, 181) sits at (90, 130) in viewBox units
+        let svg = "<svg viewBox=\"0 0 180 180\"><rect/></svg>";
+        let out = String::from_utf8(prerotate_needle(
+            svg.as_bytes(),
+            -60.0,
+            &dial(250.0, (125.0, 181.0)),
+        ))
+        .unwrap();
+        let numbers = numbers(&rotate_group(&out));
+        assert!((numbers[1] - 90.0).abs() < 0.01, "{numbers:?}");
+        assert!((numbers[2] - 130.32).abs() < 0.01, "{numbers:?}");
+    }
+
+    #[test]
+    fn a_missing_viewbox_falls_back_to_width_height() {
+        let svg = "<svg width=\"100px\" height=\"100\"><rect/></svg>";
+        let out = String::from_utf8(prerotate_needle(
+            svg.as_bytes(),
+            10.0,
+            &dial(100.0, (50.0, 50.0)),
+        ))
+        .unwrap();
+        assert_eq!(numbers(&rotate_group(&out)), [10.0, 50.0, 50.0]);
+    }
+
+    #[test]
+    fn unwrapped_art_passes_through() {
+        // not UTF-8 or no svg tag: the bytes stay as they were
+        let bytes = [0xff, 0xfe, 0x00];
+        assert_eq!(
+            prerotate_needle(&bytes, 10.0, &dial(100.0, (50.0, 50.0))),
+            bytes.to_vec()
+        );
+        let no_tag = b"just text";
+        assert_eq!(
+            prerotate_needle(no_tag, 10.0, &dial(100.0, (50.0, 50.0))),
+            no_tag.to_vec()
+        );
+    }
 }

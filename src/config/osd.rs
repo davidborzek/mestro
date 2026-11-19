@@ -1,9 +1,9 @@
 //! [osd]: the notification layer
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// where a tile anchors on screen
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum OsdAnchor {
     Top,
@@ -15,7 +15,7 @@ pub enum OsdAnchor {
 }
 
 /// tile background style
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum OsdStyle {
     #[default]
@@ -25,7 +25,7 @@ pub enum OsdStyle {
 
 /// one notification kind switch: None = inherit the base [osd]
 /// flag — context overrides only name what differs
-#[derive(Debug, Default, Clone, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct OsdFlags {
     /// "Playing" / "Paused" on play/pause transitions
@@ -41,7 +41,7 @@ pub struct OsdFlags {
 /// [osd]: the notification layer. Base flags gate each kind;
 /// [osd.now-playing] and [osd.vu] override them per context
 /// (only entries that differ from the base).
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
 pub struct Osd {
     #[serde(default = "yes")]

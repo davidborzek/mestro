@@ -23,6 +23,10 @@ start)
 	export MESTRO_CTL_SOCK=/tmp/mestro-ctl.sock
 	# no LIBSEAT_BACKEND: with the builtin seatd server, forcing the
 	# seatd socket client backend makes libseat panic (EINVAL)
+	# the web endpoint on the URL default port — the wizard and the
+	# captive portal are reachable as http://<ip> without a port;
+	# /data/mestro.env overrides it
+	export MESTRO_REMOTE_PORT=80
 	# timezone comes from /etc/localtime (BR2_TARGET_LOCALTIME in
 	# the defconfig); TZ in /data/mestro.env overrides it
 	[ -f /data/mestro.env ] && . /data/mestro.env

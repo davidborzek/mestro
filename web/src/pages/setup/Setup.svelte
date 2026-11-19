@@ -3,6 +3,8 @@
   import { device, refreshDevice, socket } from "../../lib/connection.svelte";
   import type { Player, ProbeData, StateData } from "../../lib/protocol";
   import { t } from "../../lib/i18n.svelte";
+  import { needsLogin, normalizeMaUrl } from "../../lib/maConnection";
+  import Icon from "../../components/Icon.svelte";
   import Steps from "./Steps.svelte";
   import IntroStep from "./steps/IntroStep.svelte";
   import UrlStep from "./steps/UrlStep.svelte";
@@ -32,8 +34,8 @@
     step === "intro" ? -1 : step === "url" ? 0 : step === "login" ? 1 : step === "player" ? 2 : 3,
   );
   // schema < 28 servers need no login — the step is skipped
-  const needLogin = $derived(probe === null || probe.auth !== "none");
-  const maUrl = $derived(url.trim() ? normalized(url) : device.configUrl);
+  const needLogin = $derived(needsLogin(probe));
+  const maUrl = $derived(url.trim() ? normalizeMaUrl(url) : device.configUrl);
 
   onMount(() => {
     // the kiosk state changes under us (clear connection, reset,
@@ -50,11 +52,6 @@
     };
   });
 
-  function normalized(value: string): string {
-    const trimmed = value.trim().replace(/\/+$/, "");
-    return trimmed.includes("://") ? trimmed : `http://${trimmed}`;
-  }
-
   async function runProbe() {
     probing = true;
     error = "";
@@ -62,7 +59,7 @@
       probe = await socket.send<ProbeData>({
         op: "ma",
         action: "probe",
-        url: normalized(url),
+        url: normalizeMaUrl(url),
       });
     } catch (e) {
       probe = null;
@@ -88,7 +85,7 @@
       await socket.send({
         op: "ma",
         action: "login",
-        url: normalized(url),
+        url: normalizeMaUrl(url),
         username,
         password,
       });
@@ -110,7 +107,7 @@
         op: "settings",
         action: "set",
         key: "music-assistant.url",
-        value: normalized(url),
+        value: normalizeMaUrl(url),
       });
       await socket.send({
         op: "settings",
@@ -135,7 +132,7 @@
       players = await socket.send<Player[]>({
         op: "ma",
         action: "players",
-        url: normalized(url),
+        url: normalizeMaUrl(url),
       });
     } catch (e) {
       error = (e as Error).message;
@@ -154,7 +151,7 @@
         op: "settings",
         action: "set",
         key: "music-assistant.url",
-        value: normalized(url),
+        value: normalizeMaUrl(url),
       });
       await socket.send({
         op: "settings",
@@ -198,10 +195,8 @@
   }
 </script>
 
-<div class="wizard">
-  <aside class="side">
-    <Steps {stepIndex} />
-  </aside>
+<main class="wizard">
+  <Steps {stepIndex} />
 
   <div class="content">
     {#if step === "intro"}
@@ -243,52 +238,26 @@
     {/if}
 
     {#if error}
-      <div class="err">⚠ {error}</div>
+      <div class="err" role="alert"><Icon name="alert" size={16} /> {error}</div>
     {/if}
   </div>
-</div>
+</main>
 
 <style>
   .wizard {
-    display: flex;
-    gap: 0;
-    max-width: 960px;
-    margin: 0 auto;
     flex: 1;
     width: 100%;
-  }
-  .side {
+    max-width: 480px;
+    margin: 0 auto;
     display: flex;
     flex-direction: column;
-    gap: 18px;
-    padding: 26px 22px;
-    border-right: 1px solid var(--hairline);
-    width: 240px;
-    flex: 0 0 auto;
+    gap: var(--sp-4);
+    padding: var(--sp-2) max(var(--sp-4), var(--safe-l)) calc(var(--sp-6) + var(--safe-b));
   }
   .content {
     flex: 1;
     display: flex;
     flex-direction: column;
-    gap: 14px;
-    padding: 26px 28px;
-    max-width: 560px;
-    margin: 0 auto;
-  }
-
-  @media (max-width: 700px) {
-    .wizard {
-      flex-direction: column;
-    }
-    .side {
-      width: 100%;
-      border-right: 0;
-      border-bottom: 1px solid var(--hairline);
-      padding: 16px;
-    }
-    .content {
-      padding: 16px;
-      max-width: none;
-    }
+    gap: var(--sp-3);
   }
 </style>

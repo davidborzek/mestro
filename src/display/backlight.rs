@@ -24,7 +24,7 @@ pub enum Backlight {
 }
 
 /// `[display] backlight`
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum BacklightChoice {
     /// detect (the default)

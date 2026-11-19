@@ -1,5 +1,6 @@
 <script lang="ts">
   import { t } from "../../../lib/i18n.svelte";
+  import MaLoginForm from "../../../components/ma/MaLoginForm.svelte";
 
   let {
     username = $bindable(""),
@@ -22,37 +23,21 @@
     onsavetoken: () => void;
     onback: () => void;
   } = $props();
-
-  const profileUrl = $derived(`${maUrl.replace(/\/+$/, "")}/#/settings/profile`);
 </script>
 
 <section class="card">
   <h2>{t("login.title")}</h2>
   <p>{t("login.lead")}</p>
-  <label class="f">
-    {t("login.user")}
-    <input bind:value={username} autocomplete="username" />
-  </label>
-  <label class="f">
-    {t("login.pass")}
-    <input type="password" bind:value={password} autocomplete="current-password" />
-  </label>
-  <a class="link-tile" href={profileUrl} target="_blank" rel="noopener">
-    <span class="ic">&#9906;</span>
-    <span>
-      <b>{t("login.manualLink")}</b>
-      <small>{t("login.manualHint")}</small>
-    </span>
-  </a>
-  {#if manualMode}
-    <label class="f">
-      {t("login.token")}
-      <input bind:value={manualToken} placeholder={t("login.tokenPlaceholder")} />
-    </label>
-    <button class="primary" disabled={busy || !manualToken.trim()} onclick={onsavetoken}>
-      {t("login.saveToken")}
-    </button>
-  {/if}
+  <MaLoginForm
+    bind:username
+    bind:password
+    bind:manualToken
+    bind:manualMode
+    {busy}
+    {maUrl}
+    {onlogin}
+    {onsavetoken}
+  />
 </section>
 
 <footer class="actions">

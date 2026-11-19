@@ -15,6 +15,9 @@ component Dial {
     // the cover palette ([theme] palette = "cover"); layers
     // with tint = "palette" in the manifest ride it
     in property <color> palette: #d8a657;
+    // the needle art arrives pre-rotated (previews): the engine
+    // must not apply transform-rotation on top of it
+    in property <bool> prerotated: false;
     in property <[SkinLayer]> layers;
 
     Rectangle {
@@ -61,7 +64,7 @@ component Dial {
                 y: 0;
                 width: parent.width;
                 height: parent.height;
-                transform-rotation: root.zero-angle + root.level * root.sweep;
+                transform-rotation: root.prerotated ? 0deg : root.zero-angle + root.level * root.sweep;
                 transform-origin: { x: root.pivot-x * root.f, y: root.pivot-y * root.f };
                 source: layer.source;
                 colorize: root.palette;
@@ -71,7 +74,7 @@ component Dial {
                 y: 0;
                 width: parent.width;
                 height: parent.height;
-                transform-rotation: root.zero-angle + root.level * root.sweep;
+                transform-rotation: root.prerotated ? 0deg : root.zero-angle + root.level * root.sweep;
                 transform-origin: { x: root.pivot-x * root.f, y: root.pivot-y * root.f };
                 source: layer.source;
             }
@@ -120,6 +123,9 @@ export component SvgSkin inherits Rectangle {
     // by the Rust side like any skin contract property; tinted
     // layers (needles, glow washes) ride it
     in property <color> palette: #d8a657;
+    // true while a preview renders: the needle layers arrive
+    // pre-rotated (see src/vu/manifest.rs) and must not rotate
+    in property <bool> prerotated: false;
 
     // ---- manifest setup (set once at activation) ----
     // faceplate design space and plate
@@ -185,6 +191,7 @@ export component SvgSkin inherits Rectangle {
         pivot-y: root.m-pivot-y * 1px;
         glow: root.glow;
         palette: root.palette;
+        prerotated: root.prerotated;
         layers: root.layers-l;
         x: root.fit-x + root.m-x-l * 1px * root.fit;
         y: root.meters-y;
@@ -201,6 +208,7 @@ export component SvgSkin inherits Rectangle {
         pivot-y: root.m-pivot-y * 1px;
         glow: root.glow;
         palette: root.palette;
+        prerotated: root.prerotated;
         layers: root.layers-r;
         x: root.fit-x + root.m-x-r * 1px * root.fit;
         y: root.meters-y;

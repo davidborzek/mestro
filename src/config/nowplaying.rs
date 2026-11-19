@@ -40,7 +40,7 @@ pub enum TransportControl {
 }
 
 /// the now-playing layout
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum NpLayout {
     /// square cover left, metadata column right (default)
@@ -69,7 +69,7 @@ pub enum InlineVu {
 
 /// which stream quality parts to show, in display order —
 /// codec is the badge, the rest assemble into the detail line
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum QualityPart {
     /// the codec badge (FLAC, MP3, …)
@@ -114,7 +114,7 @@ impl QualityPart {
 
 /// [now-playing.font]: per-line sizes (px) and weights — defaults
 /// are the built-in look
-#[derive(Debug, Clone, Copy, Deserialize)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 pub struct NpFont {
     #[serde(default = "title_size")]
@@ -174,7 +174,7 @@ fn regular() -> i32 {
     400
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 pub struct NowPlaying {
     /// [now-playing] layout (see NpLayout)

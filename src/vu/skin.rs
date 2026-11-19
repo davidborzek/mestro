@@ -33,6 +33,12 @@ pub struct Skin {
     pub definition: ComponentDefinition,
     pub light: bool,
     pub setup: Option<SkinSetup>,
+    /// preview-only variant of `setup`: manifest skins pre-rotate
+    /// their needle art into the image (the software renderer
+    /// cannot rotate, slint#6068) and set `prerotated` so the
+    /// engine skips transform-rotation; None for skins without
+    /// rotating layers
+    pub preview_setup: Option<SkinSetup>,
 }
 
 /// where the active skin instance lives (the factory stores it
@@ -72,6 +78,7 @@ pub fn compile_source(name: &str, source: &str) -> Option<Skin> {
         definition,
         light: false,
         setup: None,
+        preview_setup: None,
     })
 }
 

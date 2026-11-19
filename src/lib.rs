@@ -12,6 +12,11 @@ pub mod vu;
 pub mod providers;
 pub mod remote;
 
+// device-level system logic (kiosk builds: wifi setup, factory
+// reset — feature `wifi-setup`)
+#[cfg(feature = "wifi-setup")]
+pub mod system;
+
 /// `0.1.0 (<git hash>)`; the plain version when git was unavailable
 pub fn app_version() -> String {
     version_string(env!("CARGO_PKG_VERSION"), env!("MESTRO_GIT"))

@@ -6,8 +6,9 @@
 //!   MESTRO_SNAPSHOT_DIR=/tmp/shots cargo test --test settings_snapshot -- --ignored
 //!
 //! The software renderer cannot rotate (slint #6068): rotated
-//! elements (VU needles) come out wrong, the settings do not use
-//! any.
+//! elements come out wrong. The settings pages use none; the VU
+//! overview's needles arrive pre-rotated in their SVG (the
+//! preview path bakes the rotation, see src/vu/manifest.rs).
 
 use mestro::{ui::navigation::Navigation, Mestro, Page};
 use slint::platform::software_renderer::{MinimalSoftwareWindow, RepaintBufferType};
@@ -31,16 +32,17 @@ const H: u32 = 480;
 const SCALE: f32 = 1.5;
 
 fn shot(window: &MinimalSoftwareWindow, path: &PathBuf) {
+    render(window).save(path).expect("write png");
+}
+
+fn render(window: &MinimalSoftwareWindow) -> image::RgbImage {
     slint::platform::update_timers_and_animations();
     window.request_redraw();
     let mut buffer = slint::SharedPixelBuffer::<slint::Rgb8Pixel>::new(W, H);
     window.draw_if_needed(|renderer| {
         renderer.render(buffer.make_mut_slice(), W as usize);
     });
-    image::RgbImage::from_raw(W, H, buffer.as_bytes().to_vec())
-        .expect("buffer size")
-        .save(path)
-        .expect("write png");
+    image::RgbImage::from_raw(W, H, buffer.as_bytes().to_vec()).expect("buffer size")
 }
 
 /// saturated stripes: makes any backdrop bleed obvious
@@ -172,5 +174,57 @@ fn settings_pages() {
     // … and the full-screen notice when the connection is gone
     ui.set_first_run(true);
     shot(&window, &dir.join("config-error-screen.png"));
+    ui.set_first_run(false);
+
+    // the VU overview: the same pre-rotated preview path the
+    // device's picker uses (the software renderer cannot rotate,
+    // the needles are baked into the SVG — see src/vu/manifest.rs).
+    // The overview lives INSIDE the VU layer, so vu-open must be
+    // up too
+    let palette: Rc<RefCell<Option<mestro::ui::palette::ArtworkPalette>>> =
+        Rc::new(RefCell::new(None));
+    let vui = mestro::vu::wire::Vui::new(&config, &nav, palette);
+    ui.set_vu_previews(slint::ModelRc::new(slint::VecModel::from(vui.previews())));
+    ui.set_vu_open(true);
+    ui.set_vu_overview_open(true);
+    shot(&window, &dir.join("device-vu-overview.png"));
+
+    // measurement, not vision: a synthetic magenta preview must
+    // reach the screen through the grid, and only while the
+    // overview is open
+    let magenta_tile = || {
+        let mut px = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::new(286, 172);
+        for p in px.make_mut_slice().iter_mut() {
+            *p = slint::Rgba8Pixel {
+                r: 255,
+                g: 0,
+                b: 255,
+                a: 255,
+            };
+        }
+        slint::Image::from_rgba8(px)
+    };
+    ui.set_vu_previews(slint::ModelRc::new(slint::VecModel::from(vec![
+        mestro::VuPreviewData {
+            image: magenta_tile(),
+            name: "measure".into(),
+            kind: "VU".into(),
+            active: true,
+        },
+    ])));
+    let magenta = |img: &image::RgbImage| {
+        img.pixels()
+            .filter(|p| p[0] > 200 && p[1] < 80 && p[2] > 200)
+            .count()
+    };
+    let open = magenta(&render(&window));
+    ui.set_vu_overview_open(false);
+    let closed = magenta(&render(&window));
+    assert!(
+        open > 1000,
+        "the preview images did not reach the overview ({open} magenta pixels)"
+    );
+    assert_eq!(closed, 0, "the magenta must come from the overview tiles");
+    ui.set_vu_open(false);
     let _ = ui.as_weak();
 }

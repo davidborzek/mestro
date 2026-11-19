@@ -34,8 +34,10 @@ start)
 	# first boot: seed the player defaults so a plain flash works
 	[ -f "$DATA_DIR/squeezelite.env" ] ||
 		cp /etc/mestro-defaults/squeezelite.env "$DATA_DIR/squeezelite.env"
-	[ -f "$DATA_DIR/wpa_supplicant.conf" ] ||
-		cp /etc/mestro-defaults/wpa_supplicant.conf "$DATA_DIR/wpa_supplicant.conf"
+	# no wpa_supplicant.conf seeding: without one mestro opens the
+	# setup hotspot; a placeholder would start a pointless supplicant
+	# that holds the radio (the image still ships the template in
+	# /etc/mestro-defaults for hand edits)
 	# timezone override: a /data/timezone file (IANA name like
 	# "Europe/Berlin", editable on any OS) beats the baked
 	# /etc/localtime default

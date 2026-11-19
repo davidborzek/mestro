@@ -34,7 +34,7 @@ pub struct TrackMeta {
 }
 
 /// One entry of the player's queue, provider-neutral.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct QueueItem {
     /// stable id of the queue entry (survives reordering —
     /// what a tap on the row sends back)
@@ -89,7 +89,7 @@ pub struct MediaEntry {
 }
 
 /// How play_media enqueues the media.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Enqueue {
     /// the server's configured default behavior
     Default,
@@ -131,7 +131,7 @@ impl RepeatMode {
 /// Transport-level command, already resolved (TogglePlay becomes
 /// Play or Pause at the call site — the provider does not know the
 /// current state).
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum SourceCommand {
     Play,
     Pause,

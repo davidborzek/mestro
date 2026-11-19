@@ -1,19 +1,19 @@
 //! [ui]
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// the OskLayouts registry keys known to the UI — anything else
 /// resolves to qwertz-de in the slint registry
 pub const OSK_LAYOUTS: &[&str] = &["de", "en"];
 
-#[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RailStyle {
     Dark,
     Glass,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Ui {
     /// open the now-playing overlay when playback starts from a

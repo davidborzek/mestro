@@ -9,7 +9,7 @@
     "resolveJsonModule": true,
     "skipLibCheck": true,
     "sourceMap": false,
-    "types": ["svelte", "vite/client"]
+    "types": ["svelte", "vite/client", "bun-types"]
   },
   "include": ["src/**/*.ts", "src/**/*.svelte", "vite.config.ts"]
 }

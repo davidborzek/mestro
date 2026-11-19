@@ -2,9 +2,9 @@
 //! best-effort — see src/display.rs; if no backlight device
 //! exists, the values are silently ignored.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 pub struct Display {
     /// backlight brightness in percent (1..=100), applied at

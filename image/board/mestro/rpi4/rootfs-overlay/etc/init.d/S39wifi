@@ -2,15 +2,25 @@
 # S39wifi — bring up wlan0 via wpa_supplicant before ifup (S40network).
 # Credentials live on the data partition so they survive re-flashes
 # and are editable from any OS.
+#
+# No conf (or still the seeded template): mestro takes over — it
+# starts wpa_supplicant itself for the setup hotspot (feature
+# wifi-setup) once the boot policy decides to.
 
 CONF=/data/wpa_supplicant.conf
 
 case "$1" in
 start)
 	[ -f "$CONF" ] || {
-		echo "wifi: no $CONF — wlan0 stays down (copy the template from /etc/mestro-defaults)" >&2
+		echo "wifi: no $CONF — wlan0 stays down (mestro starts the setup hotspot)" >&2
 		exit 0
 	}
+	# no network besides the template's placeholder (older images
+	# seeded it): leave the radio to mestro's hotspot
+	if ! grep -E '^[[:space:]]*ssid=' "$CONF" | grep -qv 'ssid="YourNetwork"'; then
+		echo "wifi: $CONF is still the template — mestro starts the setup hotspot" >&2
+		exit 0
+	fi
 	# wait for brcmfmac to register the interface
 	n=0
 	while [ $n -lt 10 ] && ! ip link show wlan0 >/dev/null 2>&1; do
@@ -21,8 +31,10 @@ start)
 		echo "wifi: wlan0 not found" >&2
 		exit 0
 	}
+	# -C opens the control socket even when an old conf on the data
+	# partition predates the ctrl_interface line — mestro needs it
 	start-stop-daemon -S -b -x /usr/sbin/wpa_supplicant -- \
-		-i wlan0 -c "$CONF"
+		-i wlan0 -C /run/wpa_supplicant -c "$CONF"
 	;;
 stop)
 	start-stop-daemon -K -x /usr/sbin/wpa_supplicant

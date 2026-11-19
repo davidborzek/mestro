@@ -29,6 +29,7 @@ mod remote;
 mod theme;
 mod ui;
 mod vu;
+mod wifi;
 mod window;
 
 pub use background::Background;
@@ -45,14 +46,15 @@ pub use theme::{Theme, ThemePalette, ThemeVariant};
 pub use ui::{RailStyle, Ui, OSK_LAYOUTS};
 pub use vu::{
     AnalyzerOptions, BarsOptions, CreamOptions, MetadataField, NightOptions, RoundOptions, Vu,
-    VuMode, WallLightOptions, WallOptions,
+    VuMode, WallLightOptions, WallOptions, BUILTIN_SKINS as VU_BUILTIN_SKINS,
 };
+pub use wifi::{ApNet, Wifi, DEFAULT_AP_ADDRESS};
 pub use window::{parse_size, Window};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize, Default, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
     pub window: Window,
@@ -78,6 +80,10 @@ pub struct Config {
     /// [remote]: the embedded web endpoint (setup wizard + WS)
     #[serde(default)]
     pub remote: Remote,
+    /// [wifi]: the setup hotspot's device-level knobs (config-file
+    /// only, feature `wifi-setup` on the kiosk)
+    #[serde(default)]
+    pub wifi: Wifi,
 }
 
 /// load defaults, then the TOML file if present, then env overrides.
@@ -177,22 +183,20 @@ pub fn load_parts(
         }
     };
 
-    // a built-in name or a [clock.skins] entry; validate() drops
-    // unknown names back to digital
-    if let Ok(style) = std::env::var("MESTRO_CLOCK") {
-        cfg.clock.style = style;
-    }
-    if let Ok(name) = std::env::var("MESTRO_PLAYER") {
-        cfg.music_assistant.player = name;
-    }
-    if let Ok(url) = std::env::var("MESTRO_MA_URL") {
-        cfg.music_assistant.url = url;
-    }
+    // the MESTRO_* env overlays (docs/configuration.md): env beats
+    // the file and the device settings
+    apply_env(&mut cfg);
 
     cfg.theme.validate();
     cfg.osd.validate();
     cfg.now_playing.validate();
     cfg.hub.validate();
+
+    let wifi_problems = cfg.wifi.validate();
+    for problem in &wifi_problems {
+        tracing::warn!("config: ignoring {} ({})", problem.key, problem.reason);
+    }
+    record(wifi_problems);
 
     if let Err(e) = parse_size(&cfg.window.size) {
         tracing::warn!("config: ignoring window.size ({e})");
@@ -216,6 +220,34 @@ impl Config {
         self.hub.validate();
         self.display.validate();
         self.clock.validate();
+        // wifi problems were reported at load; a settings merge
+        // cannot add new ones, so the fallbacks run quietly here
+        let _ = self.wifi.validate();
+    }
+}
+
+/// the MESTRO_* env overlays: env beats the config file and the
+/// device settings (docs/configuration.md). A bad value is dropped
+/// with a warning — the file's value stays in force
+fn apply_env(cfg: &mut Config) {
+    // a built-in name or a [clock.skins] entry; validate() drops
+    // unknown names back to digital
+    if let Ok(style) = std::env::var("MESTRO_CLOCK") {
+        cfg.clock.style = style;
+    }
+    if let Ok(name) = std::env::var("MESTRO_PLAYER") {
+        cfg.music_assistant.player = name;
+    }
+    if let Ok(url) = std::env::var("MESTRO_MA_URL") {
+        cfg.music_assistant.url = url;
+    }
+    if let Ok(port) = std::env::var("MESTRO_REMOTE_PORT") {
+        match port.parse::<u16>() {
+            Ok(p) => cfg.remote.port = p,
+            Err(_) => {
+                tracing::warn!("config: ignoring MESTRO_REMOTE_PORT ({port} is not a port number)")
+            }
+        }
     }
 }
 
@@ -295,5 +327,22 @@ mod tests {
         assert_eq!(cfg.now_playing.inline_vu, super::nowplaying::InlineVu::Led);
         assert_eq!(cfg.now_playing.font.title_size, 24.0);
         assert_eq!(cfg.osd.toast_duration, 2600);
+    }
+
+    #[test]
+    fn remote_port_env_beats_the_file_and_garbage_keeps_it() {
+        // precedence like the other MESTRO_* overlays: env wins
+        let mut cfg: Config = toml::from_str("[remote]\nport = 9000\n").unwrap();
+        std::env::set_var("MESTRO_REMOTE_PORT", "80");
+        apply_env(&mut cfg);
+        std::env::remove_var("MESTRO_REMOTE_PORT");
+        assert_eq!(cfg.remote.port, 80);
+        // a value that is not a port number is dropped with a
+        // warning — the file's value stays
+        let mut cfg: Config = toml::from_str("[remote]\nport = 9000\n").unwrap();
+        std::env::set_var("MESTRO_REMOTE_PORT", "not-a-port");
+        apply_env(&mut cfg);
+        std::env::remove_var("MESTRO_REMOTE_PORT");
+        assert_eq!(cfg.remote.port, 9000);
     }
 }

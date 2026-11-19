@@ -99,10 +99,16 @@ BR2_PACKAGE_XZ=y
 BR2_PACKAGE_HOST_KMOD_XZ=y
 
 # wifi: onboard brcm module, firmware + wpa_supplicant (config on
-# the data partition, see S39wifi)
+# the data partition, see S39wifi). AP support: mestro's setup
+# hotspot runs on wpa_supplicant itself; dnsmasq (spawned and
+# owned by mestro in AP mode) hands out DNS + DHCP there
 BR2_PACKAGE_LINUX_FIRMWARE=y
 BR2_PACKAGE_LINUX_FIRMWARE_BRCM_BCM43XXX=y
 BR2_PACKAGE_WPA_SUPPLICANT=y
+BR2_PACKAGE_WPA_SUPPLICANT_AP_SUPPORT=y
+# mestro talks to the supplicant over its control socket (src/system/wifi)
+BR2_PACKAGE_WPA_SUPPLICANT_CTRL_IFACE=y
+BR2_PACKAGE_DNSMASQ=y
 BR2_PACKAGE_IW=y
 # i2c debugging (7" panel touch sits at 0x38/0x45 on i2c-10)
 BR2_PACKAGE_I2C_TOOLS=y

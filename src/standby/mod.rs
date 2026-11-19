@@ -146,19 +146,35 @@ impl Skins {
     /// order: a fixed 10:10 pose (the watch-ad classic: hands
     /// apart, symmetric) on a black ground
     pub fn previews(&self, styles: &[String], accent: slint::Color) -> Vec<(String, slint::Image)> {
-        let pose = Tick {
-            hour: 10,
-            minute: 10,
-            time_label: "10:10".into(),
-            date_label: "MON 09 NOV".into(),
-        };
         styles
             .iter()
             .filter_map(|name| {
                 let definition = self.preview.get(name)?;
-                Some((name.clone(), render_preview(definition, &pose, accent)))
+                let buffer = render_preview(definition, &gallery_pose(), accent)?;
+                Some((name.clone(), slint::Image::from_rgb8(buffer)))
             })
             .collect()
+    }
+
+    /// one face as PNG (the web settings thumbnail): the gallery
+    /// pose at half the gallery render size — 400×240 fits the
+    /// 5:3 tiles without shipping the full 800×480 render
+    pub fn preview_png(&self, name: &str, accent: slint::Color) -> Option<Vec<u8>> {
+        let definition = self.preview.get(name)?;
+        let buffer = render_preview(definition, &gallery_pose(), accent)?;
+        let full =
+            image::RgbImage::from_raw(buffer.width(), buffer.height(), buffer.as_bytes().to_vec())?;
+        let half = image::imageops::resize(
+            &full,
+            full.width() / 2,
+            full.height() / 2,
+            image::imageops::FilterType::CatmullRom,
+        );
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgb8(half)
+            .write_to(&mut bytes, image::ImageFormat::Png)
+            .ok()?;
+        Some(bytes.into_inner())
     }
 
     pub fn push_accent(&self, accent: slint::Color) {
@@ -251,19 +267,19 @@ fn render_preview(
     definition: &ComponentDefinition,
     pose: &Tick,
     accent: slint::Color,
-) -> slint::Image {
+) -> Option<slint::SharedPixelBuffer<slint::Rgb8Pixel>> {
     use slint::platform::software_renderer::{MinimalSoftwareWindow, RepaintBufferType};
     const RENDER_W: u32 = PREVIEW_WIDTH * 10 / 3;
     const RENDER_H: u32 = PREVIEW_HEIGHT * 10 / 3;
     let window = MinimalSoftwareWindow::new(RepaintBufferType::NewBuffer);
     window.set_size(slint::PhysicalSize::new(RENDER_W, RENDER_H));
     let instance = match definition.create_with_existing_window(&window) {
-        Ok(instance) => instance,
+        Ok(instance) => Some(instance),
         Err(error) => {
             tracing::warn!("standby preview: {error}");
-            return slint::Image::default();
+            None
         }
-    };
+    }?;
     push_to(&instance, pose);
     set(
         &instance,
@@ -275,7 +291,18 @@ fn render_preview(
     window.draw_if_needed(|renderer| {
         renderer.render(pixels.make_mut_slice(), RENDER_W as usize);
     });
-    slint::Image::from_rgb8(pixels)
+    Some(pixels)
+}
+
+/// the fixed preview pose (the watch-ad classic: hands apart,
+/// symmetric)
+fn gallery_pose() -> Tick {
+    Tick {
+        hour: 10,
+        minute: 10,
+        time_label: "10:10".into(),
+        date_label: "MON 09 NOV".into(),
+    }
 }
 
 fn push_to(instance: &ComponentInstance, tick: &Tick) {

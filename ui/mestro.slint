@@ -22,6 +22,7 @@ import { TopBar } from "topbar.slint";
 import { HubPage, HubEntryData } from "hub.slint";
 import { FirstRunView } from "firstrun.slint";
 import { UpdateOverlay } from "update-overlay.slint";
+import { HotspotOverlay, HotspotReason } from "hotspot.slint";
 import { BootView } from "boot.slint";
 
 export component Mestro inherits Window {
@@ -110,6 +111,22 @@ export component Mestro inherits Window {
     // the VU cycle: view count + active index (dots + rails)
     in property <int> vu-view-count: 0;
     in property <int> vu-view-index: 0;
+    // fires on every kiosk view flip (np/queue/vu/standby and
+    // the VU skin position) — Rust pushes the new view to the
+    // phones at once, no 250 ms poll wait
+    callback view-changed();
+    changed np-open => {
+        root.view-changed();
+    }
+    changed queue-open => {
+        root.view-changed();
+    }
+    changed vu-open => {
+        root.view-changed();
+    }
+    changed vu-view-index => {
+        root.view-changed();
+    }
     in property <[VuPreviewData]> vu-previews: [];
     in-out property <bool> vu-overview-open: false;
     callback vu-open-overview();
@@ -277,11 +294,16 @@ export component Mestro inherits Window {
     in property <float> display-standby-brightness: 15;
     in property <bool> display-standby-brightness-overridden: false;
     // the standby clock covers the UI: same condition as its `if`
-    // below — Rust dims the backlight on the edge
-    out property <bool> standby-showing: !root.powered && root.provider-status == "";
+    // below — Rust dims the backlight on the edge. The hotspot
+    // overlay mounts ABOVE it and keeps the panel readable: while
+    // its QR shows, the player is not visually in standby — the
+    // backlight never dims to the standby brightness under it
+    out property <bool> standby-showing:
+        !root.powered && root.provider-status == "" && !root.hotspot-active;
     callback standby-changed(bool);
     changed standby-showing => {
         root.standby-changed(root.standby-showing);
+        root.view-changed();
     }
     in property <bool> osd-toast-duration-overridden: false;
     in property <float> osd-volume-duration: 1800;
@@ -334,6 +356,18 @@ export component Mestro inherits Window {
     in property <bool> first-run: false;
     in property <bool> first-run-detected: false;
     in property <image> first-run-qr;
+    // the wifi setup hotspot (feature wifi-setup): the overlay
+    // above every layer but the update — first run and the
+    // lost-network fallback alike. Inert unless the wifi manager
+    // raised AP mode; Rust clears it when AP mode ends
+    in property <bool> hotspot-active: false;
+    in property <HotspotReason> hotspot-reason: HotspotReason.setup;
+    in property <string> hotspot-ssid: "";
+    // the setup address the overlay names (mestro.setup — the
+    // port spelled out when it is not the URL default 80)
+    in property <string> hotspot-portal: "mestro.setup";
+    in property <image> hotspot-qr;
+    in property <string> hotspot-saved-ssid: "";
     // verified connection (real events flowed) — the overlay's
     // dismissal truth, provider-owned
     in property <bool> provider-connected: false;
@@ -1093,8 +1127,9 @@ export component Mestro inherits Window {
         }
     }
 
-    // standby covers everything while the player is powered off —
-    // must be the last sibling: slint paints in document order
+    // standby covers the app content while the player is powered
+    // off — the banner, OSD, hotspot and update overlays mount
+    // later and paint above it (slint paints in document order)
     if !root.powered && root.provider-status == "": StandbyView {
         x: 0;
         y: 0;
@@ -1187,6 +1222,20 @@ export component Mestro inherits Window {
         height: 100%;
         phase: root.startup-phase;
         server: root.startup-server;
+    }
+
+    // the wifi setup hotspot covers everything but the update —
+    // standby included (it mounts later): first run and the
+    // lost-network fallback alike — it hides by itself when AP mode
+    // ends (the wifi manager owns the props)
+    if root.hotspot-active: HotspotOverlay {
+        width: 100%;
+        height: 100%;
+        reason: root.hotspot-reason;
+        ssid: root.hotspot-ssid;
+        portal: root.hotspot-portal;
+        qr: root.hotspot-qr;
+        saved-ssid: root.hotspot-saved-ssid;
     }
 
     // the system update covers everything, first-run and config

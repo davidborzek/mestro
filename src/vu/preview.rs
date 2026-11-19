@@ -17,8 +17,8 @@ pub const HEIGHT: u32 = 172;
 
 /// deterministic pose for all previews: the same track and
 /// meter position make skins visually comparable
-const LEVEL_L: f64 = 0.72;
-const LEVEL_R: f64 = 0.48;
+pub const LEVEL_L: f64 = 0.72;
+pub const LEVEL_R: f64 = 0.48;
 
 pub fn render(skin: &Skin, info: &[MetadataField]) -> slint::Image {
     render_with_options(skin, info, None, None, None)
@@ -31,35 +31,66 @@ pub fn render_with_options(
     meters: Option<bool>,
     gradient: Option<bool>,
 ) -> slint::Image {
+    render_buffer(skin, info, glow, meters, gradient)
+        .map_or_else(slint::Image::default, slint::Image::from_rgb8)
+}
+
+/// one preview as PNG bytes (the web settings thumbnails)
+pub fn render_png(
+    skin: &Skin,
+    info: &[MetadataField],
+    glow: Option<f64>,
+    meters: Option<bool>,
+    gradient: Option<bool>,
+) -> Option<Vec<u8>> {
+    let buffer = render_buffer(skin, info, glow, meters, gradient)?;
+    let image = image::RgbImage::from_raw(WIDTH, HEIGHT, buffer.as_bytes().to_vec())?;
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgb8(image)
+        .write_to(&mut bytes, image::ImageFormat::Png)
+        .ok()?;
+    Some(bytes.into_inner())
+}
+
+fn render_buffer(
+    skin: &Skin,
+    info: &[MetadataField],
+    glow: Option<f64>,
+    meters: Option<bool>,
+    gradient: Option<bool>,
+) -> Option<slint::SharedPixelBuffer<slint::Rgb8Pixel>> {
     let window = MinimalSoftwareWindow::new(RepaintBufferType::NewBuffer);
     window.set_size(slint::PhysicalSize::new(WIDTH, HEIGHT));
-    match skin.definition.create_with_existing_window(&window) {
-        Ok(instance) => {
-            apply_pose(&instance, info);
-            if let Some(setup) = &skin.setup {
-                setup(&instance);
-            }
-            if let Some(value) = glow {
-                let _ = instance.set_property("glow", Value::Number(value));
-            }
-            if let Some(value) = meters {
-                let _ = instance.set_property("meters", Value::Bool(value));
-            }
-            if let Some(value) = gradient {
-                let _ = instance.set_property("gradient", Value::Bool(value));
-            }
-            window.request_redraw();
-            let mut pixels = slint::SharedPixelBuffer::<slint::Rgb8Pixel>::new(WIDTH, HEIGHT);
-            window.draw_if_needed(|renderer| {
-                renderer.render(pixels.make_mut_slice(), WIDTH as usize);
-            });
-            slint::Image::from_rgb8(pixels)
-        }
+    let instance = match skin.definition.create_with_existing_window(&window) {
+        Ok(instance) => instance,
         Err(error) => {
             tracing::warn!("vu preview {}: {error}", skin.name);
-            slint::Image::default()
+            return None;
         }
+    };
+    apply_pose(&instance, info);
+    // the preview setup pre-rotates manifest needles (the
+    // software renderer cannot rotate); skins without one take
+    // the live setup
+    let setup = skin.preview_setup.as_ref().or(skin.setup.as_ref());
+    if let Some(setup) = setup {
+        setup(&instance);
     }
+    if let Some(value) = glow {
+        let _ = instance.set_property("glow", Value::Number(value));
+    }
+    if let Some(value) = meters {
+        let _ = instance.set_property("meters", Value::Bool(value));
+    }
+    if let Some(value) = gradient {
+        let _ = instance.set_property("gradient", Value::Bool(value));
+    }
+    window.request_redraw();
+    let mut pixels = slint::SharedPixelBuffer::<slint::Rgb8Pixel>::new(WIDTH, HEIGHT);
+    window.draw_if_needed(|renderer| {
+        renderer.render(pixels.make_mut_slice(), WIDTH as usize);
+    });
+    Some(pixels)
 }
 
 fn apply_pose(instance: &ComponentInstance, info: &[MetadataField]) {
@@ -126,4 +157,91 @@ fn preview_peaks() -> [f32; super::BANDS] {
         *peak = (*peak + 0.08).min(1.0);
     }
     peaks
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// a synthetic pointer skin: a white plate with a plain black
+    /// needle — exact geometry, no other art to interfere with
+    /// the pixel samples
+    fn pointer_skin(dir: &std::path::Path) -> crate::vu::skin::Skin {
+        std::fs::write(
+            dir.join("bg.svg"),
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="#ffffff"/></svg>"##,
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("needle.svg"),
+            r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect x="48" y="10" width="4" height="40" fill="#000000"/></svg>"##,
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("manifest.toml"),
+            r##"
+glow = 0
+
+[faceplate]
+design-w = 286
+design-h = 172
+plate = "#ffffff"
+
+[[dial]]
+side = "left"
+x = 0
+art-w = 100
+art-h = 100
+pivot-x = 50
+pivot-y = 50
+zero-angle = -45
+sweep = 90
+
+[[dial.layer]]
+role = "face"
+source = "bg.svg"
+
+[[dial.layer]]
+role = "needle"
+source = "needle.svg"
+"##,
+        )
+        .unwrap();
+        crate::vu::manifest::load("pointer", &dir.join("manifest.toml")).expect("the skin compiles")
+    }
+
+    fn luma(buffer: &slint::SharedPixelBuffer<slint::Rgb8Pixel>, x: u32, y: u32) -> u32 {
+        let at = ((y * WIDTH + x) * 3) as usize;
+        let px = &buffer.as_bytes()[at..at + 3];
+        (px[0] as u32 * 299 + px[1] as u32 * 587 + px[2] as u32 * 114) / 1000
+    }
+
+    /// the needle must sit at the preview pose: the design matches
+    /// the preview size (fit 1), the dial box centers vertically
+    /// (origin y = 36), and LEVEL_L = 0.72 puts the left needle at
+    /// -45° + 0.72 × 90° = 19.8° clockwise from up
+    #[test]
+    fn the_preview_needle_renders_at_the_rotated_pose() {
+        let dir = std::env::temp_dir().join(format!("mestro-preview-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let skin = pointer_skin(&dir);
+        let buffer = render_buffer(&skin, &[], None, None, None).expect("the preview renders");
+        // the stem midpoint (20 units above the pivot) rotated by
+        // 19.8°: (50 + 20·sin, 50 − 20·cos) ≈ (56.8, 31.2) + 36
+        assert!(
+            luma(&buffer, 56, 67) < 60,
+            "the rotated stem midpoint must be black"
+        );
+        // 35 units up the stem, still on the rotated line
+        assert!(
+            luma(&buffer, 61, 53) < 60,
+            "the rotated stem must reach toward the tip"
+        );
+        // the UNrotated stem position: without prerotation the
+        // needle renders upright exactly here
+        assert!(
+            luma(&buffer, 50, 66) > 200,
+            "the unrotated stem position must be empty"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }

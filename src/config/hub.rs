@@ -1,9 +1,9 @@
 //! [hub]: the hub page layout
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// which hub layout to render
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum HubLayout {
     /// the console-row glass cards (default)
@@ -16,7 +16,7 @@ pub enum HubLayout {
 
 /// one hub destination. The set is fixed — `order` only
 /// permutes it
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum HubEntry {
     Library,
@@ -55,7 +55,7 @@ impl HubEntry {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 pub struct Hub {
     /// see HubLayout

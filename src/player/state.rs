@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 /// Full UI snapshot — the only struct the UI renders from.
 /// powered defaults to true: a UI that starts in standby would
 /// flash the clock before the first transport event arrives.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct PlayerState {
     pub playing: bool,
     pub volume: i32,
@@ -126,7 +126,7 @@ pub struct Live {
 }
 
 impl Live {
-    fn new(state: PlayerState) -> Self {
+    pub(crate) fn new(state: PlayerState) -> Self {
         Self {
             state,
             at: Instant::now(),

@@ -36,10 +36,16 @@ on any Linux desktop for trying it out.
 - **Standby** — a dim clock (digital, analog or your own face) over
   black, the cover or a slideshow of your pictures
   ([docs/standby.md](docs/standby.md)). Dims the backlight.
-- **Setup from your phone** — scan the QR code on the device, sign
-  in to Music Assistant, pick the player. No SSH, no config editing.
+- **Set up from your phone** — on first boot the player opens its own
+  WiFi hotspot; join it and pick your network. Then scan the QR code,
+  sign in to Music Assistant and pick the player. No SSH, no editing
+  files on the SD card.
+- **Companion web app** — an installable app (add it to your home
+  screen) for what Music Assistant doesn't cover: the player's power,
+  what the display shows, the VU skin, the backlight, every device
+  setting, system updates ([docs/remote.md](docs/remote.md)).
 - **Remote control** — USB remotes and keyboards, `mestro ctl`, and a
-  WebSocket channel on the LAN ([docs/remote.md](docs/remote.md)).
+  WebSocket channel on the LAN.
 - **Robust config** — a broken setting is skipped and reported,
   never a black screen.
 
@@ -53,15 +59,22 @@ partition you can edit from any computer.
 7" display or a compatible 5"/7" panel). Audio out through
 squeezelite to a USB DAC or HAT.
 
-1. Flash the image to an SD card.
-2. Open the SD card's data partition on your computer and put your
-   WiFi credentials into `wpa_supplicant.conf` (or plug in a LAN
-   cable).
-3. Boot. The screen shows a QR code — scan it with your phone, sign
+1. Flash the image to an SD card and boot.
+2. The screen shows a WiFi QR code: join the hotspot `mestro-XXXX`
+   with your phone. The setup page opens by itself (otherwise open
+   `mestro.setup` in the browser) — pick your network and enter its
+   password.
+3. Back on your home WiFi, scan the new QR code on the screen, sign
    in to Music Assistant and pick the player.
 
-Updates install over SSH without re-flashing; building the image
-yourself and adding extensions: [image/README.md](image/README.md).
+If the player later loses its network, it opens the hotspot again
+and keeps retrying the saved network every two minutes.
+
+**Updates** install from the web app (Settings → Info → System
+update) or over SSH, without re-flashing. Each update boots once on
+trial and falls back to the previous version by itself if it does
+not come up. Building the image yourself and adding extensions:
+[image/README.md](image/README.md).
 
 ## Try it on a desktop
 

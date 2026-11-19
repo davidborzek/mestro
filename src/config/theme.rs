@@ -49,7 +49,16 @@ impl<'de> Deserialize<'de> for ThemeVariant {
     }
 }
 
-#[derive(Debug, Deserialize, Default)]
+impl Serialize for ThemeVariant {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(crate::ui::palette::variant_as_str(self.0.clone()))
+    }
+}
+
+#[derive(Debug, Deserialize, Default, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Theme {
     pub palette: ThemePalette,

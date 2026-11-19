@@ -17,7 +17,9 @@ use std::cell::RefCell;
 use std::io::Write as _;
 use std::rc::Rc;
 
+mod schema;
 mod ui;
+pub use schema::schema;
 pub use ui::{
     apply_effective, sync_connection, sync_initial, sync_overlay_state, sync_theme_ui, sync_vu,
     wire, wire_vu, NpState, VuState,
@@ -135,6 +137,16 @@ impl Handle {
             // debounce: single-shot, restarted on every set
             save: Rc::new(slint::Timer::default()),
         }
+    }
+
+    /// the effective config — the merged tree WITH the defaults
+    /// folded in — for readers that need every field's current
+    /// value, not just what the files set (the web's schema and
+    /// `effective` state)
+    pub fn effective(&self) -> Result<crate::config::Config, String> {
+        let mut cfg = lenient_config(self.merged())?;
+        cfg.validate();
+        Ok(cfg)
     }
 
     /// set one key (dotted path, TOML-syntax value) and return

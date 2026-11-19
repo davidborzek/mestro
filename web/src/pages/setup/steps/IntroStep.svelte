@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from "../../../components/Icon.svelte";
   import { t } from "../../../lib/i18n.svelte";
 
   let {
@@ -15,7 +16,7 @@
 </script>
 
 <section class="card center">
-  <div class="check">&#9835;</div>
+  <div class="badge"><Icon name="music" size={32} /></div>
   <h2>{t("intro.title")}</h2>
   {#if configured}
     <p>{t("intro.configured")}</p>
