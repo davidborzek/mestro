@@ -1,0 +1,56 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", ":semanticCommits"],
+  "dependencyDashboard": true,
+  "schedule": ["before 6am on monday"],
+  "timezone": "Europe/Berlin",
+  "platformAutomerge": true,
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 6am on monday"]
+  },
+  "nix": {
+    "enabled": true
+  },
+  "packageRules": [
+    {
+      "description": "one PR for all Cargo minor/patch updates",
+      "matchManagers": ["cargo"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "cargo minor/patch"
+    },
+    {
+      "description": "one PR for all web app minor/patch updates",
+      "matchManagers": ["npm"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "npm minor/patch"
+    },
+    {
+      "description": "minor/patch automerge once CI passes",
+      "matchUpdateTypes": ["minor", "patch"],
+      "automerge": true
+    },
+    {
+      "description": "major updates land as their own PRs, never automerged",
+      "matchUpdateTypes": ["major"],
+      "automerge": false
+    },
+    {
+      "description": "keep GitHub Actions pinned to commit digests, one grouped PR",
+      "matchManagers": ["github-actions"],
+      "pinDigests": true,
+      "groupName": "github actions"
+    },
+    {
+      "description": "slint is pinned to the rev with the linuxkms fixes mestro needs — updates are a manual, tested change",
+      "matchPackageNames": [
+        "slint",
+        "slint-interpreter",
+        "slint-build",
+        "i-slint-core",
+        "i-slint-compiler"
+      ],
+      "enabled": false
+    }
+  ]
+}
