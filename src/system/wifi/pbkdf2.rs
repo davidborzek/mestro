@@ -4,7 +4,7 @@
 //! uses; PBKDF2 itself is the short loop below, pinned by the
 //! published 802.11i test vectors.
 
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use sha1::Sha1;
 
 type HmacSha1 = Hmac<Sha1>;
