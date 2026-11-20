@@ -142,12 +142,23 @@ hotspot's DHCP pool and the captive portal derive from
 `ap-address`. Garbage falls back to the default with a config
 problem.
 
+`power-save = false` (the default) switches the interface's wifi
+power save off — brcmfmac enables it by default and its periodic
+wakeup costs the link ~300 ms latency spikes and stream
+reconnects; mestro re-applies the state after every association.
+`country` pins the regulatory domain (ISO 3166-1 alpha-2, e.g.
+`"DE"`): without it the kernel stays on the passive world regdom
+`00` (5 GHz restricted). The image ships `regulatory.db` — an
+empty `country` leaves the kernel's regdom alone.
+
 ```toml
 [wifi]
 interface = "auto"            # auto | an interface name
 ctrl-dir = "/run/wpa_supplicant" # wpa_supplicant's control socket dir
 conf = "/data/wpa_supplicant.conf" # the persistent credentials (must match the boot scripts)
 ap-address = "10.42.0.1/24"    # private a.b.c.d/16-29; DHCP pool = .10-.50
+power-save = false            # off by default — the latency spikes
+# country = "DE"              # ISO 3166-1 alpha-2 regdom; empty = kernel default
 ```
 
 ## Environment and command line

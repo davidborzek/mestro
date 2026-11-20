@@ -33,7 +33,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 /// the `[wifi]` section resolved: interface, socket, files, the
-/// hotspot's addresses
+/// hotspot's addresses and the radio policy (power save, regdom)
 pub struct Plan {
     pub iface: String,
     pub ctrl_dir: PathBuf,
@@ -49,6 +49,12 @@ pub struct Plan {
     /// the hotspot's gateway, subnet and DHCP pool (from
     /// `[wifi] ap-address`)
     pub ap_net: crate::config::ApNet,
+    /// the configured power-save state — brcmfmac's default (on)
+    /// spikes the link latency, so mestro pins it after every
+    /// association
+    pub power_save: bool,
+    /// the configured regulatory domain ("" = the kernel's stays)
+    pub country: String,
 }
 
 /// resolve the config against the device: interface detection plus
@@ -64,6 +70,8 @@ pub fn plan(config: &crate::config::Wifi, roots: &backend::Roots) -> Result<Plan
         sta,
         ap: PathBuf::from("/run/mestro/ap.conf"),
         ap_net: config.ap_net(),
+        power_save: config.power_save,
+        country: config.country.clone(),
     })
 }
 

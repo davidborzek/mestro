@@ -482,6 +482,9 @@ pub(crate) mod fake {
         /// the canned exit status of the spawned supplicant
         /// (None = it runs) — the startup-failure visibility
         pub wpa_exit: Option<String>,
+        /// the canned STATUS reply (the power-save catch-up reads
+        /// the association identity from it)
+        pub status: String,
         pub mac: String,
     }
 
@@ -489,6 +492,7 @@ pub(crate) mod fake {
         pub fn new(mac: &str) -> Self {
             Self {
                 mac: mac.to_string(),
+                status: "wpa_state=COMPLETED\nbssid=2c:91:ab:12:34:56\n".into(),
                 ..Self::default()
             }
         }
@@ -511,7 +515,7 @@ pub(crate) mod fake {
                 }
                 "SCAN" | "RECONFIGURE" => Ok("OK\n".into()),
                 "SCAN_RESULTS" => Ok(self.scan_results.clone()),
-                "STATUS" => Ok("wpa_state=COMPLETED\n".into()),
+                "STATUS" => Ok(self.status.clone()),
                 other => Err(format!("no canned reply for {other}")),
             }
         }

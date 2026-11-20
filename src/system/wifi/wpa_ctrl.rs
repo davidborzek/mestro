@@ -179,6 +179,9 @@ fn hex_digit(b: u8) -> Option<u8> {
 pub struct StatusInfo {
     pub wpa_state: String,
     pub ssid: String,
+    /// the associated BSSID — the association identity (power-save
+    /// re-applies once per association)
+    pub bssid: String,
 }
 
 /// parse a STATUS reply: `key=value` lines, unknown keys ignored,
@@ -192,6 +195,7 @@ pub fn parse_status(reply: &str) -> StatusInfo {
         match key.trim() {
             "wpa_state" => info.wpa_state = value.to_string(),
             "ssid" => info.ssid = String::from_utf8_lossy(&unescape(value)).into_owned(),
+            "bssid" => info.bssid = value.to_string(),
             _ => {}
         }
     }
@@ -276,6 +280,7 @@ mod tests {
         );
         assert_eq!(status.wpa_state, "COMPLETED");
         assert_eq!(status.ssid, "FritzBox");
+        assert_eq!(status.bssid, "2c:91:ab:12:34:56");
         // tolerant: unknown keys, missing keys, weird spacing
         let status = parse_status("future_key=1\nwpa_state=SCANNING\nssid=\n");
         assert_eq!(status.wpa_state, "SCANNING");

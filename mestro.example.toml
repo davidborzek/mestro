@@ -260,3 +260,11 @@ shm_prefix = "squeezelite"
 # pool (.10-.50, clamped for small prefixes) and the captive portal
 # derive from it
 #ap-address = "10.42.0.1/24"
+# wifi power save on the managed interface: off by default —
+# brcmfmac's on state costs ~300 ms latency spikes and stream
+# reconnects; mestro re-applies the state after every association
+#power-save = false
+# the regulatory domain (ISO 3166-1 alpha-2): empty = the kernel's
+# stays (the passive world set "00" — 5 GHz restricted); a value
+# also lands in every wpa_supplicant conf mestro writes
+#country = "DE"
