@@ -3,6 +3,9 @@ name = "mestro"
 version = "0.1.0"
 edition = "2021"
 license = "GPL-3.0-or-later"
+# never published to crates.io; also marks the git deps as private
+# for cargo-deny's wildcard exemption
+publish = false
 
 [dependencies]
 # the Pi firmware mailbox ioctl (backlight without touching the

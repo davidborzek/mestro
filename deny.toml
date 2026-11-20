@@ -1,0 +1,90 @@
+[graph]
+# the lint/test targets matter too: examples and dev-deps are checked
+all-features = false
+
+# advisories: fail on everything except the unmaintained crates we
+# deliberately keep (each ignore below says why mestro is not
+# affected). Anything fixable by a patch bump must be fixed, not
+# ignored — commit 1 did exactly that.
+[advisories]
+version = 2
+yanked = "warn"
+
+ignore = [
+  # chrono is a direct dependency (clock faces); the advisory is
+  # "unmaintained", not a vulnerability. Migration to a maintained
+  # crate is a code change, not a patch bump.
+  { id = "RUSTSEC-2026-0543", reason = "chrono unmaintained; direct dep for the clock, replacement is a separate change" },
+
+  # pin-utils: tiny pin helpers pulled in by spin_on (slint compile
+  # step). Unmaintained but stable; no vulnerability, no patch.
+  { id = "RUSTSEC-2026-0441", reason = "pin-utils unmaintained; transitive via spin_on, no advisory beyond maintenance status" },
+
+  # paste: proc-macro used by pulp/rav1e inside image's EXR path,
+  # which slint's SVG compiler pulls in. mestro loads only its own
+  # bundled assets and png/jpeg covers; EXR decoding never runs.
+  { id = "RUSTSEC-2024-0436", reason = "paste unmaintained; transitive via slint->image EXR codecs, never used on mestro's png/jpeg-only inputs" },
+
+  # rustybuzz/ttf-parser: SVG text shaping/parsing in resvg, deep in
+  # slint's SVG compiler pipeline. mestro only renders its own bundled
+  # SVG icons and fonts; no untrusted SVG reaches these crates.
+  { id = "RUSTSEC-2026-0206", reason = "rustybuzz unmaintained; transitive via slint->resvg, only shapes bundled SVG assets" },
+  { id = "RUSTSEC-2026-0192", reason = "ttf-parser unmaintained; transitive via slint->resvg/fontdb, only reads bundled fonts" },
+
+  # zvariant/zbus_names: D-Bus serialization, reached only through
+  # slint's desktop accessibility stack (accesskit/atspi over winit).
+  # The Pi kiosk builds run linuxkms without accesskit; no untrusted
+  # input reaches these crates.
+  { id = "RUSTSEC-2026-0370", reason = "zvariant unmaintained; transitive via slint accessibility (accesskit/atspi), no untrusted input" },
+  { id = "RUSTSEC-2026-0372", reason = "zvariant_derive unmaintained; transitive via slint accessibility (accesskit/atspi), no untrusted input" },
+  { id = "RUSTSEC-2026-0371", reason = "zbus_names unmaintained; transitive via slint accessibility (accesskit/atspi), no untrusted input" },
+]
+
+# licenses: allow only what the dependency tree actually uses, and
+# only what is GPL-3.0-compatible (mestro is GPL-3.0-or-later).
+# `cargo deny list` on the full tree (all feature sets merged in the
+# lockfile) produced exactly this set.
+[licenses]
+version = 2
+allow = [
+  "0BSD",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "BSL-1.0",
+  "CC0-1.0",
+  "CDLA-Permissive-2.0",
+  "GPL-3.0-only",
+  "GPL-3.0-or-later",
+  "ISC",
+  "LGPL-2.1-or-later",
+  "MIT",
+  "NCSA",
+  "Unicode-3.0",
+  "Unlicense",
+  "Zlib",
+  # slint's dual/triple license options; mestro distributes under
+  # GPL-3.0-or-later, which is one of them
+  "LicenseRef-Slint-Royalty-free-2.0",
+  "LicenseRef-Slint-Software-3.0",
+]
+confidence-threshold = 0.8
+
+# duplicate-version noise is warnings, not CI failures; wildcard
+# version specs ("*") never merge cleanly and are denied. The slint
+# git deps have no version spec by nature of being rev-pinned —
+# allow-wildcard-paths keeps them out of the wildcard check while
+# registry wildcards still fail
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+# crates come from crates.io; slint is the only git dependency, at
+# the rev pinned in Cargo.toml
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = ["https://github.com/slint-ui/slint"]
