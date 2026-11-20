@@ -6,7 +6,7 @@
 </h1>
 
 <p align="center">
-  <strong>A touchscreen now-playing display for Music Assistant</strong>
+  <strong>A touchscreen network player for Music Assistant</strong>
 </p>
 
 <p align="center">
@@ -28,9 +28,9 @@
   <img src="docs/screenshots/standby.png" width="32%" alt="Standby clock">
 </p>
 
-Put a small panel next to your hi-fi, point mestro at your
-[Music Assistant](https://music-assistant.io/) server, and it shows
-and controls whatever plays there — cover art, the
+Build your own network player: a Raspberry Pi, a touch panel and a
+DAC, with [Music Assistant](https://music-assistant.io/) as the
+brain. mestro shows and controls whatever plays — cover art, the
 track, a VU meter, the queue and your library.
 
 mestro is a native Rust/[Slint](https://slint.dev) app that draws
