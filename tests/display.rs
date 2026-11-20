@@ -1,3 +1,7 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+// test harness helpers: a panic fails the test loudly, which is
+// exactly what a test wants
+
 //! [display] backlight control — exercised against a fake
 //! backlight directory via MESTRO_BACKLIGHT.
 

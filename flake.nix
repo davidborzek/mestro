@@ -116,6 +116,10 @@
             slint-viewer
             slint-lsp
             bun
+            # supply-chain checks (CI runs the same commands — see
+            # .github/workflows/ci.yml)
+            cargo-deny
+            cargo-machete
             # formatters driven by treefmt (treefmt.toml); prettier
             # comes from web/node_modules (.bin prepended below)
             treefmt

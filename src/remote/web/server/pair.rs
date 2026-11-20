@@ -6,6 +6,7 @@
 //! in-memory: five failures close the door for 30 s.
 
 use super::{auth, http};
+use crate::locks;
 use auth::ct_eq;
 use tokio::io::AsyncReadExt;
 use tokio::net::TcpStream;
@@ -65,9 +66,7 @@ impl Pairing {
 
     /// 429 while the gate is closed
     fn blocked(&self) -> bool {
-        self.gate
-            .lock()
-            .unwrap()
+        locks::lock(&self.gate)
             .blocked_until
             .is_some_and(|until| until > std::time::Instant::now())
     }
@@ -75,11 +74,11 @@ impl Pairing {
     /// one wrong PIN counts; returns true when this failure closed
     /// the gate (the attempt itself is already 429 material)
     fn fail(&self) -> bool {
-        self.gate.lock().unwrap().fail()
+        locks::lock(&self.gate).fail()
     }
 
     fn clear(&self) {
-        let mut gate = self.gate.lock().unwrap();
+        let mut gate = locks::lock(&self.gate);
         gate.failures = 0;
         gate.blocked_until = None;
     }

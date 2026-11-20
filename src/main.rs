@@ -128,7 +128,12 @@ fn run_ui(
     restart: &Cell<bool>,
     wifi_stop: &Cell<Option<mestro::remote::web::WifiShutdown>>,
 ) {
-    ui.run().unwrap();
+    // a dead event loop leaves nothing to recover into — this is
+    // the one place a UI failure turns into an exit code
+    if let Err(e) = ui.run() {
+        tracing::error!("ui: event loop failed: {e}");
+        std::process::exit(1);
+    }
     drop(ui);
     if restart.get() {
         // exec keeps the wifi children alive with their handles
@@ -195,7 +200,10 @@ fn main() {
 
     apply_scale(&config);
     let display = start_display(&config);
-    let ui = Mestro::new().unwrap();
+    let ui = Mestro::new().unwrap_or_else(|e| {
+        eprintln!("cannot open the UI: {e}");
+        std::process::exit(2);
+    });
     wire_window(&ui, &args, &config, &settings, &restart, &display);
     let clock = StandbyClock::new(&ui, &config.clock);
     wire_static_ui(&ui, &config);
@@ -356,7 +364,7 @@ fn main() {
     // providers module — the factory reads the shared connection
     // config per attempt, so settings edits take effect live
     mestro::providers::session::spawn(
-        move || MaProvider::new(ma_cfg.read().unwrap().clone()),
+        move || MaProvider::new(mestro::locks::read(&ma_cfg).clone()),
         cmd_rx,
         shared,
         update_tx,
@@ -411,6 +419,10 @@ fn wire_window(
     let (size_w, size_h) = if args.kiosk {
         (573.0, 344.0)
     } else {
+        #[expect(
+            clippy::expect_used,
+            reason = "[window] size is validated during config load"
+        )]
         args.size
             .unwrap_or(mestro::config::parse_size(&config.window.size).expect("validated in load"))
     };
@@ -550,7 +562,11 @@ fn spawn_update_loop(
         quality_vals,
     } = deps;
     let push = push.clone();
-    slint::spawn_local(async move {
+    #[expect(
+        clippy::expect_used,
+        reason = "setup runs on the slint event loop thread"
+    )]
+    let spawned = slint::spawn_local(async move {
         while let Some(update) = update_rx.recv().await {
             let Some(ui) = ui_weak.upgrade() else {
                 continue;
@@ -579,7 +595,9 @@ fn spawn_update_loop(
             }
         }
     })
-    .unwrap();
+    .expect("spawn on the slint event loop");
+    // detach: the task outlives this setup call
+    std::mem::forget(spawned);
 }
 
 /// the embedded web endpoint (setup wizard + remote channel, LAN,

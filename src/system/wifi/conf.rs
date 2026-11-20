@@ -4,6 +4,8 @@
 //! dir, fsync, rename) and the STA write keeps the previous file
 //! as `.bak` — the join-failure path restores it.
 
+#![deny(clippy::indexing_slicing)]
+
 use super::pbkdf2;
 use std::io::Write as _;
 use std::path::Path;

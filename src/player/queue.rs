@@ -202,15 +202,13 @@ pub fn sync_model(ui: &Mestro, entries: Vec<QueueEntry>) {
             let model = slint::ModelRc::new(slint::VecModel::from(entries.clone()));
             ui.set_queue_model(model.clone());
             *qm = Some((model, entries));
-        } else {
-            let (model, last) = qm.as_ref().unwrap();
-
+        } else if let Some((model, last)) = qm.as_mut() {
             for (i, e) in entries.iter().enumerate() {
                 if &last[i] != e {
                     model.set_row_data(i, e.clone());
                 }
             }
-            qm.as_mut().unwrap().1 = entries;
+            *last = entries;
         }
     });
 }
@@ -220,10 +218,10 @@ pub fn sync_model(ui: &Mestro, entries: Vec<QueueEntry>) {
 pub fn rebuild_cache(ui: &Mestro) {
     QUEUE_MODEL.with(|qm| {
         let mut qm = qm.borrow_mut();
-        if let Some((_, entries)) = qm.as_ref() {
-            let model = slint::ModelRc::new(slint::VecModel::from(entries.clone()));
-            ui.set_queue_model(model.clone());
-            qm.as_mut().unwrap().0 = model;
+        if let Some((model, entries)) = qm.as_mut() {
+            let fresh = slint::ModelRc::new(slint::VecModel::from(entries.clone()));
+            ui.set_queue_model(fresh.clone());
+            *model = fresh;
         }
     });
 }

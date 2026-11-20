@@ -6,6 +6,7 @@
 //! (tests) records calls and answers canned data.
 
 use super::wpa_ctrl::WpaCtrl;
+use crate::locks;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -240,7 +241,7 @@ impl RealBackend {
 /// (the supplicant + the lease client) survives the exec and the
 /// next start adopts it (see manager::ensure_sta)
 pub fn stop_ap_processes(children: &crate::remote::web::Children, ap_up: bool) {
-    let mut children = children.lock().unwrap();
+    let mut children = locks::lock(children);
     if let Some(mut child) = children.remove("dnsmasq") {
         let _ = child.kill();
         let _ = child.wait();
@@ -259,7 +260,10 @@ impl WifiBackend for RealBackend {
             let socket_path = self.ctrl_dir.join(&self.iface);
             self.ctrl = Some(WpaCtrl::connect(&socket_path)?);
         }
-        let socket = self.ctrl.as_mut().expect("just connected");
+        // just connected above, or was still alive
+        let Some(socket) = self.ctrl.as_mut() else {
+            return Err("wpa ctrl socket vanished".into());
+        };
         match socket.request(cmd) {
             Ok(reply) => Ok(reply),
             Err(e) => {
@@ -296,12 +300,7 @@ impl WifiBackend for RealBackend {
             .spawn()
             .map_err(|e| format!("spawn {program} {args:?}: {e}"))?;
         // a respawn of the same name replaces the old child
-        if let Some(mut old) = self
-            .children
-            .lock()
-            .unwrap()
-            .insert(name.to_string(), child)
-        {
+        if let Some(mut old) = locks::lock(&self.children).insert(name.to_string(), child) {
             let _ = old.kill();
             let _ = old.wait();
         }
@@ -309,16 +308,14 @@ impl WifiBackend for RealBackend {
     }
 
     fn kill_owned(&mut self, name: &str) {
-        if let Some(mut child) = self.children.lock().unwrap().remove(name) {
+        if let Some(mut child) = locks::lock(&self.children).remove(name) {
             let _ = child.kill();
             let _ = child.wait();
         }
     }
 
     fn child_exit_status(&mut self, name: &str) -> Option<String> {
-        self.children
-            .lock()
-            .unwrap()
+        locks::lock(&self.children)
             .get_mut(name)
             .and_then(|child| child.try_wait().ok().flatten())
             .map(|status| format!("exit status {status}"))
@@ -401,7 +398,11 @@ impl WifiBackend for RealBackend {
 
 #[cfg(unix)]
 fn kill(pid: i32, signal: i32) -> std::io::Result<()> {
-    // safe: a plain kill(2) on a process we can signal
+    // SAFETY: a plain kill(2) on a pid we own; no invariants to
+    // uphold beyond libc's own signature
+    // (unsafe_code is denied crate-wide — this is the audited
+    // signal-send path of the wifi backend)
+    #[allow(unsafe_code)]
     let ret = unsafe { libc::kill(pid, signal) };
     if ret == 0 {
         Ok(())
@@ -803,16 +804,14 @@ mod shutdown_stop {
                 .arg("30")
                 .spawn()
                 .unwrap();
-            children.lock().unwrap().insert((*name).to_string(), child);
+            locks::lock(&children).insert((*name).to_string(), child);
         }
         children
     }
 
     /// alive: still present in the registry and not exited
     fn alive(children: &crate::remote::web::Children, name: &str) -> bool {
-        children
-            .lock()
-            .unwrap()
+        locks::lock(children)
             .get_mut(name)
             .is_some_and(|child| child.try_wait().unwrap().is_none())
     }
@@ -845,7 +844,7 @@ mod shutdown_stop {
         );
         // cleanup: the survivors must not leak into the test machine
         for registry in [children, ap] {
-            for (_, mut child) in registry.lock().unwrap().drain() {
+            for (_, mut child) in locks::lock(&registry).drain() {
                 let _ = child.kill();
                 let _ = child.wait();
             }

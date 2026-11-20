@@ -5,6 +5,7 @@
 //! event confirms with the real state, the UI only renders what
 //! MA reports.
 
+use crate::locks;
 use crate::player::state::{self, Shared, UpdateTx};
 use crate::Mestro;
 
@@ -22,9 +23,7 @@ pub fn wire(
         let update_tx = update_tx.clone();
         let cmd_tx = cmd_tx.clone();
         move || {
-            let playing = shared
-                .lock()
-                .unwrap()
+            let playing = locks::lock(&shared)
                 .as_ref()
                 .is_some_and(|l| l.state.playing);
             let cmd = if playing {
@@ -61,9 +60,7 @@ pub fn wire(
         let shared = shared.clone();
         let cmd_tx = cmd_tx.clone();
         move || {
-            let on = shared
-                .lock()
-                .unwrap()
+            let on = locks::lock(&shared)
                 .as_ref()
                 .is_some_and(|l| l.state.shuffle);
             let _ = cmd_tx.send(crate::providers::SourceCommand::Shuffle(!on));
@@ -73,9 +70,7 @@ pub fn wire(
         let shared = shared.clone();
         let cmd_tx = cmd_tx.clone();
         move || {
-            let next = shared
-                .lock()
-                .unwrap()
+            let next = locks::lock(&shared)
                 .as_ref()
                 .map(|l| match l.state.repeat {
                     crate::providers::RepeatMode::Off => crate::providers::RepeatMode::All,
@@ -90,7 +85,7 @@ pub fn wire(
         let shared = shared.clone();
         let cmd_tx = cmd_tx.clone();
         move |fraction, track_key| {
-            let mut guard = shared.lock().unwrap();
+            let mut guard = locks::lock(&shared);
             let Some(live) = guard.as_mut() else { return };
             let Some(seconds) = seek_position(&live.state, fraction, track_key.as_str()) else {
                 return;

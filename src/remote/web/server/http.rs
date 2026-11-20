@@ -3,6 +3,8 @@
 //! because tungstenite's handshake rejects plain GETs before any
 //! callback runs.
 
+#![deny(clippy::indexing_slicing)]
+
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
@@ -18,7 +20,7 @@ pub(super) async fn read_head(stream: &mut TcpStream) -> Result<Vec<u8>, String>
         if n == 0 {
             return Err("empty request".into());
         }
-        head.extend_from_slice(&chunk[..n]);
+        head.extend_from_slice(chunk.get(..n).ok_or("read length out of bounds")?);
         if head.windows(4).any(|w| w == b"\r\n\r\n") {
             return Ok(head);
         }
@@ -73,7 +75,7 @@ pub(super) fn content_length(head: &[u8]) -> Option<u64> {
 
 // the text of the head, never the body bytes behind it
 fn request_head(buf: &[u8]) -> &str {
-    std::str::from_utf8(&buf[..split_head(buf)]).unwrap_or_default()
+    std::str::from_utf8(buf.get(..split_head(buf)).unwrap_or_default()).unwrap_or_default()
 }
 
 pub(super) fn is_upgrade(head: &[u8]) -> bool {
@@ -176,8 +178,8 @@ mod tests {
     #[test]
     fn split_head_keeps_the_body_prefix_out() {
         let head_len = split_head(REQUEST);
-        assert_eq!(&REQUEST[head_len..], b"ARMd-body");
-        assert!(REQUEST[..head_len].ends_with(b"\r\n\r\n"));
+        assert_eq!(REQUEST.get(head_len..).unwrap(), b"ARMd-body");
+        assert!(REQUEST.get(..head_len).unwrap().ends_with(b"\r\n\r\n"));
     }
 
     #[test]
@@ -233,11 +235,13 @@ pub(super) fn query_param(query: &str, name: &str) -> Option<String> {
         let mut out = Vec::with_capacity(value.len());
         let bytes = value.as_bytes();
         let mut i = 0;
-        while i < bytes.len() {
-            match bytes[i] {
+        while let Some(&byte) = bytes.get(i) {
+            match byte {
                 b'+' => out.push(b' '),
-                b'%' if i + 3 <= bytes.len() => {
-                    let hex = std::str::from_utf8(&bytes[i + 1..i + 3]).ok()?;
+                b'%' if bytes.get(i + 1..i + 3).is_some() => {
+                    let hex = bytes
+                        .get(i + 1..i + 3)
+                        .and_then(|h| std::str::from_utf8(h).ok())?;
                     out.push(u8::from_str_radix(hex, 16).ok()?);
                     i += 2;
                 }
@@ -253,11 +257,9 @@ pub(super) fn query_param(query: &str, name: &str) -> Option<String> {
 /// PNG bytes as hex over the JSON bridge (keeps the internal
 /// preview op's reply a plain string — no base64 dependency)
 pub(super) fn hex_encode(bytes: &[u8]) -> String {
-    const DIGITS: &[u8; 16] = b"0123456789abcdef";
     let mut out = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
-        out.push(DIGITS[(byte >> 4) as usize] as char);
-        out.push(DIGITS[(byte & 0xf) as usize] as char);
+        out.push_str(&format!("{byte:02x}"));
     }
     out
 }
@@ -276,7 +278,11 @@ pub(super) fn hex_decode(text: &str) -> Result<Vec<u8>, String> {
     };
     bytes
         .chunks(2)
-        .map(|pair| Ok(digit(pair[0])? << 4 | digit(pair[1])?))
+        .map(|pair| {
+            let hi = digit(*pair.first().ok_or("short hex pair")?)?;
+            let lo = digit(*pair.get(1).ok_or("short hex pair")?)?;
+            Ok(hi << 4 | lo)
+        })
         .collect()
 }
 

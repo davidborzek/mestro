@@ -2,6 +2,7 @@
 pub mod config;
 pub mod display;
 pub mod library;
+pub mod locks;
 pub mod player;
 pub mod settings;
 pub mod standby;
@@ -41,4 +42,17 @@ mod tests {
     }
 }
 
-slint::include_modules!();
+// the slint-generated UI module, isolated so the restriction lints
+// from [lints] in Cargo.toml don't fire on generated code: the
+// generator's panics are its internal invariants, not code we
+// maintain by hand (see docs in CONTRIBUTING.md)
+#[expect(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::todo,
+    reason = "slint-generated code; panics are generator invariants"
+)]
+mod slint_modules {
+    slint::include_modules!();
+}
+pub use slint_modules::*;

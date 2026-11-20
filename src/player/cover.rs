@@ -56,6 +56,10 @@ pub fn cap_size(c: &mut CoverData, max: u32) {
         ((c.width as f64 * scale) as u32).max(1),
         ((c.height as f64 * scale) as u32).max(1),
     );
+    #[expect(
+        clippy::expect_used,
+        reason = "dims and buffer are always set together in load_cover"
+    )]
     let img = image::RgbaImage::from_raw(c.width, c.height, std::mem::take(&mut c.rgba))
         .expect("cover dims match the buffer");
     let small = image::imageops::resize(&img, tw, th, image::imageops::FilterType::Lanczos3);

@@ -3,6 +3,9 @@ name = "mestro"
 version = "0.1.0"
 edition = "2021"
 license = "GPL-3.0-or-later"
+# never published to crates.io; also marks the git deps as private
+# for cargo-deny's wildcard exemption
+publish = false
 
 [dependencies]
 # the Pi firmware mailbox ioctl (backlight without touching the
@@ -18,11 +21,11 @@ i-slint-core = { git = "https://github.com/slint-ui/slint", rev = "47621c9d50747
 i-slint-compiler = { git = "https://github.com/slint-ui/slint", rev = "47621c9d507476e3028200611266f91b5b7a19b8", default-features = false }
 spin_on = "0.1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "net", "process"] }
-tokio-tungstenite = "0.27"
+tokio-tungstenite = "0.30"
 futures-util = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-toml = "0.9"
+toml = "1"
 ureq = { version = "2", features = ["json"] }
 chrono = "0.4"
 clap = { version = "4", features = ["derive", "env"] }
@@ -33,14 +36,14 @@ rustfft = "6.4.1"
 material-colors = "0.4.2"
 indexmap = "2.3"
 ahash = "0.8"
-qrcode = { version = "0.14.1", default-features = false }
+qrcode = { version = "0.15", default-features = false }
 # the pairing cookie token (web/): hex sha256 over the pairing PIN
-sha2 = "0.10"
+sha2 = "0.11"
 # the wpa PSK hash (PBKDF2-HMAC-SHA1, system/wifi): the sha1
 # sibling of sha2 plus hmac — the tiny RustCrypto pair, pulled
 # in only where the kiosk needs them
-sha1 = { version = "0.10", optional = true }
-hmac = { version = "0.12", optional = true }
+sha1 = { version = "0.11", optional = true }
+hmac = { version = "0.13", optional = true }
 
 [features]
 # default = dev/desktop: the winit backend under a compositor.
@@ -78,6 +81,19 @@ slint-build = { git = "https://github.com/slint-ui/slint", rev = "47621c9d507476
 [dev-dependencies]
 # temp-dir state for the conf-writer and factory-reset tests
 tempfile = "3"
+
+[lints.rust]
+# unsafe only at the two audited sites (backlight ioctl, wifi signal
+# handling), each with a local allow and a SAFETY comment
+unsafe_code = "deny"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
 
 
 [profile.release]

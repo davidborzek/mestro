@@ -315,6 +315,10 @@ impl Overlay {
             .get_or_insert_with(|| toml::Value::Table(Default::default()));
         let mut cur = tree;
         for key in &path[..path.len() - 1] {
+            #[expect(
+                clippy::expect_used,
+                reason = "the walk below only ever inserts tables"
+            )]
             let table = cur
                 .as_table_mut()
                 .expect("overlay path traverses non-table");
@@ -323,6 +327,10 @@ impl Overlay {
                 .or_insert_with(|| toml::Value::Table(Default::default()));
         }
         let last = path[path.len() - 1];
+        #[expect(
+            clippy::expect_used,
+            reason = "the walk below only ever inserts tables"
+        )]
         cur.as_table_mut()
             .expect("overlay path traverses non-table")
             .insert(last.to_string(), value);

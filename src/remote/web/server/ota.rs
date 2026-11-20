@@ -255,10 +255,13 @@ async fn install(
             format!("cannot start the installer: {e}"),
         )
     })?;
+    #[expect(clippy::expect_used, reason = "Stdio::piped was just set above")]
     let mut stdin = child.stdin.take().expect("stdin is piped");
     // drained while the body streams: a chatty installer must not
     // block on a full pipe while we block on its stdin
+    #[expect(clippy::expect_used, reason = "Stdio::piped was just set above")]
     let stdout = tokio::spawn(collect(child.stdout.take().expect("stdout is piped")));
+    #[expect(clippy::expect_used, reason = "Stdio::piped was just set above")]
     let stderr = tokio::spawn(collect(child.stderr.take().expect("stderr is piped")));
 
     let complete = match pipe_body(stream, &mut stdin, buf, total, cmds.read_timeout, notify).await

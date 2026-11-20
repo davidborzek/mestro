@@ -1,3 +1,7 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+// test harness helpers: a panic fails the test loudly, which is
+// exactly what a test wants
+
 //! Broken settings must not reset the device: an unknown key in the
 //! settings overlay (an older binary meeting a newer overlay, the
 //! reset after the October reboot) or an unreadable config file

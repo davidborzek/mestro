@@ -1,0 +1,7 @@
+# CI installs this toolchain (the nix dev shell ships its own
+# rustc and ignores this file — keep the channel in sync with
+# the version in flake.nix). Renovate bumps the channel.
+[toolchain]
+channel = "1.95.0"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

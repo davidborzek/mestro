@@ -24,6 +24,7 @@ mod state;
 pub use protocol::{Envelope, MaOp, PlayerAction, Request, Response, SettingsOp, WifiOp};
 pub use push::{Events, Push};
 
+use crate::locks;
 use crate::providers::SourceCommand;
 
 /// what the `player` op touches on the UI thread: the shared
@@ -343,7 +344,7 @@ impl WifiShutdown {
     /// tracked child directly (we know them; the next start's
     /// ensure_sta rebuilds the STA side)
     pub fn stop_tracked(&self) {
-        for (name, mut child) in self.children.lock().unwrap().drain() {
+        for (name, mut child) in locks::lock(&self.children).drain() {
             let _ = child.kill();
             let _ = child.wait();
             tracing::debug!("wifi: stopped {name} (restart fallback)");

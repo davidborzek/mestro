@@ -1,3 +1,7 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+// test harness helpers: a panic fails the test loudly, which is
+// exactly what a test wants
+
 //! Offscreen snapshots of the hotspot overlay for visual review:
 //! the first-run setup variant and the lost-network fallback,
 //! rendered with the software renderer at the 5" panel's scale.

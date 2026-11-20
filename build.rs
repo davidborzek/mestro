@@ -1,3 +1,9 @@
+// A build script panics on purpose: a failed embed or a missing
+// OUT_DIR is a build error, not a runtime condition to propagate.
+// (mestro denies unwrap/expect everywhere else — see [lints] in
+// Cargo.toml.)
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 fn main() {
     // experimental gates ComponentContainer + component-factory,
     // which the runtime VU skins (ui/vu/page.slint) are built on
