@@ -1,5 +1,9 @@
 # mestro
 
+[![CI](https://github.com/davidborzek/mestro/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/davidborzek/mestro/actions/workflows/ci.yml)
+[![License: GPL-3.0-or-later](https://img.shields.io/github/license/davidborzek/mestro)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/davidborzek/mestro?include_prereleases&sort=semver)](https://github.com/davidborzek/mestro/releases)
+
 A touchscreen now-playing display for
 [Music Assistant](https://music-assistant.io/). Put a small panel
 next to your hi-fi, point mestro at your Music Assistant server,
