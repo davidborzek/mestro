@@ -25,7 +25,8 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - uses: DeterminateSystems/determinate-nix-action@f296148a827001a9a82d3685b53210c06e5d3b67 # v3.24.0
-      - uses: DeterminateSystems/flakehub-cache-action@f00fba8dc0949d63cbbb7d33da7912417d588d75 # v3.24.2
+      # prettier and its svelte plugin come from web/node_modules
+      - run: nix develop -c bash -c "cd web && bun install --frozen-lockfile"
       - run: nix develop -c treefmt
       - run: git diff --exit-code
 
@@ -36,7 +37,6 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - uses: DeterminateSystems/determinate-nix-action@f296148a827001a9a82d3685b53210c06e5d3b67 # v3.24.0
-      - uses: DeterminateSystems/flakehub-cache-action@f00fba8dc0949d63cbbb7d33da7912417d588d75 # v3.24.2
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: desktop
@@ -48,7 +48,6 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - uses: DeterminateSystems/determinate-nix-action@f296148a827001a9a82d3685b53210c06e5d3b67 # v3.24.0
-      - uses: DeterminateSystems/flakehub-cache-action@f00fba8dc0949d63cbbb7d33da7912417d588d75 # v3.24.2
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: kiosk
@@ -60,7 +59,6 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - uses: DeterminateSystems/determinate-nix-action@f296148a827001a9a82d3685b53210c06e5d3b67 # v3.24.0
-      - uses: DeterminateSystems/flakehub-cache-action@f00fba8dc0949d63cbbb7d33da7912417d588d75 # v3.24.2
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: desktop
@@ -72,7 +70,6 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - uses: DeterminateSystems/determinate-nix-action@f296148a827001a9a82d3685b53210c06e5d3b67 # v3.24.0
-      - uses: DeterminateSystems/flakehub-cache-action@f00fba8dc0949d63cbbb7d33da7912417d588d75 # v3.24.2
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: kiosk
@@ -84,7 +81,6 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - uses: DeterminateSystems/determinate-nix-action@f296148a827001a9a82d3685b53210c06e5d3b67 # v3.24.0
-      - uses: DeterminateSystems/flakehub-cache-action@f00fba8dc0949d63cbbb7d33da7912417d588d75 # v3.24.2
       - run: nix develop -c bash -c "cd web && bun install --frozen-lockfile && bun run check && bun test && bun run build"
 
   deny:
@@ -92,7 +88,6 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - uses: DeterminateSystems/determinate-nix-action@f296148a827001a9a82d3685b53210c06e5d3b67 # v3.24.0
-      - uses: DeterminateSystems/flakehub-cache-action@f00fba8dc0949d63cbbb7d33da7912417d588d75 # v3.24.2
       - run: nix develop -c cargo deny check
 
   machete:
@@ -100,5 +95,4 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - uses: DeterminateSystems/determinate-nix-action@f296148a827001a9a82d3685b53210c06e5d3b67 # v3.24.0
-      - uses: DeterminateSystems/flakehub-cache-action@f00fba8dc0949d63cbbb7d33da7912417d588d75 # v3.24.2
       - run: nix develop -c cargo machete
