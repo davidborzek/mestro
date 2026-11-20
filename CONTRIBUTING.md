@@ -60,7 +60,7 @@ dev-shell version (`rust-toolchain.toml` and the `*-VERSION`/
 (flake.nix) and CI in the same change so the pre-commit hook and
 CI keep formatting identically; a Renovate CI-tool PR also needs
 its SHA256 pin updated. Dependency updates arrive as Renovate PRs
-(`renovate.json`); the slint rev stays pinned.
+(`renovate.json`); the slint crates move as one grouped PR.
 
 Lint policy:
 
@@ -75,10 +75,17 @@ Lint policy:
   `wpa_ctrl`, the wifi conf, config parsing) deny
   `clippy::indexing_slicing` — use `.get()` there
 
-## Slint is pinned to a git rev
+## Slint comes from crates.io at an exact pin
 
-`Cargo.toml` pins slint to a commit of its main branch for the
-linuxkms fixes mestro relies on. Consequences:
+`Cargo.toml` pins every slint crate (`slint`, `slint-interpreter`,
+`slint-build` and the internal `i-slint-core`/`i-slint-compiler`)
+to the same exact version (`=x.y.z`) of the latest crates.io
+release; the internal crates must match `slint`'s version exactly.
+Renovate updates them all in one PR together with the `slint-lsp`
+CI pin — never automerged, because a bump can change rendering:
+re-run the snapshot tests (`--ignored`, see AGENTS.md) and
+re-export the mock previews, then compare against the previous
+renders. Consequences:
 
 - build variants: base = player (linuxkms only,
   `--no-default-features`), the `desktop` feature adds winit

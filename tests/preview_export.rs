@@ -9,8 +9,20 @@
 //! mock, so the production bundle never contains them.
 
 use mestro::config::Config;
+use slint::platform::software_renderer::{MinimalSoftwareWindow, RepaintBufferType};
+use slint::platform::{Platform, WindowAdapter};
 use std::collections::BTreeMap;
 use std::rc::Rc;
+
+struct Headless {
+    window: Rc<MinimalSoftwareWindow>,
+}
+
+impl Platform for Headless {
+    fn create_window_adapter(&self) -> Result<Rc<dyn WindowAdapter>, slint::PlatformError> {
+        Ok(self.window.clone())
+    }
+}
 
 #[test]
 #[ignore = "repo export: cargo test --test preview_export -- --ignored"]
@@ -18,6 +30,15 @@ fn exports_the_mock_preview_pngs() {
     let dir =
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("web/src/lib/mock-previews");
     std::fs::create_dir_all(&dir).unwrap();
+
+    // slint 1.19 requires a platform context before any component
+    // instance is created — each preview renders onto its own private
+    // software window (src/vu/preview.rs), this one only satisfies the
+    // context
+    slint::platform::set_platform(Box::new(Headless {
+        window: MinimalSoftwareWindow::new(RepaintBufferType::NewBuffer),
+    }))
+    .unwrap();
 
     // the VU skins: every option the cycle picker offers
     let nav = mestro::ui::navigation::Navigation::new();

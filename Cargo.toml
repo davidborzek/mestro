@@ -3,22 +3,24 @@ name = "mestro"
 version = "0.1.0"
 edition = "2021"
 license = "GPL-3.0-or-later"
-# never published to crates.io; also marks the git deps as private
-# for cargo-deny's wildcard exemption
+# never published to crates.io
 publish = false
 
 [dependencies]
 # the Pi firmware mailbox ioctl (backlight without touching the
 # display i2c bus the firmware owns)
 libc = "0.2"
-slint = { git = "https://github.com/slint-ui/slint", rev = "47621c9d507476e3028200611266f91b5b7a19b8", default-features = false, features = ["std", "compat-1-2", "accessibility", "renderer-femtovg", "renderer-software"] }
+# exact pin: all slint crates move as one (renovate.json groups
+# them); a bump needs the snapshot tests re-run (CONTRIBUTING.md)
+slint = { version = "=1.19.0", default-features = false, features = ["std", "compat-1-2", "accessibility", "renderer-femtovg", "renderer-software"] }
 # runtime-compiled VU skins (ComponentContainer embedding)
-slint-interpreter = { git = "https://github.com/slint-ui/slint", rev = "47621c9d507476e3028200611266f91b5b7a19b8", default-features = false, features = ["std", "compat-1-2", "renderer-femtovg", "internal"] }
+slint-interpreter = { version = "=1.19.0", default-features = false, features = ["std", "compat-1-2", "renderer-femtovg", "internal"] }
 # only to name InternalToken + ComponentSelection for the
 # interpreter's component selection (embedded skins are
-# non-Window exports; see vu/manifest.rs)
-i-slint-core = { git = "https://github.com/slint-ui/slint", rev = "47621c9d507476e3028200611266f91b5b7a19b8", default-features = false }
-i-slint-compiler = { git = "https://github.com/slint-ui/slint", rev = "47621c9d507476e3028200611266f91b5b7a19b8", default-features = false }
+# non-Window exports; see vu/manifest.rs) — internal crates, so
+# they must be pinned to the exact same version as slint
+i-slint-core = { version = "=1.19.0", default-features = false }
+i-slint-compiler = { version = "=1.19.0", default-features = false }
 spin_on = "0.1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "net", "process"] }
 tokio-tungstenite = "0.30"
@@ -76,7 +78,7 @@ name = "vu-feed"
 path = "tools/vu-feed.rs"
 
 [build-dependencies]
-slint-build = { git = "https://github.com/slint-ui/slint", rev = "47621c9d507476e3028200611266f91b5b7a19b8" }
+slint-build = { version = "=1.19.0" }
 
 [dev-dependencies]
 # temp-dir state for the conf-writer and factory-reset tests

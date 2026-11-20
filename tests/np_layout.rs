@@ -39,7 +39,7 @@ const H: u32 = 344;
 
 /// layout: 0 side, 1 fullbleed; meta: 0 left, 1 right, 2 center
 fn render(layout: u32, meta: u32, controls: bool) -> image::RgbImage {
-    std::env::set_var("SLINT_ENABLE_EXPERIMENTAL_FEATURES", "1");
+    std::env::set_var("SLINT_ENABLE_EXPERIMENTAL_FEATURES", "component-container");
 
     let window = MinimalSoftwareWindow::new(RepaintBufferType::ReusedBuffer);
     slint::platform::set_platform(Box::new(Offscreen {

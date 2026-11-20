@@ -106,62 +106,91 @@
               export CARGO_TARGET_DIR="$PWD/target/pi"
             '';
           };
-        default = pkgs.mkShell {
-          packages = with pkgs; [
-            cargo
-            rustc
-            rustfmt
-            clippy
-            rust-analyzer
-            slint-viewer
-            slint-lsp
-            bun
-            # supply-chain checks (CI runs the same commands — see
-            # .github/workflows/ci.yml)
-            cargo-deny
-            cargo-machete
-            # formatters driven by treefmt (treefmt.toml); prettier
-            # comes from web/node_modules (.bin prepended below)
-            treefmt
-            nixfmt
-            shfmt
-          ];
-          shellHook = ''
-            # prettier + prettier-plugin-svelte live in web/node_modules
-            export PATH="$PWD/web/node_modules/.bin:$PATH"
-            if git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
-              && [ "$(git rev-parse --show-toplevel)" = "$PWD" ]; then
-              # the pre-commit hook is per-clone git config; set it
-              # once, keep a custom value
-              [ -z "$(git config --get core.hooksPath)" ] \
-                && git config core.hooksPath .githooks
-            fi
-          '';
-          nativeBuildInputs = [ pkgs.pkg-config ];
-          buildInputs = with pkgs; [
-            fontconfig
-            udev
-            seatd
-            libxkbcommon
-            libinput
-            libglvnd
-            libgbm
-            mesa
-            wayland
-          ];
-          env.RUSTFLAGS = rpathFlags pkgs;
-          env.FONTCONFIG_FILE = pkgs.writeText "mestro-fonts.conf" ''
-            <?xml version="1.0"?>
-            <!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
-            <fontconfig>
-              <dir>${pkgs.noto-fonts}</dir>
-              <dir>${pkgs.noto-fonts-cjk-sans}</dir>
-              <dir>${pkgs.dejavu_fonts}</dir>
-              <dir>${pkgs.material-symbols}</dir>
-              <cachedir>/tmp/fontconfig-cache</cachedir>
-            </fontconfig>
-          '';
-        };
+        default =
+          let
+            # slint-lsp must match the slint crate pin exactly — the
+            # formatter and the compiler must agree on the language
+            # version (Cargo.toml, the CI pins and this derivation
+            # move together, see renovate.json). nixpkgs (nixos-26.05)
+            # doesn't carry the current release, so wrap the official
+            # release binary; CI downloads the same asset (ci.yml)
+            slintLspVersion = "1.19.0";
+            slintLsp = pkgs.stdenv.mkDerivation {
+              pname = "slint-lsp";
+              version = slintLspVersion;
+              src = pkgs.fetchurl {
+                url = "https://github.com/slint-ui/slint/releases/download/v${slintLspVersion}/slint-lsp-linux.tar.gz";
+                sha256 = "a9e8a2ba904965c5cc01ca783aee44fcac91354e047b78997136ad3d3dde4dff";
+              };
+              nativeBuildInputs = [ pkgs.autoPatchelfHook ];
+              buildInputs = with pkgs; [
+                fontconfig
+                freetype
+                libinput
+                libxkbcommon
+                mesa
+                stdenv.cc.cc
+                systemd
+              ];
+              installPhase = "install -Dm755 slint-lsp $out/bin/slint-lsp";
+            };
+          in
+          pkgs.mkShell {
+            packages = with pkgs; [
+              cargo
+              rustc
+              rustfmt
+              clippy
+              rust-analyzer
+              slint-viewer
+              slintLsp
+              bun
+              # supply-chain checks (CI runs the same commands — see
+              # .github/workflows/ci.yml)
+              cargo-deny
+              cargo-machete
+              # formatters driven by treefmt (treefmt.toml); prettier
+              # comes from web/node_modules (.bin prepended below)
+              treefmt
+              nixfmt
+              shfmt
+            ];
+            shellHook = ''
+              # prettier + prettier-plugin-svelte live in web/node_modules
+              export PATH="$PWD/web/node_modules/.bin:$PATH"
+              if git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+                && [ "$(git rev-parse --show-toplevel)" = "$PWD" ]; then
+                # the pre-commit hook is per-clone git config; set it
+                # once, keep a custom value
+                [ -z "$(git config --get core.hooksPath)" ] \
+                  && git config core.hooksPath .githooks
+              fi
+            '';
+            nativeBuildInputs = [ pkgs.pkg-config ];
+            buildInputs = with pkgs; [
+              fontconfig
+              udev
+              seatd
+              libxkbcommon
+              libinput
+              libglvnd
+              libgbm
+              mesa
+              wayland
+            ];
+            env.RUSTFLAGS = rpathFlags pkgs;
+            env.FONTCONFIG_FILE = pkgs.writeText "mestro-fonts.conf" ''
+              <?xml version="1.0"?>
+              <!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
+              <fontconfig>
+                <dir>${pkgs.noto-fonts}</dir>
+                <dir>${pkgs.noto-fonts-cjk-sans}</dir>
+                <dir>${pkgs.dejavu_fonts}</dir>
+                <dir>${pkgs.material-symbols}</dir>
+                <cachedir>/tmp/fontconfig-cache</cachedir>
+              </fontconfig>
+            '';
+          };
       });
     };
 }

@@ -27,6 +27,7 @@ export component VuOverview inherits Rectangle {
 
         HorizontalLayout {
             height: 38px;
+
             Text {
                 text: @tr("VU STYLES");
                 font-size: 12px;
@@ -47,8 +48,8 @@ export component VuOverview inherits Rectangle {
         Flickable {
             horizontal-stretch: 1;
             vertical-stretch: 1;
-            viewport-width: self.width;
-            viewport-height: grid.preferred-height;
+            content-width: self.width;
+            content-height: grid.preferred-height;
 
             grid := GridLayout {
                 spacing: 10px;
@@ -85,6 +86,7 @@ export component VuOverview inherits Rectangle {
                         height: 19px;
                         border-radius: 9px;
                         background: #08090db3;
+
                         Text {
                             x: 6px;
                             width: parent.width - 12px;

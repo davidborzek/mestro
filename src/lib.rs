@@ -48,7 +48,6 @@ mod tests {
 // maintain by hand (see docs in CONTRIBUTING.md)
 #[expect(
     clippy::unwrap_used,
-    clippy::expect_used,
     clippy::todo,
     reason = "slint-generated code; panics are generator invariants"
 )]
