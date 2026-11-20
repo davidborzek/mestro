@@ -161,6 +161,27 @@ fn preview_peaks() -> [f32; super::BANDS] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use slint::platform::software_renderer::{MinimalSoftwareWindow, RepaintBufferType};
+    use slint::platform::{Platform, WindowAdapter};
+
+    /// Headless platform: create_with_existing_window still
+    /// consults the global platform, which defaults to winit and
+    /// needs a display (CI is headless). Installed once per
+    /// process; the no-op window is never rendered into.
+    struct Headless {
+        window: std::rc::Rc<MinimalSoftwareWindow>,
+    }
+
+    impl Platform for Headless {
+        fn create_window_adapter(
+            &self,
+        ) -> Result<std::rc::Rc<dyn WindowAdapter>, slint::PlatformError> {
+            Ok(self.window.clone())
+        }
+        fn duration_since_start(&self) -> std::time::Duration {
+            std::time::Duration::from_millis(0)
+        }
+    }
 
     /// a synthetic pointer skin: a white plate with a plain black
     /// needle — exact geometry, no other art to interfere with
@@ -221,6 +242,9 @@ source = "needle.svg"
     /// -45° + 0.72 × 90° = 19.8° clockwise from up
     #[test]
     fn the_preview_needle_renders_at_the_rotated_pose() {
+        let _ = slint::platform::set_platform(Box::new(Headless {
+            window: MinimalSoftwareWindow::new(RepaintBufferType::NewBuffer),
+        }));
         let dir = std::env::temp_dir().join(format!("mestro-preview-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let skin = pointer_skin(&dir);
