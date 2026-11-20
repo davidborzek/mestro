@@ -1,9 +1,36 @@
-# mestro
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-dark.svg">
+    <img src="docs/assets/logo-light.svg" alt="mestro" width="280">
+  </picture>
+</h1>
 
-A touchscreen now-playing display for
-[Music Assistant](https://music-assistant.io/). Put a small panel
-next to your hi-fi, point mestro at your Music Assistant server,
-and it shows and controls whatever plays there — cover art, the
+<p align="center">
+  <strong>A touchscreen network player for Music Assistant</strong>
+</p>
+
+<p align="center">
+  <a href="https://github.com/davidborzek/mestro/actions/workflows/ci.yml"><img src="https://github.com/davidborzek/mestro/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/davidborzek/mestro" alt="License: GPL-3.0-or-later"></a>
+  <a href="https://github.com/davidborzek/mestro/releases"><img src="https://img.shields.io/github/v/release/davidborzek/mestro?include_prereleases&sort=semver" alt="Release"></a>
+</p>
+
+<p align="center">
+  <a href="#features">Features</a> ·
+  <a href="#raspberry-pi-image">Raspberry Pi image</a> ·
+  <a href="#try-it-on-a-desktop">Try it on a desktop</a> ·
+  <a href="#configuration">Configuration</a>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/now-playing.png" width="32%" alt="Now playing">
+  <img src="docs/screenshots/hub.png" width="32%" alt="Home screen">
+  <img src="docs/screenshots/standby.png" width="32%" alt="Standby clock">
+</p>
+
+Build your own network player: a Raspberry Pi, a touch panel and a
+DAC, with [Music Assistant](https://music-assistant.io/) as the
+brain. mestro shows and controls whatever plays — cover art, the
 track, a VU meter, the queue and your library.
 
 mestro is a native Rust/[Slint](https://slint.dev) app that draws
@@ -11,14 +38,9 @@ straight to the display: no browser, no desktop, boots in seconds.
 It ships as a ready-to-flash image for the Raspberry Pi 4 and runs
 on any Linux desktop for trying it out.
 
+> [!NOTE]
 > **Status: alpha.** Daily use on one setup (Pi 4 with a 5" DSI
 > panel). Expect rough edges, and please report them.
-
-<p align="center">
-  <img src="docs/screenshots/now-playing.png" width="32%" alt="Now playing">
-  <img src="docs/screenshots/hub.png" width="32%" alt="Home screen">
-  <img src="docs/screenshots/standby.png" width="32%" alt="Standby clock">
-</p>
 
 ## Features
 
