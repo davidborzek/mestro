@@ -77,6 +77,8 @@ jobs:
             "$tools/shfmt" "$SHFMT_SHA256"
           fetch "https://github.com/NixOS/nixfmt/releases/download/v${NIXFMT_VERSION}/nixfmt" \
             "$tools/nixfmt" "$NIXFMT_SHA256"
+          # curl keeps 0644 — treefmt needs every tool executable
+          chmod +x "$tools"/*
           echo "$tools" >> "$GITHUB_PATH"
       - run: |
           export PATH="$PWD/web/node_modules/.bin:$PATH"
