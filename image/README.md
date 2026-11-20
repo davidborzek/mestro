@@ -179,6 +179,21 @@ it); a hotspot that cannot start falls back to the last working
 network. Addresses and paths are configurable in `[wifi]`
 (docs/configuration.md).
 
+The image ships `regulatory.db` (wireless-regdb) — without it the
+kernel stays on the passive world regdom `00` and 5 GHz stays
+restricted. mestro switches wifi power save off by default
+(brcmfmac's default on state costs ~300 ms latency spikes and
+stream reconnects) and re-applies it after every association. A
+country pins the regdom via the config file
+`/data/config/mestro/config.toml` (the data FAT — editable on any
+OS):
+
+```toml
+[wifi]
+power-save = false
+# country = "DE"
+```
+
 ## Known limits
 
 - Raspberry Pi 4 only (Pi 3/5 and Zero 2 W defconfigs are

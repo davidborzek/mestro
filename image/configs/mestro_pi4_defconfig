@@ -112,6 +112,10 @@ BR2_PACKAGE_WPA_SUPPLICANT_AP_SUPPORT=y
 BR2_PACKAGE_WPA_SUPPLICANT_CTRL_IFACE=y
 BR2_PACKAGE_DNSMASQ=y
 BR2_PACKAGE_IW=y
+# regulatory.db: without it the kernel stays on the passive world
+# regdom "00" (5 GHz passive/restricted); mestro's [wifi] country
+# pins the domain via `iw reg set` — needs the db present
+BR2_PACKAGE_WIRELESS_REGDB=y
 # i2c debugging (7" panel touch sits at 0x38/0x45 on i2c-10)
 BR2_PACKAGE_I2C_TOOLS=y
 
