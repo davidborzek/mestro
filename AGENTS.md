@@ -18,6 +18,8 @@ nix develop -c cargo test --features ota,wifi-setup
 nix develop -c cargo clippy --all-targets
 nix develop -c cargo clippy --no-default-features --features linuxkms,ota,wifi-setup --all-targets
 nix develop -c cargo test --test np_layout          # one integration test
+nix develop -c cargo deny check                     # advisories, licenses, bans, sources
+nix develop -c cargo machete                        # unused dependencies
 
 # web (in web/)
 nix develop -c bash -c 'cd web && bun run check && bun test && bun run build'
@@ -32,6 +34,8 @@ The binary embeds `web/dist/` at compile time: after a web change,
 ## Definition of done
 
 - every check above green, clippy with zero warnings
+- `cargo deny check` and `cargo machete` clean (both run in the dev
+  shell — CI runs the same commands)
 - new behavior has a test (Rust unit/integration or `bun test`)
 - docs updated when behavior or config changes: `docs/configuration.md`
   (every config key and `MESTRO_*` env var), `docs/remote.md` (web
