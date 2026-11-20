@@ -19,6 +19,7 @@ use super::{PlaybackSource, SourceCommand, SourceEvent};
 use crate::config::ThemeVariant;
 use crate::library;
 use crate::library::search::Search;
+use crate::locks;
 use crate::player::state::{self, Shared, UpdateTx};
 use crate::Mestro;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -84,6 +85,10 @@ pub fn spawn<P, F>(
     let gate = Arc::new(Mutex::new(BannerGate::new(Instant::now())));
     let startup = Arc::new(Mutex::new(StartupGate::new(Instant::now())));
     std::thread::spawn(move || {
+        #[expect(
+            clippy::unwrap_used,
+            reason = "multi-thread runtime creation only fails on resource exhaustion"
+        )]
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async move {
             let (evt_tx, mut evt_rx) = tokio::sync::mpsc::unbounded_channel::<SourceEvent>();
@@ -92,7 +97,7 @@ pub fn spawn<P, F>(
                 let mut shown = None;
                 loop {
                     let network = crate::remote::web::lan_ip() != "127.0.0.1";
-                    let phase = startup.lock().unwrap().phase(Instant::now(), network);
+                    let phase = locks::lock(&startup).phase(Instant::now(), network);
                     if shown != Some(phase) {
                         set_startup(&ui_weak, phase);
                         shown = Some(phase);
@@ -110,7 +115,7 @@ pub fn spawn<P, F>(
                     // idle-poll and keep the connected flag honest
                     if !provider.configured() {
                         // first run: the setup screen, not the boot screen
-                        startup.lock().unwrap().connected();
+                        locks::lock(&startup).connected();
                         if connected_up.swap(false, Ordering::Relaxed) {
                             set_connected(&ui_weak, false);
                         }
@@ -120,11 +125,9 @@ pub fn spawn<P, F>(
                     if let Err(e) = provider.run(&mut cmd_rx, evt_tx.clone()).await {
                         let retry = provider.failure(e);
                         let now = Instant::now();
-                        let booting = !startup
-                            .lock()
-                            .unwrap()
-                            .show_failure(now, retry.heals_on_retry);
-                        if !booting && gate.lock().unwrap().on_failure(now, retry.heals_on_retry) {
+                        let booting =
+                            !locks::lock(&startup).show_failure(now, retry.heals_on_retry);
+                        if !booting && locks::lock(&gate).on_failure(now, retry.heals_on_retry) {
                             set_status(&ui_weak, &retry.message);
                             banner_up.store(true, Ordering::Relaxed);
                         }
@@ -146,8 +149,8 @@ pub fn spawn<P, F>(
                     if !connected_up.swap(true, Ordering::Relaxed) {
                         set_connected(&ui_weak, true);
                     }
-                    gate.lock().unwrap().on_connected(Instant::now());
-                    startup.lock().unwrap().connected();
+                    locks::lock(&gate).on_connected(Instant::now());
+                    locks::lock(&startup).connected();
                     match ev {
                         SourceEvent::Transport {
                             playing,

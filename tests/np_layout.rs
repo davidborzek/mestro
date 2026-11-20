@@ -1,3 +1,7 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+// test harness helpers: a panic fails the test loudly, which is
+// exactly what a test wants
+
 // Layout regression tests: render the now-playing overlay
 // offscreen on the software renderer and assert the metadata
 // cluster actually paints — pixel-region checks, not golden

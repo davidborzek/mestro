@@ -1,0 +1,3 @@
+# panics are reserved for invariants; tests may unwrap/expect freely
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true

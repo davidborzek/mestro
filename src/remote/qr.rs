@@ -11,6 +11,10 @@ const QUIET: usize = 4;
 /// Render `data` as a `size`×`size` px QR code (nearest-neighbour
 /// scaled, so modules stay crisp at any display size).
 pub fn image(data: &str, size: u32) -> Image {
+    #[expect(
+        clippy::expect_used,
+        reason = "the pairing URL is far below any QR version limit"
+    )]
     let code = QrCode::new(data.as_bytes()).expect("wizard url is short enough for any QR version");
     let width = code.width();
     let colors = code.to_colors();

@@ -13,6 +13,7 @@ use super::backend::{RealBackend, WifiBackend, BUSYBOX, DNSMASQ, LEASES, WPA_SUP
 use super::conf;
 use super::wpa_ctrl::{self, ScanEntry};
 use super::Plan;
+use crate::locks;
 use crate::remote::web::{Ingress, WifiOp, WifiRequest, WifiShutdown};
 use crate::HotspotReason;
 use serde_json::{json, Value};
@@ -175,7 +176,7 @@ impl<B: WifiBackend> Manager<B> {
             Phase::Failed(e) => e.clone(),
             _ => self.last_error.clone(),
         };
-        *self.snapshot.lock().unwrap() = json!({
+        *locks::lock(&self.snapshot) = json!({
             "state": self.state_name(),
             "ap_ssid": self.ap_ssid,
             "ssid": self.ssid,
@@ -701,7 +702,7 @@ impl<B: WifiBackend> Manager<B> {
             }
             // the run loop serves this from the snapshot without
             // the lock — this path stays for the tests
-            WifiOp::Status => Ok(self.snapshot.lock().unwrap().clone()),
+            WifiOp::Status => Ok(locks::lock(&self.snapshot).clone()),
         }
     }
 
@@ -787,8 +788,8 @@ pub struct Ops<B: WifiBackend> {
 
 impl<B: WifiBackend> Ops<B> {
     pub fn new(manager: Arc<Mutex<Manager<B>>>) -> Self {
-        let snapshot = manager.lock().unwrap().snapshot_arc();
-        let ap_mode = manager.lock().unwrap().ap_mode_arc();
+        let snapshot = locks::lock(&manager).snapshot_arc();
+        let ap_mode = locks::lock(&manager).ap_mode_arc();
         Self {
             manager,
             snapshot,
@@ -815,7 +816,7 @@ impl<B: WifiBackend> Ops<B> {
         match op {
             // never behind the op lock, no radio, no credentials —
             // the auth verdict of the HTTP route stands for it
-            WifiOp::Status => Ok(self.snapshot.lock().unwrap().clone()),
+            WifiOp::Status => Ok(locks::lock(&self.snapshot).clone()),
             WifiOp::Scan | WifiOp::Join { .. } => {
                 // bound the total in-flight work BEFORE queueing for
                 // the lock — no permit, no pile-up
@@ -848,7 +849,7 @@ impl<B: WifiBackend> Ops<B> {
         ingress: Ingress,
         paired: bool,
     ) -> Result<Value, String> {
-        let mut manager = self.manager.lock().unwrap();
+        let mut manager = locks::lock(&self.manager);
         if Instant::now() > deadline {
             return Err("wifi op timed out".into());
         }
@@ -902,7 +903,7 @@ pub async fn run(
         shutdown.clone(),
     )));
     {
-        let mut mgr = manager.lock().unwrap();
+        let mut mgr = locks::lock(&manager);
         mgr.boot();
         let status = mgr.op(WifiOp::Status).ok();
         tracing::info!("wifi: boot: {:?}", status);
@@ -1627,7 +1628,7 @@ mod tests {
         // another thread holds the op lock for as long as it likes
         let (started, held) = std::sync::mpsc::channel::<()>();
         let blocker = std::thread::spawn(move || {
-            let guard = manager.lock().unwrap();
+            let guard = locks::lock(&manager);
             started.send(()).unwrap();
             std::thread::sleep(Duration::from_millis(300));
             drop(guard);
@@ -1652,7 +1653,7 @@ mod tests {
             ping_ok: true,
             ..FakeBackend::new(MAC)
         });
-        let before = manager.lock().unwrap().backend.log().len();
+        let before = locks::lock(&manager).backend.log().len();
         let out = ops.request(
             WifiOp::Scan,
             Instant::now() - Duration::from_secs(1), // already expired
@@ -1661,7 +1662,7 @@ mod tests {
         );
         assert!(out.unwrap_err().contains("timed out"));
         // nothing touched the radio
-        assert_eq!(manager.lock().unwrap().backend.log().len(), before);
+        assert_eq!(locks::lock(&manager).backend.log().len(), before);
     }
 
     #[test]
@@ -1916,7 +1917,7 @@ mod tests {
         let (started, held) = std::sync::mpsc::channel::<()>();
         let (release, released) = std::sync::mpsc::channel::<()>();
         let blocker = std::thread::spawn(move || {
-            let guard = manager.lock().unwrap();
+            let guard = locks::lock(&manager);
             started.send(()).unwrap();
             released.recv().unwrap();
             drop(guard);

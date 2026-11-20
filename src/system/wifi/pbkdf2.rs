@@ -34,13 +34,17 @@ pub fn pbkdf2_sha1(password: &[u8], salt: &[u8], rounds: u32) -> [u8; KEY_LEN] {
     let mut out = [0u8; KEY_LEN];
     for (i, slot) in out.chunks_mut(20).enumerate() {
         // U1 = PRF(password, salt || INT(i+1) as one big-endian byte)
+        // HMAC accepts keys of any length
+        #[expect(clippy::expect_used, reason = "hmac takes any key size")]
         let mut mac = HmacSha1::new_from_slice(password).expect("hmac takes any key size");
         mac.update(salt);
         // PBKDF2's INT(i): the block index as a 4-byte big-endian
+        #[expect(clippy::expect_used, reason = "KEY_LEN is two SHA-1 blocks")]
         mac.update(&u32::try_from(i + 1).expect("two blocks").to_be_bytes());
         let mut u = mac.finalize().into_bytes();
         slot.copy_from_slice(&u[..slot.len()]);
         for _ in 1..rounds {
+            #[expect(clippy::expect_used, reason = "hmac takes any key size")]
             let mut mac = HmacSha1::new_from_slice(password).expect("hmac takes any key size");
             mac.update(&u);
             u = mac.finalize().into_bytes();

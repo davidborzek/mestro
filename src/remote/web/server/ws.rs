@@ -10,6 +10,8 @@
 //! nothing else. When AP mode ends their trust basis is gone and
 //! the socket closes.
 
+#![deny(clippy::indexing_slicing)]
+
 use super::dispatch;
 use super::{Bridge, Ingress, WebInfo, WifiChannel};
 use crate::remote::web::Events;

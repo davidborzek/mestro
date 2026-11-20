@@ -18,7 +18,13 @@ pub(super) fn spawn(
     lib_tx: super::drill::LibTx,
     mut lib_rx: tokio::sync::mpsc::UnboundedReceiver<LibMsg>,
 ) {
-    slint::spawn_local(async move {
+    // spawn_local only fails off the slint event loop thread,
+    // which this UI setup path is on
+    #[expect(
+        clippy::expect_used,
+        reason = "setup runs on the slint event loop thread"
+    )]
+    let spawned = slint::spawn_local(async move {
         while let Some(msg) = lib_rx.recv().await {
             let Some(ui) = ui_weak.upgrade() else {
                 continue;
@@ -43,7 +49,9 @@ pub(super) fn spawn(
             }
         }
     })
-    .unwrap();
+    .expect("spawn on the slint event loop");
+    // detach: the task outlives this setup call
+    std::mem::forget(spawned);
 }
 
 /// late subject image (artist headers) — returns the url to fetch
@@ -112,7 +120,7 @@ fn update(
         return None;
     }
     tracing::debug!("library: apply reply {key} ({} entries)", entries.len());
-    let (_, title, subject) = l.pending.take().unwrap();
+    let (_, title, subject) = l.pending.take()?;
     l.current = entries.iter().map(lib_entry).collect();
     l.current_subject = subject.clone();
     ui.set_lib_model(slint::ModelRc::new(slint::VecModel::from(

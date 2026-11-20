@@ -3,6 +3,7 @@
 //! confirmation, loading timeouts); the provider only supplies
 //! resolved Transport/Track/Position events.
 
+use crate::locks;
 use crate::player::cover::{load_cover, make_blur, CoverData};
 use crate::providers::{QueueItem, RepeatMode, TrackMeta};
 use std::sync::{Arc, Mutex};
@@ -159,7 +160,7 @@ pub fn apply_transport(
     powered: bool,
 ) {
     let (st, toast, osd_volume) = {
-        let mut g = shared.lock().unwrap();
+        let mut g = locks::lock(shared);
         match g.as_mut() {
             Some(live) => {
                 // play/pause transition toast — whoever pressed it
@@ -223,7 +224,7 @@ pub fn apply_transport(
 /// state on its own thread.
 pub fn apply_options(shared: &Shared, update_tx: &UpdateTx, shuffle: bool, repeat: RepeatMode) {
     let st = {
-        let mut g = shared.lock().unwrap();
+        let mut g = locks::lock(shared);
         match g.as_mut() {
             Some(live) => {
                 live.state.shuffle = shuffle;
@@ -270,7 +271,7 @@ pub fn apply_queue(
     // toast for everything
     let mut toast = None;
     {
-        let g = shared.lock().unwrap();
+        let g = locks::lock(shared);
         if let Some(live) = g.as_ref() {
             if !live.state.queue.is_empty() {
                 let known: std::collections::HashSet<&str> = live
@@ -295,7 +296,7 @@ pub fn apply_queue(
         }
     }
     let st = {
-        let mut g = shared.lock().unwrap();
+        let mut g = locks::lock(shared);
         match g.as_mut() {
             Some(live) => {
                 live.state.queue = items;
@@ -364,7 +365,7 @@ pub fn apply_track(
     variant: crate::ui::palette::Variant,
 ) {
     let (update, changed) = {
-        let mut g = shared.lock().unwrap();
+        let mut g = locks::lock(shared);
         let Some(live) = g.as_mut() else { return };
         // empty metadata = no media: reset to the idle state; the
         // normal path below only ever sees non-empty tracks
@@ -469,7 +470,7 @@ pub fn apply_track(
             let bg = make_blur(&cover);
             // read the state at SEND time, not spawn time: a slow cover
             // fetch must not resurrect a stale loading flag in the UI
-            if let Some(st) = shared.lock().unwrap().as_ref().map(|l| l.state.clone()) {
+            if let Some(st) = locks::lock(&shared).as_ref().map(|l| l.state.clone()) {
                 let palette = cover
                     .as_ref()
                     .and_then(|c| crate::ui::palette::from_cover(c, variant));
@@ -501,7 +502,7 @@ pub fn apply_track(
 /// stale replays, a consistent new position is a seek.
 pub fn apply_position(shared: &Shared, update_tx: &UpdateTx, secs: f64) {
     let st = {
-        let mut g = shared.lock().unwrap();
+        let mut g = locks::lock(shared);
         let Some(live) = g.as_mut() else { return };
         if !secs.is_finite() || secs < 0.0 {
             return;
@@ -558,7 +559,7 @@ pub fn apply_position(shared: &Shared, update_tx: &UpdateTx, secs: f64) {
 /// User command accepted → show loading until the source reports
 /// "playing" again (or the 6s timeout in `advance` fires).
 pub fn mark_loading(shared: &Shared, update_tx: &UpdateTx) {
-    let mut g = shared.lock().unwrap();
+    let mut g = locks::lock(shared);
     if let Some(live) = g.as_mut() {
         live.state.loading = true;
         live.loading_since = Some(Instant::now());
@@ -577,7 +578,7 @@ pub fn mark_loading(shared: &Shared, update_tx: &UpdateTx) {
 /// channel): the transport echo matching it is OUR command
 /// confirming — anything else is remote and OSD material
 pub fn mark_volume_local(shared: &Shared, v: i32) {
-    let mut g = shared.lock().unwrap();
+    let mut g = locks::lock(shared);
     if let Some(live) = g.as_mut() {
         live.volume_local = Some((Instant::now(), v));
     }
@@ -588,7 +589,7 @@ pub fn mark_volume_local(shared: &Shared, v: i32) {
 /// Advance only happens with a known duration — min(0) would pin
 /// radio streams to zero between corrections.
 pub fn advance(shared: &Shared) -> Option<(u64, u64, bool)> {
-    let mut g = shared.lock().unwrap();
+    let mut g = locks::lock(shared);
     let live = g.as_mut()?;
     // loading timeout BEFORE everything else: during loading the
     // duration is often 0, which would skip this check
@@ -634,7 +635,7 @@ mod seek_tests {
         apply_position(&shared, &tx, 11.0);
         assert!(rx.try_recv().is_err());
         assert_eq!(
-            shared.lock().unwrap().as_ref().unwrap().state.position_ms,
+            locks::lock(&shared).as_ref().unwrap().state.position_ms,
             10_000
         );
         apply_position(&shared, &tx, 60.0);
@@ -671,7 +672,7 @@ mod seek_tests {
             0.0,
             crate::ui::palette::Variant::TonalSpot,
         );
-        let guard = shared.lock().unwrap();
+        let guard = locks::lock(&shared);
         let live = guard.as_ref().unwrap();
         assert_eq!(live.state.duration_ms, 0);
         assert!(live.pending_seek.is_none());

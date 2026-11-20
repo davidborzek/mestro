@@ -18,6 +18,7 @@
 use super::skin::{self, Skin, SkinSlot};
 use super::{Shared, SharedBands};
 use crate::config::{Config, MetadataField, ThemePalette};
+use crate::locks;
 use crate::player::nowplaying;
 use crate::player::queue;
 use crate::ui::navigation::Navigation;
@@ -360,7 +361,7 @@ impl Vui {
         // this tick) is gated off. np_open is false while vu sits
         // on top of it, so no double pushes
         if ui.get_np_open() && ui.get_np_inline_vu() == 3 {
-            let bands = inner.vu_bands.lock().unwrap().0;
+            let bands = locks::lock(&inner.vu_bands).0;
             ui.set_np_bands(slint::ModelRc::new(slint::VecModel::from(bands.to_vec())));
         }
         // everything else in this tick feeds the VU overlay —
@@ -393,7 +394,7 @@ impl Vui {
                 queue::rebuild_cache(ui);
             }
         }
-        let level = *inner.vu_shared.lock().unwrap();
+        let level = *locks::lock(&inner.vu_shared);
         // the nowplaying mini-meters read the levels too — cheap
         // now that no hidden skin instance evaluates
         ui.set_vu_l(level[0]);
@@ -453,7 +454,7 @@ impl Vui {
         ui.set_vu_hint(Instant::now() < *inner.hint_until.borrow());
         // one lock, copied out — a second lock on the same mutex
         // in one statement deadlocks the UI thread
-        let (bands, peaks) = *inner.vu_bands.lock().unwrap();
+        let (bands, peaks) = *locks::lock(&inner.vu_bands);
         // [theme] palette = "cover": the M3 accent/secondary pair
         // rides the skins, else they keep their designed defaults;
         // danger always rides (it stays red in the amber fallback)

@@ -4,6 +4,8 @@
 //! retried, until the rest deserializes. Every cut key is reported
 //! so the UI can show what was ignored.
 
+#![deny(clippy::indexing_slicing)]
+
 use serde::de::DeserializeOwned;
 
 /// one ignored setting: the dotted key path and why
@@ -107,7 +109,7 @@ mod tests {
         assert_eq!(cfg.display.brightness, Some(40));
         assert_eq!(cfg.music_assistant.url, "http://ma:8095");
         assert_eq!(problems.len(), 1);
-        assert_eq!(problems[0].key, "display.nope");
+        assert_eq!(problems.first().unwrap().key, "display.nope");
     }
 
     #[test]

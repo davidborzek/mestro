@@ -1,3 +1,7 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+// developer tools: a panic is an acceptable way for a one-off
+// CLI tool to fail
+
 //! Debug capture: replicate the app's MA session (auth -> players/all
 //! -> player_queues/get_active_queue) and dump every WS frame with
 //! timestamps so protocol assumptions can be verified against reality.

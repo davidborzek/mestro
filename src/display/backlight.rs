@@ -175,6 +175,9 @@ impl FirmwareMailbox {
         let mut msg = Message([32, 0, TAG_SET_BACKLIGHT, 4, 0, value.min(255), 0, 0]);
         // SAFETY: a valid, aligned buffer of the size its first word
         // declares; the ioctl reads and writes within it
+        // (unsafe_code is denied crate-wide — this is the audited
+        // Pi firmware mailbox ioctl)
+        #[allow(unsafe_code)]
         let rc = unsafe {
             libc::ioctl(
                 self.file.as_raw_fd(),

@@ -1,3 +1,7 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+// test harness helpers: a panic fails the test loudly, which is
+// exactly what a test wants
+
 //! Waking from standby reveals the page the user left — standby
 //! is an overlay over the page stack, not a navigation target.
 

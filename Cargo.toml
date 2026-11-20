@@ -82,6 +82,19 @@ slint-build = { git = "https://github.com/slint-ui/slint", rev = "47621c9d507476
 # temp-dir state for the conf-writer and factory-reset tests
 tempfile = "3"
 
+[lints.rust]
+# unsafe only at the two audited sites (backlight ioctl, wifi signal
+# handling), each with a local allow and a SAFETY comment
+unsafe_code = "deny"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+
 
 [profile.release]
 opt-level = "s"

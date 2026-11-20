@@ -1,3 +1,7 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+// test harness helpers: a panic fails the test loudly, which is
+// exactly what a test wants
+
 //! Offscreen snapshots of the settings pages for visual review.
 //! Renders the real Mestro window with the software renderer into
 //! PNGs — no window, nothing on the desktop. Opt-in (ignored by

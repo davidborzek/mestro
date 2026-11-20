@@ -1,3 +1,7 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+// test harness helpers: a panic fails the test loudly, which is
+// exactly what a test wants
+
 //! The fallback hotspot while the player idles in standby: the
 //! overlay must paint OVER the standby clock (mount order) and the
 //! backlight must not sit at the standby brightness under it —

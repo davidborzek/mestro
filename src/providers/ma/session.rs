@@ -169,8 +169,8 @@ pub(super) async fn run_session(
                         // a failed request must not leave its UI
                         // spinner hanging: resolve the pending
                         // request slots with empty results
-                        if let Some((_, key)) = browse_req.clone() {
-                            if id == browse_req.as_ref().unwrap().0 {
+                        if let Some((pending_id, key)) = browse_req.clone() {
+                            if id == pending_id {
                                 browse_req = None;
                                 let _ = events.send(SourceEvent::Browse {
                                     key,
@@ -178,8 +178,8 @@ pub(super) async fn run_session(
                                 });
                             }
                         }
-                        if let Some((_, key)) = search_req.clone() {
-                            if id == search_req.as_ref().unwrap().0 {
+                        if let Some((pending_id, key)) = search_req.clone() {
+                            if id == pending_id {
                                 search_req = None;
                                 let _ = events.send(SourceEvent::Search {
                                     key,

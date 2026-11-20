@@ -15,6 +15,7 @@
 //! can be exercised without squeezelite.
 
 use crate::config::VuMode;
+use crate::locks;
 
 /// The interpreter's Compiler defaults to the ExportedWindows
 /// selection, which deprecates non-Window exports — but embedded
@@ -127,21 +128,17 @@ fn shmem_loop(shared: Shared, bands: SharedBands, prefix: &str, reference_dbfs: 
         std::thread::sleep(TICK);
         // (re)acquire: squeezelite may start after us, restart with
         // a new MAC-suffixed name, or run on another machine's /dev
-        let f = match &file {
-            Some((_, f)) => f,
-            None => match open_shm(prefix) {
-                Some((path, f)) => {
-                    tracing::info!("vu: reading {}", path.display());
-                    file = Some((path, f));
-                    &file.as_ref().unwrap().1
-                }
-                None => {
-                    ballistic.push([0.0; 2]);
-                    *shared.lock().unwrap() = ballistic.level;
-                    *bands.lock().unwrap() = ([0.0; BANDS], [0.0; BANDS]);
-                    continue;
-                }
-            },
+        if file.is_none() {
+            if let Some((path, f)) = open_shm(prefix) {
+                tracing::info!("vu: reading {}", path.display());
+                file = Some((path, f));
+            }
+        }
+        let Some((_, f)) = file.as_ref() else {
+            ballistic.push([0.0; 2]);
+            *locks::lock(&shared) = ballistic.level;
+            *locks::lock(&bands) = ([0.0; BANDS], [0.0; BANDS]);
+            continue;
         };
 
         // header: buf_size, buf_index, running, rate
@@ -151,7 +148,15 @@ fn shmem_loop(shared: Shared, bands: SharedBands, prefix: &str, reference_dbfs: 
             file = None;
             continue;
         }
+        #[expect(
+            clippy::unwrap_used,
+            reason = "a 4-byte slice of the fixed 9-byte header"
+        )]
         let buf_size = u32::from_le_bytes(hdr[0..4].try_into().unwrap()) as usize;
+        #[expect(
+            clippy::unwrap_used,
+            reason = "a 4-byte slice of the fixed 9-byte header"
+        )]
         let buf_index = u32::from_le_bytes(
             hdr[OFF_BUF_INDEX as usize - OFF_BUF_SIZE as usize..][..4]
                 .try_into()
@@ -175,8 +180,8 @@ fn shmem_loop(shared: Shared, bands: SharedBands, prefix: &str, reference_dbfs: 
         }
         if !running {
             ballistic.push([0.0; 2]);
-            *shared.lock().unwrap() = ballistic.level;
-            *bands.lock().unwrap() = ([0.0; BANDS], [0.0; BANDS]);
+            *locks::lock(&shared) = ballistic.level;
+            *locks::lock(&bands) = ([0.0; BANDS], [0.0; BANDS]);
             continue;
         }
 
@@ -230,9 +235,9 @@ fn shmem_loop(shared: Shared, bands: SharedBands, prefix: &str, reference_dbfs: 
             level[ch] = ((vu + 20.0) / 23.0) as f32;
         }
         ballistic.push(level);
-        *shared.lock().unwrap() = ballistic.level;
+        *locks::lock(&shared) = ballistic.level;
         let (bands_now, peaks_now) = analyzer.analyze(&samples, rate);
-        *bands.lock().unwrap() = (bands_now, peaks_now);
+        *locks::lock(&bands) = (bands_now, peaks_now);
     }
 }
 
@@ -275,7 +280,7 @@ fn mock_loop(shared: Shared, bands: SharedBands, playing: &'static AtomicBool) {
             }
         }
         ballistic.push(target);
-        *shared.lock().unwrap() = ballistic.level;
+        *locks::lock(&shared) = ballistic.level;
         // synthesized spectrum: per-band noise bounce around a
         // tilted hill, so UI work reads like music
         let mut bands_now = [0.0f32; BANDS];
@@ -287,7 +292,7 @@ fn mock_loop(shared: Shared, bands: SharedBands, playing: &'static AtomicBool) {
                 *band = (hill * (0.55 + 0.45 * wob) * (0.8 + 0.2 * shimmer)).clamp(0.03, 1.0);
             }
         }
-        let (mut prev_bands, mut prev_peaks) = *bands.lock().unwrap();
+        let (mut prev_bands, mut prev_peaks) = *locks::lock(&bands);
         for (p, n) in prev_bands.iter_mut().zip(bands_now) {
             // same ballistics as the real analyzer (fft.rs)
             *p = if n > *p {
@@ -299,6 +304,6 @@ fn mock_loop(shared: Shared, bands: SharedBands, playing: &'static AtomicBool) {
         for (cap, band) in prev_peaks.iter_mut().zip(prev_bands.iter()) {
             *cap = (*band).max(*cap - 0.004);
         }
-        *bands.lock().unwrap() = (prev_bands, prev_peaks);
+        *locks::lock(&bands) = (prev_bands, prev_peaks);
     }
 }

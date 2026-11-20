@@ -1,3 +1,7 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+// developer tools: a panic is an acceptable way for a one-off
+// CLI tool to fail
+
 //! dev feeder for squeezelite's `-v` visualizer shmem format
 //! (requires a squeezelite built with -DVISEXPORT): writes a
 //! modulated stereo sine into /dev/shm/squeezelite-dev so mestro's

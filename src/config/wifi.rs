@@ -125,6 +125,10 @@ impl Wifi {
     /// the parsed AP address (the default when the configured one
     /// does not parse — validated at load, this stays cheap)
     pub fn ap_net(&self) -> ApNet {
+        #[expect(
+            clippy::expect_used,
+            reason = "DEFAULT_AP_ADDRESS is a validated const"
+        )]
         parse_ap_address(&self.ap_address)
             .unwrap_or_else(|| parse_ap_address(DEFAULT_AP_ADDRESS).expect("the default parses"))
     }

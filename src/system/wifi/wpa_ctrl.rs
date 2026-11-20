@@ -12,6 +12,8 @@
 //! - unsolicited event frames start with `<` and never carry a
 //!   reply: a client that does not ATTACH gets none, but be tolerant
 
+#![deny(clippy::indexing_slicing)]
+
 use std::os::unix::net::UnixDatagram;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -54,7 +56,7 @@ impl WpaCtrl {
                 .socket
                 .recv(&mut buf)
                 .map_err(|e| format!("wpa ctrl recv {cmd}: {e}"))?;
-            let reply = String::from_utf8_lossy(&buf[..n]).into_owned();
+            let reply = String::from_utf8_lossy(buf.get(..n).unwrap_or(&[])).into_owned();
             if reply.starts_with('<') {
                 continue;
             }
@@ -111,21 +113,27 @@ pub fn parse_scan_results(reply: &str) -> Vec<ScanEntry> {
     let mut out = Vec::new();
     for line in reply.lines() {
         let cols: Vec<&str> = line.split('\t').collect();
-        if cols.len() < 5 {
+        let (Some(bssid), Some(frequency), Some(signal), Some(flags), Some(ssid)) = (
+            cols.first().copied(),
+            cols.get(1).copied(),
+            cols.get(2).copied(),
+            cols.get(3).copied(),
+            cols.get(4).copied(),
+        ) else {
             continue;
-        }
+        };
         let (Some(frequency), Ok(signal)) = (
-            cols[1].trim().parse::<u32>().ok(),
-            cols[2].trim().parse::<i32>(),
+            frequency.trim().parse::<u32>().ok(),
+            signal.trim().parse::<i32>(),
         ) else {
             continue;
         };
         out.push(ScanEntry {
-            bssid: cols[0].trim().to_string(),
+            bssid: bssid.trim().to_string(),
             frequency,
             signal,
-            flags: cols[3].trim().to_string(),
-            ssid: String::from_utf8_lossy(&unescape(cols[4])).into_owned(),
+            flags: flags.trim().to_string(),
+            ssid: String::from_utf8_lossy(&unescape(ssid)).into_owned(),
         });
     }
     out
@@ -136,17 +144,23 @@ fn unescape(text: &str) -> Vec<u8> {
     let bytes = text.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
-    while i < bytes.len() {
-        let escape = bytes[i] == b'\\'
-            && bytes.get(i + 1) == Some(&b'x')
-            && bytes.get(i + 2).is_some_and(|b| hex_digit(*b).is_some())
-            && bytes.get(i + 3).is_some_and(|b| hex_digit(*b).is_some());
-        if escape {
-            out.push(hex_digit(bytes[i + 2]).unwrap() << 4 | hex_digit(bytes[i + 3]).unwrap());
+    while let Some(&byte) = bytes.get(i) {
+        // `\\xNN` with two valid hex nibbles → the escaped byte;
+        // anything else stays literal
+        if byte == b'\\' && bytes.get(i + 1) == Some(&b'x') {
+            let (Some(hi), Some(lo)) = (
+                bytes.get(i + 2).and_then(|b| hex_digit(*b)),
+                bytes.get(i + 3).and_then(|b| hex_digit(*b)),
+            ) else {
+                out.push(byte);
+                i += 1;
+                continue;
+            };
+            out.push(hi << 4 | lo);
             i += 4;
             continue;
         }
-        out.push(bytes[i]);
+        out.push(byte);
         i += 1;
     }
     out
@@ -231,22 +245,22 @@ mod tests {
     fn scan_rows_parse_and_noise_is_skipped() {
         let entries = parse_scan_results(RAW_REPLY);
         assert_eq!(entries.len(), 4, "{entries:?}");
-        assert_eq!(entries[0].bssid, "2c:91:ab:12:34:56");
-        assert_eq!(entries[0].frequency, 2412);
-        assert_eq!(entries[0].signal, -52);
-        assert_eq!(entries[0].ssid, "FritzBox");
-        assert!(entries[0].secured());
+        assert_eq!(entries.first().unwrap().bssid, "2c:91:ab:12:34:56");
+        assert_eq!(entries.first().unwrap().frequency, 2412);
+        assert_eq!(entries.first().unwrap().signal, -52);
+        assert_eq!(entries.first().unwrap().ssid, "FritzBox");
+        assert!(entries.first().unwrap().secured());
         // an escaped UTF-8 ssid comes back decoded
         assert_eq!(
-            entries[1].ssid,
+            entries.get(1).unwrap().ssid,
             String::from_utf8_lossy(&b"Caf\xc3\xa9 Netz"[..])
         );
         // hidden networks: empty ssid, open flags
-        assert_eq!(entries[2].ssid, "");
-        assert!(!entries[2].secured());
+        assert_eq!(entries.get(2).unwrap().ssid, "");
+        assert!(!entries.get(2).unwrap().secured());
         // and a hidden one that still carries a WPA flag
-        assert_eq!(entries[3].ssid, "");
-        assert!(entries[3].secured());
+        assert_eq!(entries.get(3).unwrap().ssid, "");
+        assert!(entries.get(3).unwrap().secured());
         // the header shape parses the same
         let header = "bssid / frequency / signal level / flags / ssid\n".to_string() + RAW_REPLY;
         assert_eq!(parse_scan_results(&header).len(), 4);
@@ -282,9 +296,9 @@ mod tests {
         // \xNN escapes decode to raw bytes (lossy as text)
         let entries =
             parse_scan_results("aa:bb:cc:dd:ee:ff\t2412\t-40\t[ESS]\tJust\\x20G\\xc3\\xa4ste");
-        assert_eq!(entries[0].ssid, "Just G\u{e4}ste");
+        assert_eq!(entries.first().unwrap().ssid, "Just G\u{e4}ste");
         // unknown escapes stay literal
         let entries = parse_scan_results("aa:bb:cc:dd:ee:ff\t2412\t-40\t[ESS]\ta\\zb");
-        assert_eq!(entries[0].ssid, "a\\zb");
+        assert_eq!(entries.first().unwrap().ssid, "a\\zb");
     }
 }

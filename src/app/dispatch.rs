@@ -180,7 +180,7 @@ impl Dispatch {
             mestro::settings::sync_connection(ui, effective);
             // the session reconnects with the fresh values (its
             // factory re-reads them per attempt)
-            *self.ma_cfg.write().unwrap() =
+            *mestro::locks::write(&self.ma_cfg) =
                 ma::Config::from_music_assistant(&effective.music_assistant);
             let _ = self.cmd_tx.send(SourceCommand::Reconnect);
         }
