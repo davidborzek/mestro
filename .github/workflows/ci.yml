@@ -1,6 +1,11 @@
-# CI runs exactly the dev-shell commands from AGENTS.md so local
-# and CI are the same environment (same nixpkgs, same tool
-# versions). Every action is pinned to a full commit SHA.
+# CI runs the same commands as the nix dev shell (AGENTS.md),
+# but on plain GitHub-hosted toolchains — every tool is pinned to
+# the exact dev-shell version (rust-toolchain.toml, the
+# *-VERSION/*-SHA256 env pins below and the flake's devShell must
+# stay in sync, or the pre-commit hook and CI disagree). Renovate
+# bumps the pinned versions (renovate.json customManagers); a
+# version bump always needs its SHA256 updated in the same PR.
+# Every action is pinned to a full commit SHA.
 name: checks
 
 on:
@@ -20,79 +25,200 @@ jobs:
   # treefmt --ci is unusable here: the slint formatter rewrites
   # unchanged content (mtime), so --fail-on-change always fires —
   # format and fail on any content diff instead
+  #
+  # the tools are downloaded as release binaries (sha256-verified)
+  # instead of coming from a distro package: the versions must
+  # match the dev shell exactly
   format:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    env:
+      TREEFMT_VERSION: "2.6.0"
+      TREEFMT_SHA256: "2deff4c0f381d560784c5632cf5860da712891ccd9185306e73d8ba37778ab7f"
+      SLINT_LSP_VERSION: "1.16.1"
+      SLINT_LSP_SHA256: "2650526e0b3a24316623a75f6681366b329cd63ab1546110203561db9bd7b5a6"
+      SHFMT_VERSION: "3.13.1"
+      SHFMT_SHA256: "fb096c5d1ac6beabbdbaa2874d025badb03ee07929f0c9ff67563ce8c75398b1"
+      NIXFMT_VERSION: "1.5.0"
+      NIXFMT_SHA256: "aa029247ab89c897e2f3948463967553f902f86e86e3402fa28cb29c4a44f745"
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-      - uses: DeterminateSystems/determinate-nix-action@f296148a827001a9a82d3685b53210c06e5d3b67 # v3.24.0
+      # rustfmt comes from the pinned toolchain
+      - uses: dtolnay/rust-toolchain@1961bfc0c4a8bf07e0a0c98e1e2459c642ea70a0 # 1.95.0
+        with:
+          components: rustfmt
+      # slint-lsp (runtime) needs these shared libraries
+      - run: >
+          sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends
+          libfontconfig1 libfreetype6 libgbm1 libinput10 libudev1 libxkbcommon0
       # prettier and its svelte plugin come from web/node_modules
-      - run: nix develop -c bash -c "cd web && bun install --frozen-lockfile"
-      - run: nix develop -c treefmt
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.3.13" # keep in sync with the dev shell (flake.nix)
+      - run: cd web && bun install --frozen-lockfile
+      - name: Install the pinned formatter tools
+        run: |
+          set -euo pipefail
+          tools="$RUNNER_TEMP/format-tools"
+          mkdir -p "$tools"
+          fetch() { # url, output path, expected sha256
+            curl -sSfL --retry 3 -o "$2" "$1"
+            printf '%s  %s\n' "$3" "$2" | sha256sum --check --status
+          }
+          fetch "https://github.com/numtide/treefmt/releases/download/v${TREEFMT_VERSION}/treefmt_${TREEFMT_VERSION}_linux_amd64.tar.gz" \
+            "$RUNNER_TEMP/treefmt.tar.gz" "$TREEFMT_SHA256"
+          tar -xzf "$RUNNER_TEMP/treefmt.tar.gz" -C "$tools" treefmt
+          chmod +x "$tools/treefmt"
+          fetch "https://github.com/slint-ui/slint/releases/download/v${SLINT_LSP_VERSION}/slint-lsp-linux.tar.gz" \
+            "$RUNNER_TEMP/slint-lsp.tar.gz" "$SLINT_LSP_SHA256"
+          tar -xzf "$RUNNER_TEMP/slint-lsp.tar.gz" -C "$RUNNER_TEMP" slint-lsp/slint-lsp
+          mv "$RUNNER_TEMP/slint-lsp/slint-lsp" "$tools/slint-lsp"
+          chmod +x "$tools/slint-lsp"
+          fetch "https://github.com/mvdan/sh/releases/download/v${SHFMT_VERSION}/shfmt_v${SHFMT_VERSION}_linux_amd64" \
+            "$tools/shfmt" "$SHFMT_SHA256"
+          fetch "https://github.com/NixOS/nixfmt/releases/download/v${NIXFMT_VERSION}/nixfmt" \
+            "$tools/nixfmt" "$NIXFMT_SHA256"
+          echo "$tools" >> "$GITHUB_PATH"
+      - run: |
+          export PATH="$PWD/web/node_modules/.bin:$PATH"
+          treefmt
       - run: git diff --exit-code
 
   # the binary embeds web/dist at compile time (build.rs): the web
   # app is built before every Rust job
+  #
+  # apt: what the dev shell's buildInputs provide — the slint
+  # femtovg/skia/winit/linuxkms backends need them at build time
   clippy-desktop:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-      - uses: DeterminateSystems/determinate-nix-action@f296148a827001a9a82d3685b53210c06e5d3b67 # v3.24.0
+      - uses: dtolnay/rust-toolchain@1961bfc0c4a8bf07e0a0c98e1e2459c642ea70a0 # 1.95.0
+        with:
+          components: clippy
+      - run: >
+          sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends
+          pkg-config libfontconfig1-dev libudev-dev libseat-dev libxkbcommon-dev
+          libinput-dev libgbm-dev libegl-dev libgles-dev libwayland-dev
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.3.13" # keep in sync with the dev shell (flake.nix)
+      - run: cd web && bun install --frozen-lockfile && bun run build
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: desktop
-      - run: nix develop -c bash -c "cd web && bun install --frozen-lockfile && bun run build"
-      - run: nix develop -c cargo clippy --all-targets -- -D warnings
+      - run: cargo clippy --all-targets -- -D warnings
 
   clippy-kiosk:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-      - uses: DeterminateSystems/determinate-nix-action@f296148a827001a9a82d3685b53210c06e5d3b67 # v3.24.0
+      - uses: dtolnay/rust-toolchain@1961bfc0c4a8bf07e0a0c98e1e2459c642ea70a0 # 1.95.0
+        with:
+          components: clippy
+      - run: >
+          sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends
+          pkg-config libfontconfig1-dev libudev-dev libseat-dev libxkbcommon-dev
+          libinput-dev libgbm-dev libegl-dev libgles-dev libwayland-dev
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.3.13" # keep in sync with the dev shell (flake.nix)
+      - run: cd web && bun install --frozen-lockfile && bun run build
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: kiosk
-      - run: nix develop -c bash -c "cd web && bun install --frozen-lockfile && bun run build"
-      - run: nix develop -c cargo clippy --no-default-features --features linuxkms,ota,wifi-setup --all-targets -- -D warnings
+      - run: cargo clippy --no-default-features --features linuxkms,ota,wifi-setup --all-targets -- -D warnings
 
+  # the fonts mirror the dev shell's FONTCONFIG_FILE for the
+  # #[ignore]d visual snapshot tests (they need any text font;
+  # Material Symbols has no Ubuntu package — icons render empty
+  # in those snapshots, they never run in CI)
   test-desktop:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-      - uses: DeterminateSystems/determinate-nix-action@f296148a827001a9a82d3685b53210c06e5d3b67 # v3.24.0
+      - uses: dtolnay/rust-toolchain@1961bfc0c4a8bf07e0a0c98e1e2459c642ea70a0 # 1.95.0
+      - run: >
+          sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends
+          pkg-config libfontconfig1-dev libudev-dev libseat-dev libxkbcommon-dev
+          libinput-dev libgbm-dev libegl-dev libgles-dev libwayland-dev
+          fonts-dejavu-core fonts-noto-core
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.3.13" # keep in sync with the dev shell (flake.nix)
+      - run: cd web && bun install --frozen-lockfile && bun run build
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: desktop
-      - run: nix develop -c bash -c "cd web && bun install --frozen-lockfile && bun run build"
-      - run: nix develop -c cargo test
+      - run: cargo test
 
   test-kiosk:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-      - uses: DeterminateSystems/determinate-nix-action@f296148a827001a9a82d3685b53210c06e5d3b67 # v3.24.0
+      - uses: dtolnay/rust-toolchain@1961bfc0c4a8bf07e0a0c98e1e2459c642ea70a0 # 1.95.0
+      - run: >
+          sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends
+          pkg-config libfontconfig1-dev libudev-dev libseat-dev libxkbcommon-dev
+          libinput-dev libgbm-dev libegl-dev libgles-dev libwayland-dev
+          fonts-dejavu-core fonts-noto-core
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.3.13" # keep in sync with the dev shell (flake.nix)
+      - run: cd web && bun install --frozen-lockfile && bun run build
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: kiosk
-      - run: nix develop -c bash -c "cd web && bun install --frozen-lockfile && bun run build"
-      - run: nix develop -c cargo test --features ota,wifi-setup
+      - run: cargo test --features ota,wifi-setup
 
   web:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-      - uses: DeterminateSystems/determinate-nix-action@f296148a827001a9a82d3685b53210c06e5d3b67 # v3.24.0
-      - run: nix develop -c bash -c "cd web && bun install --frozen-lockfile && bun run check && bun test && bun run build"
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.3.13" # keep in sync with the dev shell (flake.nix)
+      - run: cd web && bun install --frozen-lockfile && bun run check && bun test && bun run build
 
+  # cargo-deny release binary (static musl build) instead of the
+  # Docker action: the version must match the dev shell exactly
   deny:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    env:
+      CARGO_DENY_VERSION: "0.19.6"
+      CARGO_DENY_SHA256: "0021d321c781f0159a150ca308859ad93ccce64a887b22ad2e129f096a8a2c07"
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-      - uses: DeterminateSystems/determinate-nix-action@f296148a827001a9a82d3685b53210c06e5d3b67 # v3.24.0
-      - run: nix develop -c cargo deny check
+      # cargo-deny shells out to `cargo metadata`
+      - uses: dtolnay/rust-toolchain@1961bfc0c4a8bf07e0a0c98e1e2459c642ea70a0 # 1.95.0
+      - name: Install the pinned cargo-deny
+        run: |
+          set -euo pipefail
+          curl -sSfL --retry 3 -o cargo-deny.tar.gz \
+            "https://github.com/EmbarkStudios/cargo-deny/releases/download/${CARGO_DENY_VERSION}/cargo-deny-${CARGO_DENY_VERSION}-x86_64-unknown-linux-musl.tar.gz"
+          printf '%s  %s\n' "$CARGO_DENY_SHA256" cargo-deny.tar.gz | sha256sum --check --status
+          tar -xzf cargo-deny.tar.gz --strip-components=1 \
+            "cargo-deny-${CARGO_DENY_VERSION}-x86_64-unknown-linux-musl/cargo-deny"
+          mkdir -p "$HOME/.local/bin" && mv cargo-deny "$HOME/.local/bin/"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - run: cargo deny check
 
+  # cargo-machete release binary (static musl build), faster than
+  # the action (which installs the latest, not the pinned version)
   machete:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    env:
+      CARGO_MACHETE_VERSION: "0.9.2"
+      CARGO_MACHETE_SHA256: "48200087f54c55aabcd4db4af1e25742b49846c02a1b1bfa134711945b35b2e9"
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-      - uses: DeterminateSystems/determinate-nix-action@f296148a827001a9a82d3685b53210c06e5d3b67 # v3.24.0
-      - run: nix develop -c cargo machete
+      - name: Install the pinned cargo-machete
+        run: |
+          set -euo pipefail
+          curl -sSfL --retry 3 -o cargo-machete.tar.gz \
+            "https://github.com/bnjbvr/cargo-machete/releases/download/v${CARGO_MACHETE_VERSION}/cargo-machete-v${CARGO_MACHETE_VERSION}-x86_64-unknown-linux-musl.tar.gz"
+          printf '%s  %s\n' "$CARGO_MACHETE_SHA256" cargo-machete.tar.gz | sha256sum --check --status
+          tar -xzf cargo-machete.tar.gz --strip-components=1 \
+            "cargo-machete-v${CARGO_MACHETE_VERSION}-x86_64-unknown-linux-musl/cargo-machete"
+          mkdir -p "$HOME/.local/bin" && mv cargo-machete "$HOME/.local/bin/"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - run: cargo-machete

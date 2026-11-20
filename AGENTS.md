@@ -40,6 +40,11 @@ The binary embeds `web/dist/` at compile time: after a web change,
 - docs updated when behavior or config changes: `docs/configuration.md`
   (every config key and `MESTRO_*` env var), `docs/remote.md` (web
   protocol, auth model), `image/README.md` (image, OTA, recovery)
+- CI (`.github/workflows/ci.yml`) runs on plain GitHub-hosted
+  toolchains pinned to the exact dev-shell versions
+  (`rust-toolchain.toml`, the `*-VERSION`/`*-SHA256` env pins) — when
+  bumping a tool in the dev shell, bump CI in the same change or the
+  pre-commit hook and CI disagree
 
 ## Boundaries
 

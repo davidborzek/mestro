@@ -12,6 +12,64 @@
   "nix": {
     "enabled": true
   },
+  "customManagers": [
+    {
+      "description": "CI pins the dev-shell tool versions as env vars in ci.yml; keep flake.nix in sync and update the matching SHA256 pin in the same PR",
+      "customType": "regex",
+      "fileMatch": ["^\\.github/workflows/ci\\.yml$"],
+      "matchStrings": [
+        "TREEFMT_VERSION: \"(?<currentValue>\\d+\\.\\d+\\.\\d+)\""
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "numtide/treefmt"
+    },
+    {
+      "description": "slint-lsp in CI formats the .slint tree (the cargo slint rev is a separate, manual pin)",
+      "customType": "regex",
+      "fileMatch": ["^\\.github/workflows/ci\\.yml$"],
+      "matchStrings": [
+        "SLINT_LSP_VERSION: \"(?<currentValue>\\d+\\.\\d+\\.\\d+)\""
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "slint-ui/slint"
+    },
+    {
+      "customType": "regex",
+      "fileMatch": ["^\\.github/workflows/ci\\.yml$"],
+      "matchStrings": [
+        "SHFMT_VERSION: \"(?<currentValue>\\d+\\.\\d+\\.\\d+)\""
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "mvdan/sh"
+    },
+    {
+      "customType": "regex",
+      "fileMatch": ["^\\.github/workflows/ci\\.yml$"],
+      "matchStrings": [
+        "NIXFMT_VERSION: \"(?<currentValue>\\d+\\.\\d+\\.\\d+)\""
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "NixOS/nixfmt"
+    },
+    {
+      "customType": "regex",
+      "fileMatch": ["^\\.github/workflows/ci\\.yml$"],
+      "matchStrings": [
+        "CARGO_DENY_VERSION: \"(?<currentValue>\\d+\\.\\d+\\.\\d+)\""
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "EmbarkStudios/cargo-deny"
+    },
+    {
+      "customType": "regex",
+      "fileMatch": ["^\\.github/workflows/ci\\.yml$"],
+      "matchStrings": [
+        "CARGO_MACHETE_VERSION: \"(?<currentValue>\\d+\\.\\d+\\.\\d+)\""
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "bnjbvr/cargo-machete"
+    }
+  ],
   "packageRules": [
     {
       "description": "one PR for all Cargo minor/patch updates",
@@ -40,6 +98,11 @@
       "matchManagers": ["github-actions"],
       "pinDigests": true,
       "groupName": "github actions"
+    },
+    {
+      "description": "CI tool version bumps need their SHA256 pin updated — never automerge",
+      "matchManagers": ["regex"],
+      "automerge": false
     },
     {
       "description": "slint is pinned to the rev with the linuxkms fixes mestro needs — updates are a manual, tested change",

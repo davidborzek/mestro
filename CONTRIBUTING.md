@@ -48,13 +48,19 @@ when anything changes.
 
 ## CI and supply-chain checks
 
-CI (`.github/workflows/ci.yml`) runs the dev-shell commands from
-AGENTS.md on every push to main and on every pull request: treefmt,
+CI (`.github/workflows/ci.yml`) runs the same commands as the dev
+shell on every push to main and on every pull request: treefmt,
 both clippy variants with `-D warnings`, both test feature sets (the
 web app is built first — `build.rs` embeds `web/dist`), web
-check/test/build, `cargo deny check` and `cargo machete`. Dependency
-updates arrive as Renovate PRs (`renovate.json`); the slint rev stays
-pinned.
+check/test/build, `cargo deny check` and `cargo machete`. CI runs
+on plain GitHub-hosted toolchains, every tool pinned to the exact
+dev-shell version (`rust-toolchain.toml` and the `*-VERSION`/
+`*-SHA256` env pins in the workflow; Renovate bumps them — see
+`renovate.json`). When a tool version changes, update the dev shell
+(flake.nix) and CI in the same change so the pre-commit hook and
+CI keep formatting identically; a Renovate CI-tool PR also needs
+its SHA256 pin updated. Dependency updates arrive as Renovate PRs
+(`renovate.json`); the slint rev stays pinned.
 
 Lint policy:
 
