@@ -10,10 +10,12 @@ component InfoRow inherits Rectangle {
     height: 44px;
     border-radius: 10px;
     background: Theme.tile;
+
     HorizontalLayout {
         padding-left: 14px;
         padding-right: 14px;
         spacing: 12px;
+
         Text {
             text: root.label;
             font-size: 15px;
@@ -40,6 +42,7 @@ component ActionBtn inherits Rectangle {
     height: 44px;
     border-radius: 8px;
     background: root.danger ? (btn-ta.has-hover ? #cc241d2e : #cc241d16) : (btn-ta.has-hover ? Theme.tile-hover : Theme.tile);
+
     Text {
         text: root.label;
         font-size: 14px;
@@ -88,13 +91,16 @@ export component ConnectionSettings inherits Rectangle {
             height: 48px;
             border-radius: 8px;
             background: root.provider-status == "" ? Theme.tile : #cc241d16;
+
             HorizontalLayout {
                 padding: 10px;
                 padding-left: 12px;
                 spacing: 10px;
+
                 Rectangle {
                     vertical-stretch: 1;
                     width: 10px;
+
                     Rectangle {
                         y: (parent.height - 10px) / 2;
                         width: 10px;
@@ -143,6 +149,7 @@ export component ConnectionSettings inherits Rectangle {
 
         HorizontalLayout {
             spacing: 8px;
+
             ActionBtn {
                 label: @tr("Clear connection");
                 danger: true;

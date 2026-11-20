@@ -6,11 +6,13 @@ component Step inherits HorizontalLayout {
     in property <string> label;
     spacing: 10px;
     alignment: start;
+
     Rectangle {
         width: 24px;
         height: 24px;
         border-radius: 12px;
         background: Theme.accent.with-alpha(0.16);
+
         Text {
             text: root.number;
             font-size: 13px;
@@ -55,11 +57,13 @@ export component RemoteSetupSettings inherits Rectangle {
         HorizontalLayout {
             spacing: 12px;
             alignment: start;
+
             Rectangle {
                 width: 40px;
                 height: 40px;
                 border-radius: 11px;
                 background: Theme.accent;
+
                 Text {
                     text: Icons.glyph(Icon.smartphone);
                     font-family: Theme.icon-font;
@@ -75,6 +79,7 @@ export component RemoteSetupSettings inherits Rectangle {
             VerticalLayout {
                 alignment: center;
                 spacing: 1px;
+
                 Text {
                     text: @tr("Pair your phone");
                     font-size: 20px;
@@ -128,6 +133,7 @@ export component RemoteSetupSettings inherits Rectangle {
                 alignment: center;
                 spacing: 14px;
                 horizontal-stretch: 1;
+
                 Step {
                     number: 1;
                     label: @tr("Open the camera and scan the code");
@@ -152,10 +158,12 @@ export component RemoteSetupSettings inherits Rectangle {
             background: Theme.tile;
             border-width: 1px;
             border-color: Theme.hairline;
+
             HorizontalLayout {
                 padding-left: 14px;
                 padding-right: 14px;
                 spacing: 10px;
+
                 Text {
                     text: @tr("or open");
                     font-size: 13px;

@@ -24,6 +24,7 @@ export component DigitalClock inherits VerticalLayout {
     HorizontalLayout {
         alignment: center;
         spacing: 6px;
+
         Text {
             text: (root.hour < 10 ? "0" : "") + root.hour;
             font-size: 96px;
@@ -52,11 +53,13 @@ export component DigitalClock inherits VerticalLayout {
     // hairline: the elapsed part of the hour in the accent
     HorizontalLayout {
         alignment: center;
+
         Rectangle {
             width: root.rule-width;
             height: 2px;
             border-radius: 1px;
             background: #26221e;
+
             Rectangle {
                 x: 0;
                 width: parent.width * root.minute / 60;

@@ -54,6 +54,7 @@ export component NowPlayingSettings inherits VerticalLayout {
 
     if root.view == 1: VerticalLayout {
         spacing: 8px;
+
         SectionLabel {
             label: ("LAYOUT");
         }
@@ -289,6 +290,7 @@ export component NowPlayingSettings inherits VerticalLayout {
 
     if root.view == 4: VerticalLayout {
         spacing: 8px;
+
         OrderEditor {
             key: "now-playing.controls";
             overridden: root.np-controls-overridden;
@@ -311,6 +313,7 @@ export component NowPlayingSettings inherits VerticalLayout {
 
     if root.view == 5: VerticalLayout {
         spacing: 8px;
+
         OrderEditor {
             key: "now-playing.quality";
             overridden: root.np-quality-overridden;

@@ -49,6 +49,7 @@ export component VolumePopup inherits PopupWindow {
             // the pill's midpoint no matter the slot content
             Rectangle {
                 width: 42px;
+
                 Text {
                     text: Icons.glyph(root.vol-icon);
                     font-family: Theme.icon-font;
@@ -113,6 +114,7 @@ export component VolumePopup inherits PopupWindow {
 
             Rectangle {
                 width: 42px;
+
                 Text {
                     text: "\{Math.floor(root.volume)}%";
                     font-size: 14px;

@@ -42,6 +42,7 @@ export component AboutView inherits VerticalLayout {
 
     HorizontalLayout {
         alignment: center;
+
         Rectangle {
             width: 200px;
             height: 44px;
@@ -49,6 +50,7 @@ export component AboutView inherits VerticalLayout {
             background: rt.has-hover ? Theme.tile-hover : Theme.tile;
             border-width: 1px;
             border-color: Theme.hairline;
+
             rt := TouchArea {
                 clicked => {
                     root.restart-app();
