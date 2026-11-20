@@ -24,7 +24,7 @@
       "depNameTemplate": "numtide/treefmt"
     },
     {
-      "description": "slint-lsp in CI formats the .slint tree (the cargo slint rev is a separate, manual pin)",
+      "description": "slint-lsp in CI formats the .slint tree; grouped with the slint crates so the formatter moves with the compiler",
       "customType": "regex",
       "fileMatch": ["^\\.github/workflows/ci\\.yml$"],
       "matchStrings": [
@@ -105,15 +105,17 @@
       "automerge": false
     },
     {
-      "description": "slint is pinned to the rev with the linuxkms fixes mestro needs — updates are a manual, tested change",
+      "description": "all slint crates are pinned to the same exact version and move as one PR with the matching slint-lsp — rendering risk, never automerge; re-run the snapshot tests on bump",
       "matchPackageNames": [
         "slint",
         "slint-interpreter",
         "slint-build",
         "i-slint-core",
-        "i-slint-compiler"
+        "i-slint-compiler",
+        "slint-ui/slint"
       ],
-      "enabled": false
+      "groupName": "slint",
+      "automerge": false
     }
   ]
 }
