@@ -11,11 +11,17 @@ use std::io::Write as _;
 use std::path::Path;
 
 /// the socket and config-reload lines every mestro-written conf
-/// carries — the ctrl dir is the configured one; the boot path
-/// (S39wifi) also passes `-C`, so old files gain the socket either
-/// way
-fn header(ctrl_dir: &str) -> String {
-    format!("ctrl_interface={ctrl_dir}\nupdate_config=1\n")
+/// carries, plus the configured regdom — the ctrl dir is the
+/// configured one; the boot path (S39wifi) also passes `-C`, so
+/// old files gain the socket either way. An empty country adds no
+/// line (the kernel's regdom stays)
+fn header(ctrl_dir: &str, country: &str) -> String {
+    let country = if country.is_empty() {
+        String::new()
+    } else {
+        format!("country={country}\n")
+    };
+    format!("ctrl_interface={ctrl_dir}\nupdate_config=1\n{country}")
 }
 
 /// one SSID's value: quoted with escaped `"` and `\` when every byte
@@ -34,7 +40,12 @@ fn ssid_value(ssid: &str) -> String {
 
 /// the STA conf for one network. `psk` hashed via PBKDF2-SHA1 (the
 /// passphrase never lands in the file), `None` = open network
-pub fn sta_conf(ssid: &str, psk: Option<&str>, ctrl_dir: &str) -> Result<String, String> {
+pub fn sta_conf(
+    ssid: &str,
+    psk: Option<&str>,
+    ctrl_dir: &str,
+    country: &str,
+) -> Result<String, String> {
     if ssid.is_empty() || ssid.len() > 32 {
         return Err("ssid must be 1 to 32 bytes".into());
     }
@@ -44,17 +55,17 @@ pub fn sta_conf(ssid: &str, psk: Option<&str>, ctrl_dir: &str) -> Result<String,
     };
     Ok(format!(
         "# written by mestro — the hotspot setup\n{}\nnetwork={{\n\tssid={}\n{key}\tscan_ssid=1\n}}\n",
-        header(ctrl_dir),
+        header(ctrl_dir, country),
         ssid_value(ssid)
     ))
 }
 
 /// the AP conf: an open network on channel 6 (2437 MHz), the name
 /// from the wireless interface's MAC
-pub fn ap_conf(ap_ssid: &str, ctrl_dir: &str) -> String {
+pub fn ap_conf(ap_ssid: &str, ctrl_dir: &str, country: &str) -> String {
     format!(
         "# mestro setup hotspot — ephemeral, regenerated on every boot\n{}\nnetwork={{\n\tmode=2\n\tfrequency=2437\n\tkey_mgmt=NONE\n\tssid={}\n}}\n",
-        header(ctrl_dir),
+        header(ctrl_dir, country),
         ssid_value(ap_ssid)
     )
 }
@@ -260,6 +271,7 @@ mod tests {
             "ThisIsASSID",
             Some("ThisIsAPassword"),
             "/run/wpa_supplicant",
+            "",
         )
         .unwrap();
         assert_eq!(
@@ -274,7 +286,7 @@ mod tests {
              }\n"
         );
         // open networks take key_mgmt=NONE
-        let conf = sta_conf("Coffee", None, "/run/wpa_supplicant").unwrap();
+        let conf = sta_conf("Coffee", None, "/run/wpa_supplicant", "").unwrap();
         assert!(conf.contains("key_mgmt=NONE"));
         assert!(!conf.contains("psk="));
     }
@@ -282,7 +294,7 @@ mod tests {
     #[test]
     fn the_ap_conf_is_golden() {
         assert_eq!(
-            ap_conf("mestro-3456", "/run/wpa_supplicant"),
+            ap_conf("mestro-3456", "/run/wpa_supplicant", ""),
             "# mestro setup hotspot — ephemeral, regenerated on every boot\n\
              ctrl_interface=/run/wpa_supplicant\n\
              update_config=1\n\
@@ -297,20 +309,20 @@ mod tests {
 
     #[test]
     fn ssids_quote_escape_and_hex() {
-        assert!(sta_conf("G\u{e4}stehaus", None, "/run/wpa_supplicant")
+        assert!(sta_conf("G\u{e4}stehaus", None, "/run/wpa_supplicant", "")
             .unwrap()
             .contains("ssid=47c3a473746568617573"));
-        let conf = sta_conf("she said \"hi\"", None, "/run/wpa_supplicant").unwrap();
+        let conf = sta_conf("she said \"hi\"", None, "/run/wpa_supplicant", "").unwrap();
         assert!(conf.contains("ssid=\"she said \\\"hi\\\"\""), "{conf}");
-        let conf = sta_conf("back\\slash", None, "/run/wpa_supplicant").unwrap();
+        let conf = sta_conf("back\\slash", None, "/run/wpa_supplicant", "").unwrap();
         assert!(conf.contains("ssid=\"back\\\\slash\""), "{conf}");
     }
 
     #[test]
     fn bad_inputs_are_refused() {
-        assert!(sta_conf("", None, "/run/wpa_supplicant").is_err());
-        assert!(sta_conf(&"x".repeat(33), None, "/run/wpa_supplicant").is_err());
-        assert!(sta_conf("Home", Some("short"), "/run/wpa_supplicant").is_err());
+        assert!(sta_conf("", None, "/run/wpa_supplicant", "").is_err());
+        assert!(sta_conf(&"x".repeat(33), None, "/run/wpa_supplicant", "").is_err());
+        assert!(sta_conf("Home", Some("short"), "/run/wpa_supplicant", "").is_err());
     }
 
     #[test]
@@ -321,27 +333,41 @@ mod tests {
             });
         assert!(!usable_sta(&template));
         assert!(!usable_sta(""));
-        let conf = sta_conf("Home", Some("password12"), "/run/wpa_supplicant").unwrap();
+        let conf = sta_conf("Home", Some("password12"), "/run/wpa_supplicant", "").unwrap();
         assert!(usable_sta(&conf));
         // an open network is usable too
-        let conf = sta_conf("Coffee", None, "/run/wpa_supplicant").unwrap();
+        let conf = sta_conf("Coffee", None, "/run/wpa_supplicant", "").unwrap();
         assert!(usable_sta(&conf));
     }
 
     #[test]
     fn the_ctrl_dir_is_configurable() {
-        let conf = sta_conf("Home", Some("password12"), "/var/run/custom").unwrap();
+        let conf = sta_conf("Home", Some("password12"), "/var/run/custom", "").unwrap();
         assert!(conf.contains("ctrl_interface=/var/run/custom"), "{conf}");
+        assert!(ap_conf("mestro-0000", "/var/run/custom", "")
+            .contains("ctrl_interface=/var/run/custom"));
+    }
+
+    #[test]
+    fn a_configured_country_lands_in_every_conf() {
+        // the regdom rides in the header — STA and AP conf alike
+        let conf = sta_conf("Home", Some("password12"), "/run/wpa_supplicant", "DE").unwrap();
+        assert!(conf.contains("country=DE\n"), "{conf}");
+        assert!(ap_conf("mestro-3456", "/run/wpa_supplicant", "DE").contains("country=DE\n"));
+        // an empty country adds no line — the kernel's regdom stays
         assert!(
-            ap_conf("mestro-0000", "/var/run/custom").contains("ctrl_interface=/var/run/custom")
+            !sta_conf("Home", Some("password12"), "/run/wpa_supplicant", "")
+                .unwrap()
+                .contains("country=")
         );
+        assert!(!ap_conf("mestro-3456", "/run/wpa_supplicant", "").contains("country="));
     }
 
     #[test]
     fn sta_writes_keep_a_bak_and_restore_roundtrips() {
         let dir = tempfile::tempdir().unwrap();
         let (sta, bak) = paths(dir.path());
-        let first = sta_conf("Home", Some("password12"), "/run/wpa_supplicant").unwrap();
+        let first = sta_conf("Home", Some("password12"), "/run/wpa_supplicant", "").unwrap();
         write_sta(&sta, &bak, &first).unwrap();
         assert!(!bak.exists(), "the first write has no predecessor");
         assert_eq!(std::fs::read_to_string(&sta).unwrap(), first);
@@ -352,7 +378,7 @@ mod tests {
 
         // the second write backs the first up — atomically, and the
         // bak STAYS until the new conf proved itself
-        let second = sta_conf("Other", Some("password12"), "/run/wpa_supplicant").unwrap();
+        let second = sta_conf("Other", Some("password12"), "/run/wpa_supplicant", "").unwrap();
         write_sta(&sta, &bak, &second).unwrap();
         assert_eq!(std::fs::read_to_string(&sta).unwrap(), second);
         assert_eq!(std::fs::read_to_string(&bak).unwrap(), first);
@@ -366,7 +392,7 @@ mod tests {
         assert!(!bak.exists());
 
         // …a failed one restores it and drops the bak again
-        let third = sta_conf("Third", Some("password12"), "/run/wpa_supplicant").unwrap();
+        let third = sta_conf("Third", Some("password12"), "/run/wpa_supplicant", "").unwrap();
         write_sta(&sta, &bak, &third).unwrap();
         restore_sta(&sta, &bak).unwrap();
         assert_eq!(std::fs::read_to_string(&sta).unwrap(), second);
@@ -388,9 +414,9 @@ mod tests {
     fn the_boot_mend_restores_a_conf_lost_to_a_crash() {
         let dir = tempfile::tempdir().unwrap();
         let (sta, bak) = paths(dir.path());
-        let first = sta_conf("Home", Some("password12"), "/run/wpa_supplicant").unwrap();
+        let first = sta_conf("Home", Some("password12"), "/run/wpa_supplicant", "").unwrap();
         write_sta(&sta, &bak, &first).unwrap();
-        let second = sta_conf("Other", Some("password12"), "/run/wpa_supplicant").unwrap();
+        let second = sta_conf("Other", Some("password12"), "/run/wpa_supplicant", "").unwrap();
         write_sta(&sta, &bak, &second).unwrap();
 
         // crash window A: the conf never made it — the bak mends it
@@ -421,7 +447,7 @@ mod tests {
     fn write_atomic_creates_the_dir() {
         let dir = tempfile::tempdir().unwrap();
         let ap = dir.path().join("run").join("ap.conf");
-        write_atomic(&ap, &ap_conf("mestro-0000", "/run/wpa_supplicant")).unwrap();
+        write_atomic(&ap, &ap_conf("mestro-0000", "/run/wpa_supplicant", "")).unwrap();
         assert!(ap.is_file());
     }
 
@@ -435,9 +461,9 @@ mod tests {
     fn a_real_sync_failure_fails_the_write_vfat_refusals_do_not() {
         let dir = tempfile::tempdir().unwrap();
         let (sta, bak) = paths(dir.path());
-        let first = sta_conf("Home", Some("password12"), "/run/wpa_supplicant").unwrap();
+        let first = sta_conf("Home", Some("password12"), "/run/wpa_supplicant", "").unwrap();
         write_sta(&sta, &bak, &first).unwrap();
-        let second = sta_conf("Other", Some("password12"), "/run/wpa_supplicant").unwrap();
+        let second = sta_conf("Other", Some("password12"), "/run/wpa_supplicant", "").unwrap();
 
         // EIO is a real failure — and the `.bak` of the previous
         // conf SURVIVES it (the boot mend can still find it)

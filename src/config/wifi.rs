@@ -35,6 +35,15 @@ pub struct Wifi {
     /// — the DHCP pool (10–50 hosts, clamped for small prefixes)
     /// and the captive portal derive from it
     pub ap_address: String,
+    /// power save on the managed interface: brcmfmac's default
+    /// (on) costs the link ~300 ms latency spikes and stream
+    /// reconnects, so false (the default) switches it off; mestro
+    /// re-applies the state after every association
+    pub power_save: bool,
+    /// ISO 3166-1 alpha-2 regulatory domain; "" (the default)
+    /// leaves the kernel's alone. Written into every supplicant
+    /// conf mestro writes and pinned via `iw reg set` at boot
+    pub country: String,
 }
 
 impl Default for Wifi {
@@ -44,6 +53,8 @@ impl Default for Wifi {
             ctrl_dir: "/run/wpa_supplicant".into(),
             conf: "/data/wpa_supplicant.conf".into(),
             ap_address: DEFAULT_AP_ADDRESS.into(),
+            power_save: false,
+            country: String::new(),
         }
     }
 }
@@ -121,6 +132,12 @@ impl ApNet {
     }
 }
 
+/// is this an ISO 3166-1 alpha-2 code (two ASCII letters, case
+/// insensitive — load uppercases it)?
+fn is_country(code: &str) -> bool {
+    code.len() == 2 && code.bytes().all(|b| b.is_ascii_alphabetic())
+}
+
 impl Wifi {
     /// the parsed AP address (the default when the configured one
     /// does not parse — validated at load, this stays cheap)
@@ -168,6 +185,18 @@ impl Wifi {
             });
             self.ap_address = DEFAULT_AP_ADDRESS.into();
         }
+        if is_country(&self.country) {
+            self.country = self.country.to_ascii_uppercase();
+        } else if !self.country.is_empty() {
+            problems.push(Problem {
+                key: "wifi.country".into(),
+                reason: format!(
+                    "{} is not an ISO 3166-1 alpha-2 code — leaving the regdom alone",
+                    self.country
+                ),
+            });
+            self.country = String::new();
+        }
         problems
     }
 }
@@ -183,6 +212,8 @@ mod tests {
         assert_eq!(wifi.ctrl_dir, "/run/wpa_supplicant");
         assert_eq!(wifi.conf, "/data/wpa_supplicant.conf");
         assert_eq!(wifi.ap_address, DEFAULT_AP_ADDRESS);
+        assert!(!wifi.power_save, "power saving is off by default");
+        assert_eq!(wifi.country, "", "no country by default");
         // the config-file form parses back (kebab-case keys)
         let text = toml::to_string(&wifi).unwrap();
         assert!(text.contains("ap-address = \"10.42.0.1/24\""), "{text}");
@@ -262,9 +293,11 @@ mod tests {
             conf: "relative.conf".into(),
             ctrl_dir: "run/wpa".into(),
             ap_address: "8.8.8.8/24".into(),
+            country: "DEU".into(),
+            ..Default::default()
         };
         let problems = wifi.validate();
-        assert_eq!(problems.len(), 4);
+        assert_eq!(problems.len(), 5);
         let keys: Vec<&str> = problems.iter().map(|p| p.key.as_str()).collect();
         assert_eq!(
             keys,
@@ -272,7 +305,8 @@ mod tests {
                 "wifi.interface",
                 "wifi.conf",
                 "wifi.ctrl-dir",
-                "wifi.ap-address"
+                "wifi.ap-address",
+                "wifi.country"
             ]
         );
         assert_eq!(wifi, Wifi::default());
@@ -283,5 +317,33 @@ mod tests {
         };
         assert!(wifi.validate().is_empty());
         assert_eq!(wifi.ap_net().dhcp_low.to_string(), "10.99.5.10");
+    }
+
+    #[test]
+    fn a_valid_country_is_uppercased_and_garbage_ignored() {
+        // two ASCII letters, any case — the configured regdom
+        let mut wifi = Wifi {
+            country: "de".into(),
+            ..Default::default()
+        };
+        assert!(wifi.validate().is_empty());
+        assert_eq!(wifi.country, "DE");
+        let mut wifi = Wifi {
+            country: "DE".into(),
+            ..Default::default()
+        };
+        assert!(wifi.validate().is_empty());
+        assert_eq!(wifi.country, "DE");
+        // anything else is a problem and leaves the regdom alone
+        for bad in ["D", "DEU", "D1", "1D", "de-DE", "\u{4de}E"] {
+            let mut wifi = Wifi {
+                country: bad.into(),
+                ..Default::default()
+            };
+            let problems = wifi.validate();
+            assert_eq!(problems.len(), 1, "{bad}");
+            assert_eq!(problems[0].key, "wifi.country");
+            assert_eq!(wifi.country, "", "{bad} must not reach the radio");
+        }
     }
 }

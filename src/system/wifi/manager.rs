@@ -86,6 +86,12 @@ pub struct Manager<B: WifiBackend> {
     ssid: String,
     /// the last failure, reported by the status op
     last_error: String,
+    /// the association power save was last applied to (the STATUS
+    /// BSSID) — None = this association's state is unknown. brcmfmac
+    /// re-enables power saving on reassociation, so the tick re-
+    /// applies the configured state once per association, never per
+    /// tick
+    power_save_bssid: Option<String>,
     no_route_secs: u32,
     /// the current conf was seen online (and kept as the last good
     /// one) — reset whenever the conf changes
@@ -129,6 +135,7 @@ impl<B: WifiBackend> Manager<B> {
             web_port,
             ssid: String::new(),
             last_error: String::new(),
+            power_save_bssid: None,
             no_route_secs: 0,
             good_kept: false,
             snapshot: Arc::new(Mutex::new(json!({}))),
@@ -228,6 +235,8 @@ impl<B: WifiBackend> Manager<B> {
     pub fn boot(&mut self) {
         self.cleanup_strays();
         conf::recover_sta(&self.plan.sta, &self.plan.sta_bak);
+        self.apply_country();
+        self.apply_power_save();
         let usable = std::fs::read_to_string(&self.plan.sta)
             .map(|text| conf::usable_sta(&text))
             .unwrap_or(false);
@@ -246,6 +255,57 @@ impl<B: WifiBackend> Manager<B> {
             self.remember_if_online();
         } else {
             self.start_ap(ApReason::Setup);
+        }
+    }
+
+    /// set the configured regulatory domain (`iw reg set`) — the
+    /// kernel's default without it is the passive world set "00",
+    /// which restricts 5 GHz. An empty `[wifi]` country leaves the
+    /// kernel's alone; a failure is a warning, never fatal
+    fn apply_country(&mut self) {
+        let country = self.plan.country.clone();
+        if country.is_empty() {
+            return;
+        }
+        if let Err(e) = self.backend.run("iw", &["reg", "set", &country]) {
+            tracing::warn!("wifi: reg set {country}: {e}");
+        }
+    }
+
+    /// the configured power-save state on the managed interface
+    /// (`iw dev <if> set power_save`). brcmfmac enables power saving
+    /// by default and RE-ENABLES it on every (re)association — the
+    /// ~300 ms latency spikes and stream reconnects — so this runs
+    /// at boot, after every association mestro drives, and (via
+    /// [`ensure_power_save`]) once per association the supplicant
+    /// drove on its own. A failure is a warning, never fatal
+    fn apply_power_save(&mut self) {
+        let state = if self.plan.power_save { "on" } else { "off" };
+        if let Err(e) = self
+            .backend
+            .run("iw", &["dev", &self.plan.iface, "set", "power_save", state])
+        {
+            tracing::warn!("wifi: power_save {state} on {}: {e}", self.plan.iface);
+        }
+        self.power_save_bssid = None;
+    }
+
+    /// the tick's power-save catch-up: an association the supplicant
+    /// drove behind mestro's back (a roam, a driver-internal
+    /// reassociation) re-enabled power saving — apply the configured
+    /// state when the association (the STATUS BSSID) changed, never
+    /// per tick
+    fn ensure_power_save(&mut self) {
+        let Ok(reply) = self.backend.ctrl("STATUS") else {
+            return;
+        };
+        let info = wpa_ctrl::parse_status(&reply);
+        if info.wpa_state != "COMPLETED" || info.bssid.is_empty() {
+            return;
+        }
+        if self.power_save_bssid.as_deref() != Some(info.bssid.as_str()) {
+            self.apply_power_save();
+            self.power_save_bssid = Some(info.bssid);
         }
     }
 
@@ -325,6 +385,7 @@ impl<B: WifiBackend> Manager<B> {
     pub fn tick(&mut self) {
         match self.phase {
             Phase::Sta => {
+                self.ensure_power_save();
                 if self.backend.routable() {
                     self.no_route_secs = 0;
                     // the boot usually has no route yet (DHCP runs in
@@ -447,7 +508,10 @@ impl<B: WifiBackend> Manager<B> {
         let iface_arg = ["-i", iface.as_str()];
         self.backend
             .kill_foreign(WPA_SUPPLICANT, "wpa_supplicant", &[&iface_arg]);
-        conf::write_atomic(&ap_conf, &conf::ap_conf(&self.ap_ssid, &ctrl_dir))?;
+        conf::write_atomic(
+            &ap_conf,
+            &conf::ap_conf(&self.ap_ssid, &ctrl_dir, &self.plan.country),
+        )?;
         let ip = ap_net.ip.to_string();
         let portal = format!(
             "http://{ip}{}/setup/wifi",
@@ -504,7 +568,7 @@ impl<B: WifiBackend> Manager<B> {
     /// network (a paired phone is still reachable there)
     pub fn join(&mut self, ssid: &str, psk: Option<&str>) -> Result<(), String> {
         let ctrl_dir = self.plan.ctrl_dir.to_string_lossy().into_owned();
-        let text = conf::sta_conf(ssid, psk, &ctrl_dir)?;
+        let text = conf::sta_conf(ssid, psk, &ctrl_dir, &self.plan.country)?;
         let from_ap = self.ap_up;
         if let Err(e) = conf::write_sta(&self.plan.sta, &self.plan.sta_bak, &text) {
             return Err(format!("could not write the wifi conf: {e}"));
@@ -577,7 +641,11 @@ impl<B: WifiBackend> Manager<B> {
         // mestro owns this one
         self.backend
             .spawn("udhcpc", "udhcpc", &["-i", &iface, "-f"])?;
-        self.wait_for_address()
+        self.wait_for_address()?;
+        // the association re-enabled brcmfmac's power saving — the
+        // configured state goes back on with the link
+        self.apply_power_save();
+        Ok(())
     }
 
     /// the fallback retry: leave the hotspot and give the saved
@@ -982,6 +1050,8 @@ mod tests {
             sta_good: dir.join("wpa_supplicant.conf.good"),
             ap: dir.join("run").join("ap.conf"),
             ap_net: crate::config::Wifi::default().ap_net(),
+            power_save: false,
+            country: String::new(),
         }
     }
 
@@ -1006,7 +1076,7 @@ mod tests {
     const WLAN_ADDR: &str = "3: wlan0    inet 192.168.178.20/24 brd ... scope global wlan0";
 
     fn sta_conf_file(ssid: &str) -> String {
-        conf::sta_conf(ssid, Some("password12"), "/run/wpa_supplicant").unwrap()
+        conf::sta_conf(ssid, Some("password12"), "/run/wpa_supplicant", "").unwrap()
     }
 
     #[test]
@@ -1601,6 +1671,135 @@ mod tests {
                 ]
             })
         );
+    }
+
+    // ── the radio policy: power save (brcmfmac re-enables it on
+    // every association) and the regulatory domain ──
+
+    /// a manager with the [wifi] radio policy resolved into its
+    /// plan (power save, regdom)
+    fn policy_manager(
+        backend: FakeBackend,
+        dir: &std::path::Path,
+        power_save: bool,
+        country: &str,
+    ) -> Manager<FakeBackend> {
+        let mut resolved = plan(dir);
+        resolved.power_save = power_save;
+        resolved.country = country.into();
+        Manager::new(
+            backend,
+            resolved,
+            Arc::new(AtomicBool::new(false)),
+            slint::Weak::default(),
+            MAC,
+            80,
+            WifiShutdown::default(),
+        )
+    }
+
+    /// how many power-save applies landed in the log
+    fn power_saves(log: &[String]) -> usize {
+        log.iter().filter(|l| l.contains("set power_save")).count()
+    }
+
+    #[test]
+    fn boot_pins_the_regdom_and_the_power_save_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut mgr = policy_manager(
+            FakeBackend {
+                ping_ok: true,
+                ..FakeBackend::new(MAC)
+            },
+            dir.path(),
+            false,
+            "DE",
+        );
+        std::mem::forget(dir);
+        mgr.boot();
+        let log = mgr.backend.log();
+        assert!(log.iter().any(|l| l == "run iw reg set DE"), "{log:?}");
+        assert!(
+            log.iter()
+                .any(|l| l == "run iw dev wlan0 set power_save off"),
+            "{log:?}"
+        );
+        // the hotspot conf carries the regdom too
+        assert!(std::fs::read_to_string(&mgr.plan.ap)
+            .unwrap()
+            .contains("country=DE\n"));
+    }
+
+    #[test]
+    fn a_configured_power_save_on_is_applied_verbatim() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut mgr = policy_manager(
+            FakeBackend {
+                ping_ok: true,
+                ..FakeBackend::new(MAC)
+            },
+            dir.path(),
+            true,
+            "",
+        );
+        std::mem::forget(dir);
+        mgr.boot();
+        // and without a country the regdom stays untouched
+        let log = mgr.backend.log();
+        assert!(
+            log.iter()
+                .any(|l| l == "run iw dev wlan0 set power_save on"),
+            "{log:?}"
+        );
+        assert!(!log.iter().any(|l| l.starts_with("run iw reg")));
+    }
+
+    #[test]
+    fn a_join_reapplies_power_save_with_the_new_link() {
+        // brcmfmac re-enables power saving on association — every
+        // link mestro builds gets the configured state back
+        let (mut mgr, _) = manager(FakeBackend {
+            ping_ok: true,
+            wlan_addrs: WLAN_ADDR.into(),
+            ..FakeBackend::new(MAC)
+        });
+        mgr.boot(); // the boot apply
+        assert_eq!(power_saves(&mgr.backend.log()), 1);
+        mgr.join("FritzBox", Some("password12")).unwrap();
+        assert_eq!(
+            power_saves(&mgr.backend.log()),
+            2,
+            "the association re-applies it"
+        );
+    }
+
+    #[test]
+    fn the_tick_reapplies_power_save_once_per_association() {
+        // a roam re-associates behind mestro's back and re-enables
+        // power saving: the tick applies the configured state once
+        // per association (the BSSID names it), never per tick
+        let (mut mgr, _) = manager(FakeBackend {
+            ping_ok: true,
+            routable: true,
+            ..FakeBackend::new(MAC)
+        });
+        std::fs::write(&mgr.plan.sta, sta_conf_file("Home")).unwrap();
+        mgr.boot();
+        assert_eq!(power_saves(&mgr.backend.log()), 1, "the boot apply");
+        mgr.tick(); // the boot association's state is unknown
+        assert_eq!(power_saves(&mgr.backend.log()), 2, "one catch-up");
+        for _ in 0..5 {
+            mgr.tick(); // the same association: nothing new
+        }
+        assert_eq!(power_saves(&mgr.backend.log()), 2, "no iw per tick");
+        // the supplicant roamed to another BSSID
+        mgr.backend.status = "wpa_state=COMPLETED\nbssid=aa:bb:cc:dd:ee:ff\n".into();
+        mgr.tick();
+        assert_eq!(power_saves(&mgr.backend.log()), 3, "a new association");
+        // and a link that is not up leaves it alone
+        mgr.backend.status = "wpa_state=SCANNING\n".into();
+        mgr.tick();
+        assert_eq!(power_saves(&mgr.backend.log()), 3);
     }
 
     // ── the ops runtime: status never blocks, one join at a time,
