@@ -2,8 +2,13 @@
   import { onMount } from "svelte";
   import { socket } from "../../lib/connection.svelte";
   import { t } from "../../lib/i18n.svelte";
-  import { filterZones, loadZones, zoneLabel, type TimezoneSend } from "../../lib/timezone";
-  import type { TimezoneSetData } from "../../lib/protocol";
+  import {
+    createPickerActions,
+    filterZones,
+    zoneLabel,
+    type PickerState,
+    type TimezoneSend,
+  } from "../../lib/timezone";
   import Icon from "../../components/Icon.svelte";
   import Sheet from "../../components/Sheet.svelte";
 
@@ -14,66 +19,61 @@
 
   const send: TimezoneSend = (request) => socket.send(request);
 
-  let zones = $state<string[]>([]);
-  let chosen = $state("");
-  let current = $state<string | null>(null);
-  let loaded = $state(false);
+  const picker = $state<PickerState>({
+    zones: [],
+    chosen: "",
+    current: null,
+    loaded: false,
+    applying: false,
+    error: "",
+  });
+  const actions = createPickerActions(send, picker);
   let open = $state(false);
   let query = $state("");
-  let applying = $state(false);
-  let error = $state("");
 
-  const shown = $derived(filterZones(zones, query));
+  const shown = $derived(filterZones(picker.zones, query));
   // the explicit choice, else the zone the player runs in (automatic)
   const label = $derived(
-    chosen ? zoneLabel(chosen) : current ? zoneLabel(current) : t("timezone.unknown"),
+    picker.chosen
+      ? zoneLabel(picker.chosen)
+      : picker.current
+        ? zoneLabel(picker.current)
+        : t("timezone.unknown"),
   );
 
   onMount(() => {
-    loadZones(send)
-      .then((data) => {
-        zones = data.zones;
-        chosen = data.chosen;
-        current = data.current;
-      })
-      .catch((cause: unknown) => (error = cause instanceof Error ? cause.message : String(cause)))
-      .finally(() => (loaded = true));
+    void actions.load();
+    // a restarting reply ends in a dropped socket: the reconnect
+    // frees the row and reads the zones the new process runs in
+    return socket.onOpen(() => void actions.reconnected());
   });
 
-  async function pick(zone: string) {
+  function pick(zone: string) {
     open = false;
-    if (zone === (chosen || current)) return;
-    applying = true;
-    error = "";
-    try {
-      const reply = (await send({ op: "timezone", action: "set", zone })) as TimezoneSetData;
-      chosen = reply.zone;
-      // the player restarts when the running zone changed — keep the
-      // pill up until the connection drops and comes back
-      if (!reply.restarting) applying = false;
-    } catch (cause) {
-      error = cause instanceof Error ? cause.message : String(cause);
-      applying = false;
-    }
+    void actions.pick(zone);
   }
 </script>
 
-{#if loaded && zones.length > 0}
-  <button class="changerow" disabled={applying} onclick={() => ((query = ""), (open = true))}>
+{#if picker.loaded && picker.zones.length > 0}
+  <button
+    class="changerow"
+    disabled={picker.applying}
+    onclick={() => ((query = ""), (open = true))}
+  >
     <span class="label">{t("timezone.row")}</span>
     <span class="value">
-      {#if applying}
+      {#if picker.applying}
         <span class="dot pulse"></span> {t("timezone.applying")}
       {:else}
         {label}
-        {#if !chosen}<span class="auto">{t("timezone.auto")}</span>{/if}
+        {#if !picker.chosen}<span class="auto">{t("timezone.auto")}</span>{/if}
       {/if}
     </span>
     <Icon name="chevronRight" size={18} />
   </button>
 {/if}
-{#if error}
-  <div class="err" role="alert"><Icon name="alert" size={16} /> {error}</div>
+{#if picker.error}
+  <div class="err" role="alert"><Icon name="alert" size={16} /> {picker.error}</div>
 {/if}
 
 <Sheet bind:open title={t("timezone.title")}>
@@ -88,11 +88,11 @@
     {#each shown as zone (zone)}
       <button
         class="option"
-        class:active={zone === (chosen || current)}
-        onclick={() => void pick(zone)}
+        class:active={zone === (picker.chosen || picker.current)}
+        onclick={() => pick(zone)}
       >
         <span class="option-label">{zoneLabel(zone)}</span>
-        {#if zone === (chosen || current)}
+        {#if zone === (picker.chosen || picker.current)}
           <Icon name="check" size={20} />
         {/if}
       </button>

@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { createAdopter, filterZones, zoneLabel, type TimezoneSend } from "./timezone";
+import {
+  createAdopter,
+  createPickerActions,
+  filterZones,
+  zoneLabel,
+  type PickerState,
+  type TimezoneSend,
+} from "./timezone";
 
 const ZONES = [
   "America/Argentina/Buenos_Aires",
@@ -72,5 +79,87 @@ describe("createAdopter", () => {
     await adopt();
     await adopt();
     expect(attempts).toBe(2);
+  });
+});
+
+function pickerState(): PickerState {
+  return { zones: [], chosen: "", current: null, loaded: false, applying: false, error: "" };
+}
+
+describe("createPickerActions", () => {
+  const zonesReply = (chosen: string, current: string) => ({
+    zones: ["Europe/Berlin", "Europe/London"],
+    chosen,
+    current,
+  });
+
+  test("a restarting reply keeps the pill up; the reconnect resets it and reloads the zones", async () => {
+    const state = pickerState();
+    let restarted = false;
+    const send: TimezoneSend = async (request) => {
+      if (request.action === "set") {
+        restarted = true;
+        return { zone: "Europe/London", taken: true, restarting: true };
+      }
+      return restarted
+        ? zonesReply("Europe/London", "Europe/London")
+        : zonesReply("", "Europe/Berlin");
+    };
+    const picker = createPickerActions(send, state);
+    await picker.load();
+    expect(state.current).toBe("Europe/Berlin");
+
+    await picker.pick("Europe/London");
+    expect(state.applying).toBe(true);
+    expect(state.chosen).toBe("Europe/London");
+
+    await picker.reconnected();
+    expect(state.applying).toBe(false);
+    expect(state.current).toBe("Europe/London");
+    expect(state.zones).toEqual(["Europe/Berlin", "Europe/London"]);
+  });
+
+  test("a reply without a restart ends the busy state at once", async () => {
+    const state = pickerState();
+    const send: TimezoneSend = async () => ({
+      zone: "Europe/London",
+      taken: true,
+      restarting: false,
+    });
+    await createPickerActions(send, state).pick("Europe/London");
+    expect(state.applying).toBe(false);
+    expect(state.error).toBe("");
+  });
+
+  test("a refused choice shows the error and frees the row", async () => {
+    const state = pickerState();
+    const send: TimezoneSend = async () => {
+      throw new Error("unknown timezone Nowhere/Land");
+    };
+    await createPickerActions(send, state).pick("Nowhere/Land");
+    expect(state.applying).toBe(false);
+    expect(state.error).toBe("unknown timezone Nowhere/Land");
+  });
+
+  test("choosing the zone already in use sends nothing", async () => {
+    const state = { ...pickerState(), chosen: "Europe/Berlin" };
+    const sent: unknown[] = [];
+    const send: TimezoneSend = async (request) => {
+      sent.push(request);
+      return {};
+    };
+    await createPickerActions(send, state).pick("Europe/Berlin");
+    expect(sent).toEqual([]);
+    expect(state.applying).toBe(false);
+  });
+
+  test("a failed reload on reconnect still frees the row", async () => {
+    const state = { ...pickerState(), applying: true };
+    const send: TimezoneSend = async () => {
+      throw new Error("pairing required");
+    };
+    await createPickerActions(send, state).reconnected();
+    expect(state.applying).toBe(false);
+    expect(state.error).toBe("pairing required");
   });
 });
