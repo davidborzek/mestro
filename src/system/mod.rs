@@ -16,5 +16,7 @@ pub mod envfile;
 pub mod paths;
 #[cfg(feature = "wifi-setup")]
 pub mod reset;
+#[cfg(feature = "timezone")]
+pub mod timezone;
 #[cfg(feature = "wifi-setup")]
 pub mod wifi;

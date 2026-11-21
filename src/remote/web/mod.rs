@@ -26,7 +26,9 @@ mod state;
 pub use mdns::MdnsGate;
 #[cfg(all(test, feature = "wifi-setup"))]
 pub(crate) use mdns::{fake_announcer::confirming_worker, GatePhase};
-pub use protocol::{AudioOp, Envelope, MaOp, PlayerAction, Request, Response, SettingsOp, WifiOp};
+pub use protocol::{
+    AudioOp, Envelope, MaOp, PlayerAction, Request, Response, SettingsOp, TimezoneOp, WifiOp,
+};
 pub use push::{Events, Push};
 
 use crate::locks;
@@ -90,6 +92,8 @@ pub struct WebInfo {
     /// hotspot-trusted when its peer address lies inside and the
     /// hotspot is confirmed up
     pub ap_net: crate::config::ApNet,
+    /// the timezone picker's paths (`[system]`)
+    pub system: crate::config::System,
 }
 
 impl WebInfo {
@@ -185,6 +189,7 @@ pub fn info(
     display_supported: bool,
     ap_net: crate::config::ApNet,
     player_name: &str,
+    system: crate::config::System,
 ) -> (WebInfo, String) {
     tracing::info!(
         "web: start: enabled={} port={}",
@@ -211,6 +216,7 @@ pub fn info(
         ap_mode: std::sync::Arc::default(),
         mdns_gate: std::sync::Arc::default(),
         ap_net,
+        system,
     };
     // the wizard URL carries the pairing PIN — the kiosk connection
     // page shows it too (restart-stable secret for a LAN device,
@@ -579,6 +585,7 @@ mod tests {
             ap_mode: std::sync::Arc::default(),
             mdns_gate: std::sync::Arc::default(),
             ap_net: ap_net([10, 42, 0, 1]),
+            system: crate::config::System::default(),
         };
         if ap_up {
             info.ap_mode

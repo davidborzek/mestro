@@ -244,6 +244,15 @@ shm_prefix = "squeezelite"
 #enabled = true
 #port = 8787
 
+# the timezone picker (the player image, feature `timezone`): the zone
+# itself is a device setting written by the web app; the paths are
+# config-file only
+[system]
+#timezone = ""
+#env-file = "/data/mestro.env"
+#zoneinfo-dir = "/usr/share/zoneinfo"
+#localtime = "/etc/localtime"
+
 # the first-boot WiFi setup (the player image; config-file only — never
 # in the settings editor). Everything resolves at runtime: one
 # binary per board, no paths in code

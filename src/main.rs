@@ -149,7 +149,11 @@ fn run_ui(
                 handle.stop_tracked();
             }
         }
-        restart::restart();
+        #[cfg(feature = "timezone")]
+        let timezone = mestro::system::timezone::take_pending_zone();
+        #[cfg(not(feature = "timezone"))]
+        let timezone = None::<String>;
+        restart::restart(timezone.as_deref());
     }
 }
 
@@ -624,6 +628,7 @@ fn wire_remote(
         ui.get_display_supported(),
         config.wifi.ap_net(),
         &config.music_assistant.player,
+        config.system.clone(),
     );
     // the settings-preview thumbnails: rendered on this (UI)
     // thread from the compiled registries, on demand through the

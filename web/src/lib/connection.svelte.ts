@@ -4,6 +4,7 @@
 import { attachLifecycle, KioskSocket, socketUrl, type SocketStatus } from "./ws";
 import type { HelloData, StateData } from "./protocol";
 import { pairStatus, isPaired } from "./pairing";
+import { createAdopter } from "./timezone";
 
 export const socket = new KioskSocket(socketUrl());
 
@@ -24,6 +25,8 @@ export const device = $state({
   // the audio output picker works here (hello capability
   // `audio_output`: the build has the feature and squeezelite.env exists)
   audioOutput: false,
+  // the timezone picker works here (hello capability `timezone`)
+  timezone: false,
   remoteUrl: "",
   configured: false,
   configUrl: "",
@@ -32,6 +35,10 @@ export const device = $state({
   // loading state instead of guessing
   ready: false,
 });
+
+// the browser's zone is offered once per page load, after a paired
+// handshake (an unpaired socket would only be refused)
+const adoptBrowserZone = createAdopter((request) => socket.send(request));
 
 export const connection = $state({
   // pairing gate: null = still checking, true = cookie accepted
@@ -54,8 +61,10 @@ export async function runHandshake(): Promise<void> {
   device.wifi = hello.capabilities?.wifi ?? false;
   device.factoryReset = hello.capabilities?.factory_reset ?? false;
   device.audioOutput = hello.capabilities?.audio_output ?? false;
+  device.timezone = hello.capabilities?.timezone ?? false;
   device.remoteUrl = hello.remote_url;
   await refreshDevice();
+  if (device.timezone) void adoptBrowserZone();
 }
 
 // brings the socket up once and keeps `connection.status` in
