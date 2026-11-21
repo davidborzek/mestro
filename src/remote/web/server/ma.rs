@@ -106,7 +106,7 @@ pub(super) async fn handle(id: u64, action: MaOp, info: &WebInfo, bridge: &Bridg
 /// the stored MA connection (token + url), process-internally.
 /// Never wire-visible: `dispatch` only forwards ops from the
 /// public [`Request`] vocabulary, this shape is rejected there.
-async fn fetch_conn(bridge: &Bridge) -> Result<(String, String), String> {
+pub(super) async fn fetch_conn(bridge: &Bridge) -> Result<(String, String), String> {
     let body = bridge
         .op_async(&json(&crate::remote::web::protocol::InternalOp::MaToken))
         .await?;

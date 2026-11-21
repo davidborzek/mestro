@@ -438,6 +438,23 @@ async function patchedFetch(input: RequestInfo | URL, init?: RequestInit) {
       headers: { "content-type": "application/json" },
     });
   }
+  if (path === "/diagnostics") {
+    // the device's report, shortened: secrets are already out of it
+    const report = {
+      report: "mestro-diagnostics",
+      format: 1,
+      version: "0.1.0-mock",
+      state: { effective: { "music-assistant": { token: "[redacted]" } } },
+      logs: { "/tmp/mestro.log": ["INFO mock: nothing to see"] },
+    };
+    return new Response(JSON.stringify(report, null, 2), {
+      status: 200,
+      headers: {
+        "content-type": "application/json",
+        "content-disposition": 'attachment; filename="mestro-diagnostics-mock.json"',
+      },
+    });
+  }
   if (path === "/pair" && init?.method === "POST") {
     return new Response(null, { status: 204 });
   }

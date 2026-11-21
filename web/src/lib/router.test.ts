@@ -170,6 +170,7 @@ describe("matchRoute", () => {
       "/ota",
       "/vu-preview",
       "/clock-preview",
+      "/diagnostics",
     ]);
     for (const path of RESERVED_PATHS) {
       expect(matchRoute(path)).toBeNull();

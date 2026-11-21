@@ -249,6 +249,14 @@ shm_prefix = "squeezelite"
 [system]
 #timezone = ""
 
+# what the web app's diagnostics download collects (the player image;
+# config-file only). Missing files are skipped; secrets are redacted
+[diagnostics]
+#logs = ["/tmp/mestro.log", "/tmp/mestro.log.old", "/tmp/ota.log"]
+#log-lines = 200
+#files = ["/proc/version", "/proc/asound/cards"]
+#status-command = "/usr/sbin/mestro-upgrade --status"
+
 # the first-boot WiFi setup (the player image; config-file only — never
 # in the settings editor). Everything resolves at runtime: one
 # binary per board, no paths in code
