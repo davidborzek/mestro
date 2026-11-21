@@ -14,9 +14,10 @@ pub mod vu;
 pub mod providers;
 pub mod remote;
 
-// device-level system logic (kiosk builds: wifi setup, factory
-// reset — feature `wifi-setup`)
-#[cfg(feature = "wifi-setup")]
+// device-level system logic (kiosk builds: wifi setup + factory
+// reset — feature `wifi-setup`; the audio output and timezone
+// pickers — features `audio-output`, `timezone`)
+#[cfg(any(feature = "wifi-setup", feature = "audio-output", feature = "timezone"))]
 pub mod system;
 
 /// `0.1.0 (<git hash>)`; the plain version when git was unavailable
