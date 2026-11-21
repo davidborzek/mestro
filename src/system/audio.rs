@@ -7,7 +7,8 @@
 #![deny(clippy::indexing_slicing)]
 
 use crate::config::Audio;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::Duration;
 
 /// one playback device the picker offers
@@ -171,12 +172,37 @@ fn survives_startup(runner: &mut dyn Squeezelite) -> bool {
     true
 }
 
+/// env files with a switch in flight: the whole switch / restart /
+/// verify / rollback transaction is one critical section per file
+static SWITCHES_IN_FLIGHT: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+
+/// the switch slot of one env file, released on drop
+struct SwitchSlot(PathBuf);
+
+impl SwitchSlot {
+    fn take(env_file: &Path) -> Result<Self, String> {
+        let mut busy = crate::locks::lock(&SWITCHES_IN_FLIGHT);
+        if busy.iter().any(|path| path == env_file) {
+            return Err("another switch is in progress".into());
+        }
+        busy.push(env_file.to_path_buf());
+        Ok(Self(env_file.to_path_buf()))
+    }
+}
+
+impl Drop for SwitchSlot {
+    fn drop(&mut self) {
+        crate::locks::lock(&SWITCHES_IN_FLIGHT).retain(|path| *path != self.0);
+    }
+}
+
 /// switch squeezelite to `output`: the id must be one of the
 /// listed devices (anything else errors with the file untouched),
 /// only the `OUTPUT` line changes, squeezelite restarts. If it is
 /// not running after the restart, the previous file is restored
 /// byte for byte, squeezelite restarts again and the error names
-/// the device that failed
+/// the device that failed. One switch per env file at a time: a
+/// second one fails at once with "another switch is in progress"
 pub fn set_output(
     config: &Audio,
     runner: &mut dyn Squeezelite,
@@ -187,6 +213,7 @@ pub fn set_output(
         return Err(format!("unknown audio output {output}"));
     }
     let env_file = Path::new(&config.env_file);
+    let _slot = SwitchSlot::take(env_file)?;
     if current_output(env_file).is_some_and(|current| same_device(&current, output)) {
         return Ok(());
     }
@@ -594,6 +621,86 @@ mod tests {
             std::fs::read_to_string(&config.env_file).unwrap(),
             "NAME=mestro\nOUTPUT=hw:CARD=S3\n"
         );
+    }
+
+    /// a squeezelite stand-in that parks inside the restart until released
+    struct Parked {
+        entered: std::sync::mpsc::Sender<()>,
+        release: std::sync::mpsc::Receiver<()>,
+    }
+
+    impl Squeezelite for Parked {
+        fn restart(&mut self) -> Result<(), String> {
+            self.entered.send(()).map_err(|e| e.to_string())?;
+            self.release.recv().map_err(|e| e.to_string())
+        }
+        fn running(&mut self) -> bool {
+            true
+        }
+        fn sleep(&mut self, _duration: Duration) {}
+    }
+
+    #[test]
+    fn a_second_switch_fails_fast_while_one_is_in_progress() {
+        let (_asound, _env, config) = setup();
+        let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        std::thread::scope(|scope| {
+            let first = scope.spawn(|| {
+                let mut parked = Parked {
+                    entered: entered_tx,
+                    release: release_rx,
+                };
+                set_output(&config, &mut parked, "hw:CARD=S3")
+            });
+            // the first switch is inside its restart: the file is written
+            entered_rx.recv().unwrap();
+            let mut fake = Fake::new(&config, &[]);
+            let second = set_output(&config, &mut fake, "hw:CARD=vc4hdmi0");
+            let on_disk = current_output(Path::new(&config.env_file));
+            // release before asserting: a failed assert must not hang the scope
+            release_tx.send(()).unwrap();
+            first.join().unwrap().unwrap();
+            let err = second.unwrap_err();
+            assert!(err.contains("another switch is in progress"), "{err}");
+            assert!(fake.restarts.is_empty(), "the busy request touched nothing");
+            assert_eq!(
+                on_disk.as_deref(),
+                Some("hw:CARD=S3"),
+                "the running switch's file is intact"
+            );
+        });
+        assert_eq!(
+            std::fs::read_to_string(&config.env_file).unwrap(),
+            ENV.replace("hw:CARD=Headphones", "hw:CARD=S3")
+        );
+        // the lock is free again — also after a rolled-back switch
+        let mut fake = Fake::new(&config, &["hw:CARD=vc4hdmi0"]);
+        assert!(set_output(&config, &mut fake, "hw:CARD=vc4hdmi0").is_err());
+        let mut fake = Fake::new(&config, &[]);
+        set_output(&config, &mut fake, "hw:CARD=Headphones").unwrap();
+    }
+
+    #[test]
+    fn switches_of_different_env_files_do_not_block_each_other() {
+        let (_asound_a, _env_a, config_a) = setup();
+        let (_asound_b, _env_b, config_b) = setup();
+        let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        std::thread::scope(|scope| {
+            let first = scope.spawn(|| {
+                let mut parked = Parked {
+                    entered: entered_tx,
+                    release: release_rx,
+                };
+                set_output(&config_a, &mut parked, "hw:CARD=S3")
+            });
+            entered_rx.recv().unwrap();
+            let mut fake = Fake::new(&config_b, &[]);
+            set_output(&config_b, &mut fake, "hw:CARD=S3").unwrap();
+            release_tx.send(()).unwrap();
+            first.join().unwrap().unwrap();
+        });
     }
 
     #[test]

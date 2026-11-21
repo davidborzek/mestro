@@ -334,7 +334,9 @@ squeezelite is not running 3 s after the restart (or the command
 fails), the previous file is restored byte for byte, squeezelite
 is restarted again and the error names the device that failed —
 a bad pick never leaves the player silent. The reply arrives after
-that watch (about 3.5 s).
+that watch (about 3.5 s). One switch runs at a time: a second
+`set` while one is in flight fails at once with `another switch is
+in progress` and touches nothing.
 
 ### Timezone (feature `timezone`)
 
