@@ -63,8 +63,10 @@ The binary embeds `web/dist/` at compile time: after a web change,
 ## Conventions that aren't obvious from the code
 
 - **device logic lives in Rust**, not shell scripts; init scripts only
-  start things. No hard-wired board paths: detect at runtime, allow a
-  config override — one binary for every board
+  start things. No hard-wired board paths: detect hardware at runtime
+  (one binary for every board); where the *image* keeps files or how
+  it runs commands is a build setting (`src/system/paths.rs`,
+  `MESTRO_*` at build time), never a user config key
 - **user-facing text says "player"**, never "kiosk"
 - **web**: Svelte 5 runes, TypeScript strict, small components, own
   history router (`lib/router.ts`, no router dependency); every string

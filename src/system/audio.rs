@@ -1,15 +1,18 @@
 //! The audio output picker (feature `audio-output`): the ALSA
-//! playback devices from `/proc/asound`, and switching squeezelite's
+//! playback devices from [`ASOUND_DIR`], and switching squeezelite's
 //! `OUTPUT` in its env file. A switch that leaves squeezelite dead
 //! is rolled back — the player must not end up silent because
 //! someone picked a device that cannot be opened.
 
 #![deny(clippy::indexing_slicing)]
 
-use crate::config::Audio;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Duration;
+
+/// the kernel's ALSA proc tree (`cards` plus `card<N>/pcm<D>p`): a
+/// Linux fact, not an image choice
+pub const ASOUND_DIR: &str = "/proc/asound";
 
 /// one playback device the picker offers
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -123,9 +126,12 @@ pub fn current_output(env_file: &Path) -> Option<String> {
 }
 
 /// the picker's list with the device in use marked
-pub fn outputs_with_current(config: &Audio) -> (Vec<(Output, bool)>, Option<String>) {
-    let current = current_output(Path::new(&config.env_file));
-    let outputs = list_outputs(Path::new(&config.asound_dir))
+pub fn outputs_with_current(
+    env_file: &Path,
+    asound_dir: &Path,
+) -> (Vec<(Output, bool)>, Option<String>) {
+    let current = current_output(env_file);
+    let outputs = list_outputs(asound_dir)
         .into_iter()
         .map(|output| {
             let is_current = current
@@ -139,8 +145,8 @@ pub fn outputs_with_current(config: &Audio) -> (Vec<(Output, bool)>, Option<Stri
 
 /// the capability: the env file exists (a desktop without
 /// squeezelite has none)
-pub fn available(config: &Audio) -> bool {
-    Path::new(&config.env_file).is_file()
+pub fn available(env_file: &Path) -> bool {
+    env_file.is_file()
 }
 
 /// how squeezelite is restarted and watched — the seam the tests
@@ -204,15 +210,15 @@ impl Drop for SwitchSlot {
 /// the device that failed. One switch per env file at a time: a
 /// second one fails at once with "another switch is in progress"
 pub fn set_output(
-    config: &Audio,
+    env_file: &Path,
+    asound_dir: &Path,
     runner: &mut dyn Squeezelite,
     output: &str,
 ) -> Result<(), String> {
-    let listed = list_outputs(Path::new(&config.asound_dir));
+    let listed = list_outputs(asound_dir);
     if !listed.iter().any(|candidate| candidate.id == output) {
         return Err(format!("unknown audio output {output}"));
     }
-    let env_file = Path::new(&config.env_file);
     let _slot = SwitchSlot::take(env_file)?;
     if current_output(env_file).is_some_and(|current| same_device(&current, output)) {
         return Ok(());
@@ -241,7 +247,7 @@ pub fn set_output(
     }
 }
 
-/// the real restart: the configured command, no shell, output
+/// the real restart: the image's command, no shell, output
 /// dropped (squeezelite is a daemon of that command — a pipe
 /// would stay open as long as it runs)
 pub struct SqueezeliteService {
@@ -249,10 +255,10 @@ pub struct SqueezeliteService {
 }
 
 impl SqueezeliteService {
-    pub fn new(config: &Audio) -> Self {
+    /// `restart_command`: program and arguments, split on whitespace
+    pub fn new(restart_command: &str) -> Self {
         Self {
-            command: config
-                .restart_command
+            command: restart_command
                 .split_whitespace()
                 .map(String::from)
                 .collect(),
@@ -265,7 +271,7 @@ impl Squeezelite for SqueezeliteService {
         let (program, args) = self
             .command
             .split_first()
-            .ok_or("no [audio] restart-command configured")?;
+            .ok_or("no squeezelite restart command")?;
         let status = std::process::Command::new(program)
             .args(args)
             .stdin(std::process::Stdio::null())
@@ -448,13 +454,9 @@ mod tests {
     fn the_current_output_is_the_one_the_env_file_names() {
         let asound = pi_asound();
         let env = tempfile::tempdir().unwrap();
-        let config = Audio {
-            env_file: env.path().join("squeezelite.env").display().to_string(),
-            asound_dir: asound.path().display().to_string(),
-            ..Audio::default()
-        };
-        std::fs::write(&config.env_file, "OUTPUT=\"hw:CARD=S3,DEV=0\"\nNAME=x\n").unwrap();
-        let (outputs, current) = outputs_with_current(&config);
+        let env_file = env.path().join("squeezelite.env");
+        std::fs::write(&env_file, "OUTPUT=\"hw:CARD=S3,DEV=0\"\nNAME=x\n").unwrap();
+        let (outputs, current) = outputs_with_current(&env_file, asound.path());
         assert_eq!(current.as_deref(), Some("hw:CARD=S3,DEV=0"));
         let marked: Vec<_> = outputs
             .iter()
@@ -463,20 +465,20 @@ mod tests {
             .collect();
         assert_eq!(marked, ["hw:CARD=S3"], "DEV=0 is the plain card");
         // an output that is not plugged in marks nothing
-        std::fs::write(&config.env_file, "OUTPUT=hw:CARD=DAC\n").unwrap();
-        assert!(outputs_with_current(&config).0.iter().all(|(_, c)| !c));
+        std::fs::write(&env_file, "OUTPUT=hw:CARD=DAC\n").unwrap();
+        assert!(outputs_with_current(&env_file, asound.path())
+            .0
+            .iter()
+            .all(|(_, c)| !c));
     }
 
     #[test]
     fn the_capability_follows_the_env_file() {
         let dir = tempfile::tempdir().unwrap();
-        let config = Audio {
-            env_file: dir.path().join("squeezelite.env").display().to_string(),
-            ..Audio::default()
-        };
-        assert!(!available(&config));
-        std::fs::write(&config.env_file, "OUTPUT=x\n").unwrap();
-        assert!(available(&config));
+        let env_file = dir.path().join("squeezelite.env");
+        assert!(!available(&env_file));
+        std::fs::write(&env_file, "OUTPUT=x\n").unwrap();
+        assert!(available(&env_file));
     }
 
     /// a squeezelite stand-in: remembers which OUTPUT the env file
@@ -490,9 +492,9 @@ mod tests {
     }
 
     impl Fake {
-        fn new(config: &Audio, broken: &[&'static str]) -> Self {
+        fn new(config: &Setup, broken: &[&'static str]) -> Self {
             Self {
-                env: config.env_file.clone().into(),
+                env: config.env_file.clone(),
                 broken: broken.to_vec(),
                 restarts: Vec::new(),
                 restart_fails: false,
@@ -524,13 +526,26 @@ mod tests {
     const ENV: &str =
         "# squeezelite env\nOUTPUT=hw:CARD=Headphones\n# host\nSERVER=\nNAME=mestro\n";
 
-    fn setup() -> (tempfile::TempDir, tempfile::TempDir, Audio) {
+    /// the two paths a switch works on, in temp dirs
+    struct Setup {
+        env_file: PathBuf,
+        asound_dir: PathBuf,
+    }
+
+    fn set_output(
+        config: &Setup,
+        runner: &mut dyn Squeezelite,
+        output: &str,
+    ) -> Result<(), String> {
+        super::set_output(&config.env_file, &config.asound_dir, runner, output)
+    }
+
+    fn setup() -> (tempfile::TempDir, tempfile::TempDir, Setup) {
         let asound = pi_asound();
         let env = tempfile::tempdir().unwrap();
-        let config = Audio {
-            env_file: env.path().join("squeezelite.env").display().to_string(),
-            asound_dir: asound.path().display().to_string(),
-            ..Audio::default()
+        let config = Setup {
+            env_file: env.path().join("squeezelite.env"),
+            asound_dir: asound.path().to_path_buf(),
         };
         std::fs::write(&config.env_file, ENV).unwrap();
         (asound, env, config)
@@ -657,7 +672,7 @@ mod tests {
             entered_rx.recv().unwrap();
             let mut fake = Fake::new(&config, &[]);
             let second = set_output(&config, &mut fake, "hw:CARD=vc4hdmi0");
-            let on_disk = current_output(Path::new(&config.env_file));
+            let on_disk = current_output(&config.env_file);
             // release before asserting: a failed assert must not hang the scope
             release_tx.send(()).unwrap();
             first.join().unwrap().unwrap();
@@ -725,12 +740,7 @@ mod tests {
 
     #[test]
     fn the_real_service_reports_a_failing_command() {
-        let service = |command: &str| {
-            SqueezeliteService::new(&Audio {
-                restart_command: command.into(),
-                ..Audio::default()
-            })
-        };
+        let service = SqueezeliteService::new;
         assert!(service("true").restart().is_ok());
         assert!(service("false").restart().unwrap_err().contains("exited"));
         assert!(service("/nonexistent/init restart").restart().is_err());

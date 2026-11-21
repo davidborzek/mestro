@@ -298,8 +298,9 @@ The picker behind Settings → Audio → Audio output. Paired only —
 an unpaired hotspot client gets `pairing required`, like for every
 other device op. `hello` reports `capabilities.audio_output`: true
 only when the build has the feature **and** the squeezelite env file
-exists (`[audio] env-file`); without it both ops answer
-`audio output not available` and no file is touched.
+exists (a build setting, CONTRIBUTING.md "Building for another
+image"); without it both ops answer `audio output not available`
+and no file is touched.
 
 ```jsonc
 // → {"id": 13, "op": "audio", "action": "outputs"}
@@ -325,8 +326,8 @@ card's first playback device is `hw:CARD=<id>`, further ones
 `set` accepts only an id from that list (anything else:
 `unknown audio output …`, the file untouched), rewrites only the
 `OUTPUT=` line of the env file (atomic; comments, other keys,
-quoting and CRLF stay) and runs `[audio] restart-command`. If
-squeezelite is not running 3 s after the restart (or the command
+quoting and CRLF stay) and runs the image's squeezelite restart
+command. If squeezelite is not running 3 s after the restart (or the command
 fails), the previous file is restored byte for byte, squeezelite
 is restarted again and the error names the device that failed —
 a bad pick never leaves the player silent. The reply arrives after

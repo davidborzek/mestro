@@ -40,6 +40,22 @@ MESTRO_TOKEN=eyJ… ./target/debug/mestro --kiosk
 every manual test run so layout work happens at the real aspect
 ratio.
 
+## Building for another image
+
+The player image's paths and commands are not user settings: they
+are fixed at build time. Set the variable in the environment of
+`cargo build` (e.g. `MESTRO_SQUEEZELITE_ENV=/mnt/squeezelite.env
+cargo build`); unset, the Buildroot image's value applies.
+`src/system/paths.rs` reads them with `option_env!` and `build.rs`
+reruns when one changes, so a cached build never keeps an old value.
+Functions take their paths as parameters (tests use temp dirs);
+only the production call sites read the constants.
+
+| variable | default | what |
+|---|---|---|
+| `MESTRO_SQUEEZELITE_ENV` | `/data/squeezelite.env` | the env file the audio output picker rewrites (`OUTPUT=`); the picker shows only while it exists |
+| `MESTRO_SQUEEZELITE_RESTART` | `/etc/init.d/S60squeezelite restart` | the command that restarts squeezelite (split on whitespace, no shell) |
+
 ## Formatting
 
 `nix develop -c treefmt` formats the whole tree (Rust, Slint, Nix,

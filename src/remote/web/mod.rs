@@ -90,8 +90,6 @@ pub struct WebInfo {
     /// hotspot-trusted when its peer address lies inside and the
     /// hotspot is confirmed up
     pub ap_net: crate::config::ApNet,
-    /// where the audio output picker finds squeezelite (`[audio]`)
-    pub audio: crate::config::Audio,
 }
 
 impl WebInfo {
@@ -187,7 +185,6 @@ pub fn info(
     display_supported: bool,
     ap_net: crate::config::ApNet,
     player_name: &str,
-    audio: crate::config::Audio,
 ) -> (WebInfo, String) {
     tracing::info!(
         "web: start: enabled={} port={}",
@@ -214,7 +211,6 @@ pub fn info(
         ap_mode: std::sync::Arc::default(),
         mdns_gate: std::sync::Arc::default(),
         ap_net,
-        audio,
     };
     // the wizard URL carries the pairing PIN — the kiosk connection
     // page shows it too (restart-stable secret for a LAN device,
@@ -583,7 +579,6 @@ mod tests {
             ap_mode: std::sync::Arc::default(),
             mdns_gate: std::sync::Arc::default(),
             ap_net: ap_net([10, 42, 0, 1]),
-            audio: crate::config::Audio::default(),
         };
         if ap_up {
             info.ap_mode

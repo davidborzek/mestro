@@ -17,7 +17,6 @@
 //! background.rs, ui.rs, vu.rs), this file owns the Config
 //! struct, loading and validation.
 
-mod audio;
 mod background;
 mod clock;
 mod display;
@@ -33,7 +32,6 @@ mod vu;
 mod wifi;
 mod window;
 
-pub use audio::Audio;
 pub use background::Background;
 pub use clock::{
     BackgroundSource, Clock, StandbyBackground, BUILTIN_STYLES as CLOCK_BUILTIN_STYLES,
@@ -86,10 +84,6 @@ pub struct Config {
     /// only, feature `wifi-setup` on the kiosk)
     #[serde(default)]
     pub wifi: Wifi,
-    /// [audio]: the squeezelite env file + restart command (config-
-    /// file only, feature `audio-output` on the kiosk)
-    #[serde(default)]
-    pub audio: Audio,
 }
 
 /// load defaults, then the TOML file if present, then env overrides.
