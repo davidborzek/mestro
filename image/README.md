@@ -28,7 +28,7 @@ system that runs entirely from RAM — piCorePlayer-style.
     `SERVER` (Music Assistant host, empty = discovery), `NAME`,
     `EXTRA`; applied with
     `/etc/init.d/S60squeezelite restart`
-    (the web app's Settings → Info → Audio output does exactly that:
+    (the web app's Settings → Audio → Audio output does exactly that:
     it rewrites only the `OUTPUT=` line, keeps comments, other keys
     and CRLF, and reverts to the previous output when squeezelite
     does not start on the new one — feature `audio-output`)

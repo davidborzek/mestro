@@ -6,7 +6,6 @@
   import { getLocale, setLocale, t, type Locale } from "../../lib/i18n.svelte";
   import type { WifiStatusData } from "../../lib/protocol";
   import Update from "../update/Update.svelte";
-  import AudioOutput from "./AudioOutput.svelte";
   import Icon from "../../components/Icon.svelte";
   import Segmented from "../../components/Segmented.svelte";
   import ConfirmSheet from "../../components/ConfirmSheet.svelte";
@@ -99,10 +98,6 @@
 
 {#if device.ota}
   <Update />
-{/if}
-
-{#if device.audioOutput}
-  <AudioOutput />
 {/if}
 
 <section class="card">
