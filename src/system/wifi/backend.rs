@@ -5,7 +5,7 @@
 //! [`RealBackend`] runs against the device, [`FakeBackend`]
 //! (tests) records calls and answers canned data.
 
-use super::wpa_ctrl::WpaCtrl;
+use super::wpa_ctrl::{WpaCtrl, SCAN_FINISHED_EVENTS};
 use crate::locks;
 
 use std::path::{Path, PathBuf};
@@ -154,6 +154,16 @@ pub trait WifiBackend {
     /// one wpa_supplicant ctrl roundtrip; a dead socket errors and
     /// the next call reconnects
     fn ctrl(&mut self, cmd: &str) -> Result<String, String>;
+    /// subscribe this ctrl client to the supplicant's event stream:
+    /// call before `SCAN`, or the completion event can be missed
+    fn events_attach(&mut self) -> Result<(), String>;
+    /// wait up to `timeout` for the scan-finished event
+    /// (`CTRL-EVENT-SCAN-RESULTS`, or `-SCAN-FAILED`); false = none
+    /// came in time. A dead socket is an error
+    fn wait_scan_finished(&mut self, timeout: Duration) -> Result<bool, String>;
+    /// unsubscribe again — an attached client nobody reads from would
+    /// fill its socket buffer and get dropped by the supplicant
+    fn events_detach(&mut self);
     /// the interface's MAC (the AP ssid suffix)
     fn mac(&mut self) -> Result<String, String>;
     /// run a one-shot command, fail on a non-zero exit; the stdout
@@ -254,8 +264,13 @@ pub fn stop_ap_processes(children: &crate::remote::web::Children, ap_up: bool) {
     }
 }
 
-impl WifiBackend for RealBackend {
-    fn ctrl(&mut self, cmd: &str) -> Result<String, String> {
+impl RealBackend {
+    /// one call on the ctrl socket, connected on first use. A call
+    /// that fails drops the socket — never trusted again
+    fn through<T>(
+        &mut self,
+        call: impl FnOnce(&mut WpaCtrl) -> Result<T, String>,
+    ) -> Result<T, String> {
         if self.ctrl.is_none() {
             let socket_path = self.ctrl_dir.join(&self.iface);
             self.ctrl = Some(WpaCtrl::connect(&socket_path)?);
@@ -264,14 +279,30 @@ impl WifiBackend for RealBackend {
         let Some(socket) = self.ctrl.as_mut() else {
             return Err("wpa ctrl socket vanished".into());
         };
-        match socket.request(cmd) {
-            Ok(reply) => Ok(reply),
-            Err(e) => {
-                // a stale socket is dropped, not trusted again
-                self.ctrl = None;
-                Err(e)
-            }
+        let result = call(socket);
+        if result.is_err() {
+            self.ctrl = None;
         }
+        result
+    }
+}
+
+impl WifiBackend for RealBackend {
+    fn ctrl(&mut self, cmd: &str) -> Result<String, String> {
+        self.through(|socket| socket.request(cmd))
+    }
+
+    fn events_attach(&mut self) -> Result<(), String> {
+        self.through(WpaCtrl::attach)
+    }
+
+    fn wait_scan_finished(&mut self, timeout: Duration) -> Result<bool, String> {
+        self.through(|socket| socket.wait_event(SCAN_FINISHED_EVENTS, timeout))
+    }
+
+    fn events_detach(&mut self) {
+        // best effort: a dead socket is gone with its attachment
+        let _ = self.ctrl("DETACH");
     }
 
     fn mac(&mut self) -> Result<String, String> {
@@ -461,8 +492,19 @@ pub(crate) mod fake {
         pub log: Vec<String>,
         /// ctrl "PING" answers PONG while true
         pub ping_ok: bool,
-        /// the canned SCAN_RESULTS reply
+        /// the canned SCAN_RESULTS reply once the scan finished
         pub scan_results: String,
+        /// what SCAN_RESULTS answers until the scan-finished event
+        /// came: the supplicant's cache of an earlier, partial scan
+        pub stale_results: Option<String>,
+        /// the scan-finished event arrives (`new` sets it; false = the
+        /// supplicant never reports and the budget runs out)
+        pub scan_event: bool,
+        /// ATTACH is refused
+        pub attach_fails: bool,
+        /// successive SCAN_RESULTS replies, consumed one per call (the
+        /// last one repeats) — the polling fallback sees the list grow
+        pub scan_sequence: Vec<String>,
         /// the canned `ip -o -4 addr show dev <iface>` output
         /// ("" = no address yet)
         pub wlan_addrs: String,
@@ -496,6 +538,7 @@ pub(crate) mod fake {
         pub fn new(mac: &str) -> Self {
             Self {
                 mac: mac.to_string(),
+                scan_event: true,
                 status: "wpa_state=COMPLETED\nbssid=2c:91:ab:12:34:56\n".into(),
                 ..Self::default()
             }
@@ -524,10 +567,43 @@ pub(crate) mod fake {
                     }
                 }
                 "SCAN" | "RECONFIGURE" => Ok("OK\n".into()),
-                "SCAN_RESULTS" => Ok(self.scan_results.clone()),
+                "SCAN_RESULTS" => {
+                    if self.scan_sequence.len() > 1 {
+                        return Ok(self.scan_sequence.remove(0));
+                    }
+                    if let Some(last) = self.scan_sequence.first() {
+                        return Ok(last.clone());
+                    }
+                    Ok(self
+                        .stale_results
+                        .clone()
+                        .unwrap_or_else(|| self.scan_results.clone()))
+                }
                 "STATUS" => Ok(self.status.clone()),
                 other => Err(format!("no canned reply for {other}")),
             }
+        }
+
+        fn events_attach(&mut self) -> Result<(), String> {
+            self.log.push("attach".into());
+            if self.attach_fails {
+                Err("wpa ctrl ATTACH: refused".into())
+            } else {
+                Ok(())
+            }
+        }
+
+        fn wait_scan_finished(&mut self, _: Duration) -> Result<bool, String> {
+            self.log.push("wait scan finished".into());
+            if self.scan_event {
+                // the scan is over: the cache now holds the full list
+                self.stale_results = None;
+            }
+            Ok(self.scan_event)
+        }
+
+        fn events_detach(&mut self) {
+            self.log.push("detach".into());
         }
 
         fn mac(&mut self) -> Result<String, String> {

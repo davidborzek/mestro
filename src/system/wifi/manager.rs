@@ -40,8 +40,11 @@ const SUPPLICANT_START: Duration = Duration::from_secs(10);
 const MDNS_PAUSE_WAIT: Duration = Duration::from_secs(3);
 /// one poll step while waiting
 const POLL: Duration = Duration::from_secs(1);
-/// one scan result poll step
+/// one scan result poll step (the fallback without an event stream)
 const SCAN_POLL: Duration = Duration::from_secs(2);
+/// how long one wait for the scan-finished event blocks before the
+/// shutdown flag is looked at again
+const SCAN_EVENT_SLICE: Duration = Duration::from_secs(1);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ApReason {
@@ -728,19 +731,73 @@ impl<B: WifiBackend> Manager<B> {
             .unwrap_or(false)
     }
 
-    /// kick one scan (FAIL is fine — one may already run) and poll
-    /// the results within the budget
+    /// scan and return the COMPLETE result list, within the budget.
+    /// Right after boot SCAN_RESULTS answers at once with the
+    /// supplicant's cache of an earlier, partial scan — so the results
+    /// are read only after `CTRL-EVENT-SCAN-RESULTS` (this client is
+    /// attached to the event stream BEFORE the scan starts: an event
+    /// sent before the ATTACH would be lost). If the stream cannot be
+    /// had, the fallback polls until the count has been the same for
+    /// two polls. Either way the wait ends at [`SCAN_WAIT`] with what
+    /// the supplicant has
     pub fn scan(&mut self) -> Result<Vec<ScanEntry>, String> {
+        if self.shutdown.is_requested() {
+            return Err("shutting down".into());
+        }
+        let attached = self.backend.events_attach().is_ok();
         let _ = self.backend.ctrl("SCAN");
+        let result = if attached {
+            self.scan_by_event()
+        } else {
+            self.scan_by_polling()
+        };
+        if attached {
+            self.backend.events_detach();
+        }
+        result
+    }
+
+    /// wait for the scan-finished event, then read the results once
+    fn scan_by_event(&mut self) -> Result<Vec<ScanEntry>, String> {
         let mut waited = Duration::ZERO;
+        while waited < SCAN_WAIT {
+            if self.shutdown.is_requested() {
+                return Err("shutting down".into());
+            }
+            // short slices: a shutdown must not wait out the budget
+            let slice = SCAN_EVENT_SLICE.min(SCAN_WAIT - waited);
+            if self.backend.wait_scan_finished(slice)? {
+                break;
+            }
+            waited += slice;
+        }
+        Ok(wpa_ctrl::parse_scan_results(
+            &self.backend.ctrl("SCAN_RESULTS")?,
+        ))
+    }
+
+    /// no event stream: poll until the number of networks has not
+    /// changed over two consecutive polls (three equal readings, ~4 s
+    /// — a cache that repeats once is not yet proof) and is not zero,
+    /// or the budget ends
+    fn scan_by_polling(&mut self) -> Result<Vec<ScanEntry>, String> {
+        let mut waited = Duration::ZERO;
+        let mut previous: Option<usize> = None;
+        let mut unchanged = 0;
         loop {
             if self.shutdown.is_requested() {
                 return Err("shutting down".into());
             }
             let entries = wpa_ctrl::parse_scan_results(&self.backend.ctrl("SCAN_RESULTS")?);
-            if !entries.is_empty() || waited >= SCAN_WAIT {
+            unchanged = if previous == Some(entries.len()) {
+                unchanged + 1
+            } else {
+                0
+            };
+            if (unchanged >= 2 && !entries.is_empty()) || waited >= SCAN_WAIT {
                 return Ok(entries);
             }
+            previous = Some(entries.len());
             self.backend.sleep(SCAN_POLL);
             waited += SCAN_POLL;
         }
@@ -1793,6 +1850,114 @@ mod tests {
                 ]
             })
         );
+    }
+
+    // ── the first scan after boot: the supplicant's cache holds a partial
+    // list; the scan returns the full one once the scan-finished event
+    // arrived ──
+
+    const PARTIAL: &str = "1\n\
+        aa:aa:aa:aa:aa:01\t2412\t-52\t[WPA2-PSK-CCMP][ESS]\tFritzBox\n";
+    const FULL: &str = "3\n\
+        aa:aa:aa:aa:aa:01\t2412\t-52\t[WPA2-PSK-CCMP][ESS]\tFritzBox\n\
+        bb:bb:bb:bb:bb:01\t2462\t-70\t[ESS]\tOpenCafe\n\
+        cc:cc:cc:cc:cc:01\t2437\t-61\t[WPA2-PSK-CCMP][ESS]\tNachbar\n";
+
+    fn ssids(entries: &[wpa_ctrl::ScanEntry]) -> Vec<&str> {
+        entries.iter().map(|e| e.ssid.as_str()).collect()
+    }
+
+    #[test]
+    fn a_scan_waits_for_the_finished_event_instead_of_returning_the_cached_partial_list() {
+        let (mut mgr, _) = manager(FakeBackend {
+            ping_ok: true,
+            stale_results: Some(PARTIAL.into()),
+            scan_results: FULL.into(),
+            ..FakeBackend::new(MAC)
+        });
+        let entries = mgr.scan().unwrap();
+        assert_eq!(ssids(&entries), ["FritzBox", "OpenCafe", "Nachbar"]);
+        // subscribed BEFORE the scan started (an event after SCAN would
+        // otherwise be missed), results read only after the event, and
+        // the subscription dropped again
+        let log = mgr.backend.log();
+        let at = |needle: &str| log.iter().position(|l| l == needle).unwrap();
+        assert!(at("attach") < at("ctrl SCAN"), "{log:?}");
+        assert!(at("ctrl SCAN") < at("wait scan finished"), "{log:?}");
+        assert!(
+            at("wait scan finished") < at("ctrl SCAN_RESULTS"),
+            "{log:?}"
+        );
+        assert_eq!(log.last().map(String::as_str), Some("detach"));
+    }
+
+    #[test]
+    fn a_supplicant_that_never_reports_ends_at_the_budget_with_what_it_has() {
+        let (mut mgr, _) = manager(FakeBackend {
+            ping_ok: true,
+            stale_results: Some(PARTIAL.into()),
+            scan_results: FULL.into(),
+            scan_event: false,
+            ..FakeBackend::new(MAC)
+        });
+        let entries = mgr.scan().unwrap();
+        assert_eq!(
+            ssids(&entries),
+            ["FritzBox"],
+            "the cache beats an empty answer"
+        );
+        assert!(mgr.backend.log().contains(&"detach".to_string()));
+    }
+
+    #[test]
+    fn without_an_event_stream_the_scan_polls_until_the_list_stops_growing() {
+        // ATTACH refused: fall back to the count being stable for two
+        // polls — growing results return the full list, not the first
+        let (mut mgr, _) = manager(FakeBackend {
+            ping_ok: true,
+            attach_fails: true,
+            scan_sequence: vec![
+                PARTIAL.into(),
+                PARTIAL.into(),
+                FULL.into(),
+                FULL.into(),
+                FULL.into(),
+            ],
+            ..FakeBackend::new(MAC)
+        });
+        let entries = mgr.scan().unwrap();
+        assert_eq!(ssids(&entries), ["FritzBox", "OpenCafe", "Nachbar"]);
+        assert!(!mgr.backend.log().iter().any(|l| l == "wait scan finished"));
+    }
+
+    #[test]
+    fn the_polling_fallback_keeps_an_empty_result_waiting_until_the_budget() {
+        let (mut mgr, _) = manager(FakeBackend {
+            ping_ok: true,
+            attach_fails: true,
+            scan_results: "0\n".into(),
+            ..FakeBackend::new(MAC)
+        });
+        let entries = mgr.scan().unwrap();
+        assert!(entries.is_empty());
+        let polls = mgr
+            .backend
+            .log()
+            .iter()
+            .filter(|l| *l == "ctrl SCAN_RESULTS")
+            .count();
+        assert!(polls >= 6, "waited out the budget: {polls} polls");
+    }
+
+    #[test]
+    fn a_shutdown_ends_the_scan_at_once() {
+        let (mut mgr, _) = manager(FakeBackend {
+            ping_ok: true,
+            scan_results: FULL.into(),
+            ..FakeBackend::new(MAC)
+        });
+        mgr.shutdown.request();
+        assert!(mgr.scan().is_err());
     }
 
     // ── the radio policy: power save (brcmfmac re-enables it on
