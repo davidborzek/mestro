@@ -1,6 +1,4 @@
-use slint_interpreter::{
-    Compiler, ComponentDefinition, ComponentInstance, SharedString, Struct, Value,
-};
+use slint_interpreter::{ComponentDefinition, ComponentInstance, SharedString, Struct, Value};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -306,8 +304,7 @@ fn layer_model(
 /// compile the generic svgskin engine (embedded) — it only
 /// imports common.slint, served through the file loader
 fn compile_engine() -> Option<ComponentDefinition> {
-    let mut compiler = Compiler::new();
-    crate::vu::select_last_exported(&mut compiler);
+    let mut compiler = crate::vu::skin_compiler();
     compiler.set_file_loader(|path| {
         // the engine and its import chain (common -> theme,
         // components/*) are embedded; match by basename — the

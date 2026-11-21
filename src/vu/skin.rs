@@ -16,7 +16,7 @@
 use crate::ui::navigation::Navigation;
 use crate::Mestro;
 use slint::{ComponentFactory, ComponentHandle};
-use slint_interpreter::{Compiler, ComponentDefinition, ComponentInstance};
+use slint_interpreter::{ComponentDefinition, ComponentInstance};
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -57,8 +57,7 @@ pub fn compile(name: &str, path: &Path) -> Option<Skin> {
 /// compile a skin from an embedded source string
 pub fn compile_source(name: &str, source: &str) -> Option<Skin> {
     let definition = {
-        let mut compiler = Compiler::new();
-        crate::vu::select_last_exported(&mut compiler);
+        let compiler = crate::vu::skin_compiler();
         let result =
             spin_on::spin_on(compiler.build_from_source(source.to_string(), PathBuf::from(name)));
         for d in result.diagnostics() {

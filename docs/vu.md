@@ -179,7 +179,8 @@ info lines arrive.
 
 When a manifest is not enough (custom behaviors, layouts the
 dial model cannot express), ship a `.slint` file implementing
-the VuSkin contract — compiled at boot, rendered fullscreen:
+the VuSkin contract — compiled at boot, rendered fullscreen
+(custom skins compile with Slint edition 1.19 semantics):
 
 ```slint
 export component MyVu inherits Rectangle {

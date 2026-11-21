@@ -27,7 +27,12 @@ fn main() {
     walk(std::path::Path::new("ui"));
     walk(std::path::Path::new("skins"));
 
-    slint_build::compile("ui/mestro.slint").unwrap();
+    // the same edition as SLINT_EDITION in src/vu/mod.rs
+    slint_build::compile_with_config(
+        "ui/mestro.slint",
+        slint_build::CompilerConfiguration::new().with_edition((1, 19)),
+    )
+    .unwrap();
 
     // the short git hash next to the crate version (empty without
     // git, e.g. in the nix sandbox)

@@ -56,7 +56,8 @@ export component MyClock inherits Rectangle {
 
 Every member is optional — declare what you use. The last
 exported component in the file is the skin. Imports are not
-available; a skin is one self-contained file.
+available; a skin is one self-contained file. Custom skins compile with
+Slint edition 1.19 semantics.
 
 A complete example:
 
