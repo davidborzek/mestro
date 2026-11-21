@@ -17,7 +17,8 @@ with its default and an explanation. This page is the map.
 
 The **config file** is yours: mestro never writes it. It can also
 be a directory — every `*.toml` inside is merged in name order
-(`theme.toml`, `vu.toml`, …).
+(`config.toml`, `theme.toml`, `vu.toml`, …); a key set in two
+files takes the later file's value and logs a warning.
 
 The **device settings** hold only what was changed on the device,
 nothing else. A key there wins over the config file; **Reset** in
