@@ -128,6 +128,16 @@ const strings = {
     "audio.hint":
       "Der Player startet die Wiedergabe neu. Lässt sich der Ausgang nicht öffnen, bleibt der bisherige aktiv.",
 
+    "timezone.row": "Zeitzone",
+    "timezone.title": "Zeitzone wählen",
+    "timezone.search": "Zeitzone suchen",
+    "timezone.auto": "automatisch",
+    "timezone.unknown": "Unbekannt",
+    "timezone.none": "Keine passende Zeitzone.",
+    "timezone.applying": "Player startet neu …",
+    "timezone.hint":
+      "Der Player startet neu, um die Zeitzone zu übernehmen, und ist kurz nicht erreichbar.",
+
     "wifi.setupTitle": "WLAN einrichten",
     "wifi.title": "WLAN",
     "wifi.change": "Netzwerk wechseln",
@@ -341,6 +351,15 @@ const strings = {
     "audio.switching": "Switching …",
     "audio.hint":
       "The player restarts its audio. If the output cannot be opened, the previous one stays active.",
+
+    "timezone.row": "Time zone",
+    "timezone.title": "Choose time zone",
+    "timezone.search": "Search time zones",
+    "timezone.auto": "automatic",
+    "timezone.unknown": "Unknown",
+    "timezone.none": "No matching time zone.",
+    "timezone.applying": "Player is restarting …",
+    "timezone.hint": "The player restarts to apply the time zone and is briefly unreachable.",
 
     "wifi.setupTitle": "Set up Wi-Fi",
     "wifi.title": "Wi-Fi",

@@ -14,9 +14,9 @@ not on the host.
 ```sh
 # Rust: both feature sets — CI-equivalent
 nix develop -c cargo test
-nix develop -c cargo test --features ota,wifi-setup,audio-output
+nix develop -c cargo test --features ota,wifi-setup,audio-output,timezone
 nix develop -c cargo clippy --all-targets
-nix develop -c cargo clippy --no-default-features --features linuxkms,ota,wifi-setup,audio-output --all-targets
+nix develop -c cargo clippy --no-default-features --features linuxkms,ota,wifi-setup,audio-output,timezone --all-targets
 nix develop -c cargo test --test np_layout          # one integration test
 nix develop -c cargo deny check                     # advisories, licenses, bans, sources
 nix develop -c cargo machete                        # unused dependencies

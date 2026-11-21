@@ -56,6 +56,28 @@ pub enum Request {
         #[serde(flatten)]
         action: AudioOp,
     },
+    /// the timezone picker (feature `timezone`, paired only): the
+    /// zone list, an explicit choice, and the browser's zone offered
+    /// once. Rides the UI thread — the choice is a device setting and
+    /// applying it restarts the player
+    Timezone {
+        #[serde(flatten)]
+        action: TimezoneOp,
+    },
+}
+
+/// the `timezone` op verbs (see [`Request::Timezone`])
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(tag = "action", rename_all = "kebab-case")]
+pub enum TimezoneOp {
+    /// the zones the device knows, the chosen one ("" = automatic)
+    /// and the one the player runs in
+    Zones,
+    /// the user's explicit choice: always taken
+    Set { zone: String },
+    /// the browser's zone: taken only while no zone was ever chosen
+    /// — a phone in another timezone must not flip the player later
+    Adopt { zone: String },
 }
 
 /// the `audio` op verbs (see [`Request::Audio`])
@@ -461,6 +483,45 @@ mod tests {
             serde_json::from_str::<Envelope>(&text).unwrap().request,
             set.request
         );
+    }
+
+    #[test]
+    fn timezone_ops_parse_and_roundtrip() {
+        for (value, expected) in [
+            (
+                json!({ "id": 1, "op": "timezone", "action": "zones" }),
+                TimezoneOp::Zones,
+            ),
+            (
+                json!({ "id": 2, "op": "timezone", "action": "set", "zone": "Europe/Berlin" }),
+                TimezoneOp::Set {
+                    zone: "Europe/Berlin".into(),
+                },
+            ),
+            (
+                json!({ "id": 3, "op": "timezone", "action": "adopt", "zone": "Asia/Tokyo" }),
+                TimezoneOp::Adopt {
+                    zone: "Asia/Tokyo".into(),
+                },
+            ),
+        ] {
+            let env: Envelope = serde_json::from_value(value).unwrap();
+            assert_eq!(
+                env.request,
+                Request::Timezone {
+                    action: expected.clone()
+                }
+            );
+            let text = serde_json::to_string(&env).unwrap();
+            assert_eq!(
+                serde_json::from_str::<Envelope>(&text).unwrap().request,
+                env.request
+            );
+        }
+        assert!(serde_json::from_value::<Envelope>(
+            json!({ "id": 4, "op": "timezone", "action": "set" })
+        )
+        .is_err());
     }
 
     #[test]

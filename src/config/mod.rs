@@ -26,6 +26,7 @@ mod music;
 mod nowplaying;
 mod osd;
 mod remote;
+mod system;
 mod theme;
 mod ui;
 mod vu;
@@ -42,6 +43,7 @@ pub use music::MusicAssistant;
 pub use nowplaying::{InlineVu, NowPlaying, NpFont, NpLayout, QualityPart, TransportControl};
 pub use osd::{Osd, OsdAnchor, OsdFlags, OsdStyle};
 pub use remote::Remote;
+pub use system::System;
 pub use theme::{Theme, ThemePalette, ThemeVariant};
 pub use ui::{RailStyle, Ui, OSK_LAYOUTS};
 pub use vu::{
@@ -84,6 +86,10 @@ pub struct Config {
     /// only, feature `wifi-setup` on the kiosk)
     #[serde(default)]
     pub wifi: Wifi,
+    /// [system]: the timezone (a device setting) and the files it is
+    /// applied through (feature `timezone` on the kiosk)
+    #[serde(default)]
+    pub system: System,
 }
 
 /// load defaults, then the TOML file if present, then env overrides.
