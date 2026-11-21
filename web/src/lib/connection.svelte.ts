@@ -21,6 +21,9 @@ export const device = $state({
   // feature `wifi-setup`): /setup/wifi, wifi ops, factory reset
   wifi: false,
   factoryReset: false,
+  // the audio output picker works here (hello capability
+  // `audio_output`: the build has the feature and squeezelite.env exists)
+  audioOutput: false,
   remoteUrl: "",
   configured: false,
   configUrl: "",
@@ -50,6 +53,7 @@ export async function runHandshake(): Promise<void> {
   device.display = hello.capabilities?.display ?? false;
   device.wifi = hello.capabilities?.wifi ?? false;
   device.factoryReset = hello.capabilities?.factory_reset ?? false;
+  device.audioOutput = hello.capabilities?.audio_output ?? false;
   device.remoteUrl = hello.remote_url;
   await refreshDevice();
 }

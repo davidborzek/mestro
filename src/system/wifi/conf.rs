@@ -212,6 +212,15 @@ pub fn recover_sta(sta: &Path, bak: &Path) {
 mod tests {
     use super::*;
 
+    fn assert_no_tmp_left(dir: &Path) {
+        let left: Vec<_> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|name| name.ends_with(".tmp"))
+            .collect();
+        assert!(left.is_empty(), "tmp left behind: {left:?}");
+    }
+
     fn paths(dir: &Path) -> (std::path::PathBuf, std::path::PathBuf) {
         (
             dir.join("wpa_supplicant.conf"),
@@ -326,10 +335,7 @@ mod tests {
         write_sta(&sta, &bak, &first).unwrap();
         assert!(!bak.exists(), "the first write has no predecessor");
         assert_eq!(std::fs::read_to_string(&sta).unwrap(), first);
-        assert!(
-            !crate::atomic_file::tmp_path(&sta).exists(),
-            "no tmp left behind"
-        );
+        assert_no_tmp_left(dir.path());
 
         // the second write backs the first up — atomically, and the
         // bak STAYS until the new conf proved itself
@@ -337,10 +343,7 @@ mod tests {
         write_sta(&sta, &bak, &second).unwrap();
         assert_eq!(std::fs::read_to_string(&sta).unwrap(), second);
         assert_eq!(std::fs::read_to_string(&bak).unwrap(), first);
-        assert!(
-            !crate::atomic_file::tmp_path(&bak).exists(),
-            "no bak tmp left behind"
-        );
+        assert_no_tmp_left(dir.path());
 
         // a confirmed join drops the predecessor
         confirm_sta(&bak);

@@ -28,6 +28,10 @@ system that runs entirely from RAM — piCorePlayer-style.
     `SERVER` (Music Assistant host, empty = discovery), `NAME`,
     `EXTRA`; applied with
     `/etc/init.d/S60squeezelite restart`
+    (the web app's Settings → Info → Audio output does exactly that:
+    it rewrites only the `OUTPUT=` line, keeps comments, other keys
+    and CRLF, and reverts to the previous output when squeezelite
+    does not start on the new one — feature `audio-output`)
 - Squeezelite: the **upstream Buildroot package** with
   `BR2_PACKAGE_SQUEEZELITE_VISEXPORT` (the shm ring mestro's VU
   reads, src/vu/mod.rs) and **no resampler**: `hw:` output stays
@@ -208,6 +212,5 @@ power-save = false
 - settings UI: `[window] scale` picker (needs the app restart
   flow — SLINT_SCALE_FACTOR is read at backend init)
 - settings UI: timezone picker writing `/data/timezone`
-- settings UI: squeezelite.env editor + `S60squeezelite restart`
 - USB-C gadget network as a rescue path
 - release pipeline: versioned images + checksums as release assets

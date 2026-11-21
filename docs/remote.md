@@ -160,7 +160,7 @@ keeps the regular behavior.
 | actor | can do |
 |---|---|
 | no PIN, no cookie | fetch the app shell and assets, nothing else (`401`) |
-| paired | read the effective config **redacted**, write/reset any setting, reset-all, restart, run MA probe/login/players, drive the transport (`ctl`, incl. `vu-select`) and volume, mirror the player views, upload a system image (`ota`) |
+| paired | read the effective config **redacted**, write/reset any setting, reset-all, restart, run MA probe/login/players, drive the transport (`ctl`, incl. `vu-select`) and volume, mirror the player views, upload a system image (`ota`), switch the audio output (`audio`) |
 | unpaired, from the setup hotspot (peer inside the hotspot subnet, hotspot confirmed up) | wifi ops only (`scan`/`join`/`status`) and `hello` — no settings, no player data, **no pushes**; the socket closes the moment AP mode ends (a successful join leaves it) |
 | on the wire | plaintext HTTP/WS on a trusted LAN — no TLS, treat the LAN as the trust boundary |
 
@@ -214,6 +214,8 @@ Requests carry an `id` (echoed) and a domain-split vocabulary:
 {"id": 10, "op": "ma", "action": "players", "url": "http://ma.local:8095"}
 {"id": 11, "op": "ctl", "cmd": "play-pause"}
 {"id": 12, "op": "player", "action": "volume", "value": 42}
+{"id": 13, "op": "audio", "action": "outputs"}
+{"id": 14, "op": "audio", "action": "set", "output": "hw:CARD=S3"}
 ```
 
 `settings` `state` reports the merged config (defaults not
@@ -236,7 +238,8 @@ old wizard bundle):
   "id": "a8724d0c4171",    // stable player id: a MAC, lowercase hex, no colons
   "name": "Wohnzimmer",    // the configured MA player name, else the hostname
   "remote_url": "…", "ota": true,
-  "capabilities": {"ota": true, "display": true, "wifi": true, "factory_reset": true}
+  "capabilities": {"ota": true, "display": true, "wifi": true, "factory_reset": true,
+                   "audio_output": true}
 }}
 ```
 
@@ -288,6 +291,48 @@ and player power is `ctl`'s `standby-toggle`:
 
 Success confirms UI-thread dispatch, not completion at the
 player — the state frame reports the truth.
+
+### Audio output (feature `audio-output`)
+
+The picker behind Settings → Info → Audio output. Paired only —
+an unpaired hotspot client gets `pairing required`, like for every
+other device op. `hello` reports `capabilities.audio_output`: true
+only when the build has the feature **and** the squeezelite env file
+exists (`[audio] env-file`); without it both ops answer
+`audio output not available` and no file is touched.
+
+```jsonc
+// → {"id": 13, "op": "audio", "action": "outputs"}
+{"id": 13, "ok": true, "data": {
+  "outputs": [
+    {"id": "hw:CARD=Headphones", "name": "bcm2835 Headphones", "current": false},
+    {"id": "hw:CARD=S3", "name": "Topping S3", "current": true}
+  ],
+  "current": "hw:CARD=S3"    // OUTPUT in the env file, null when unset
+}}
+// → {"id": 14, "op": "audio", "action": "set", "output": "hw:CARD=Headphones"}
+{"id": 14, "ok": true, "data": {"output": "hw:CARD=Headphones"}}
+// a device that does not start:
+{"id": 14, "ok": false, "error": "squeezelite could not start on hw:CARD=S3 (squeezelite stopped right after the start) — back on the previous output"}
+```
+
+`outputs` lists the ALSA playback devices (`/proc/asound/cards`
+plus `card<N>/pcm<D>p`; capture-only cards are no output). A
+card's first playback device is `hw:CARD=<id>`, further ones
+`hw:CARD=<id>,DEV=<n>`; `current` marks the entry the file's
+`OUTPUT` names (`,DEV=0` is the plain card).
+
+`set` accepts only an id from that list (anything else:
+`unknown audio output …`, the file untouched), rewrites only the
+`OUTPUT=` line of the env file (atomic; comments, other keys,
+quoting and CRLF stay) and runs `[audio] restart-command`. If
+squeezelite is not running 3 s after the restart (or the command
+fails), the previous file is restored byte for byte, squeezelite
+is restarted again and the error names the device that failed —
+a bad pick never leaves the player silent. The reply arrives after
+that watch (about 3.5 s). One switch runs at a time: a second
+`set` while one is in flight fails at once with `another switch is
+in progress` and touches nothing.
 
 ### Push frames (no `id`)
 
