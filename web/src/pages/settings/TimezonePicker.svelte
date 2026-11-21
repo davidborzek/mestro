@@ -1,33 +1,19 @@
 <script lang="ts">
-  import { onMount } from "svelte";
-  import { socket } from "../../lib/connection.svelte";
   import { t } from "../../lib/i18n.svelte";
+  import { filterZones, zoneLabel } from "../../lib/timezone";
   import {
-    createPickerActions,
-    filterZones,
-    zoneLabel,
-    type PickerState,
-    type TimezoneSend,
-  } from "../../lib/timezone";
+    timezoneActions as actions,
+    timezonePicker as picker,
+  } from "../../lib/systemFacts.svelte";
   import Icon from "../../components/Icon.svelte";
   import Sheet from "../../components/Sheet.svelte";
 
-  // the timezone row of the Info section: the zone the player runs
+  // the timezone row of the System section: the zone the player runs
   // in, a searchable list of the device's zoneinfo. Choosing one
   // writes it on the device, which restarts the player to apply it
-  // (no unsafe tzset) — the reconnect banner covers the gap.
+  // (no unsafe tzset) — the reconnect banner covers the gap. The
+  // picker state is shared (lib/systemFacts) with the list summary.
 
-  const send: TimezoneSend = (request) => socket.send(request);
-
-  const picker = $state<PickerState>({
-    zones: [],
-    chosen: "",
-    current: null,
-    loaded: false,
-    applying: false,
-    error: "",
-  });
-  const actions = createPickerActions(send, picker);
   let open = $state(false);
   let query = $state("");
 
@@ -40,13 +26,6 @@
         ? zoneLabel(picker.current)
         : t("timezone.unknown"),
   );
-
-  onMount(() => {
-    void actions.load();
-    // a restarting reply ends in a dropped socket: the reconnect
-    // frees the row and reads the zones the new process runs in
-    return socket.onOpen(() => void actions.reconnected());
-  });
 
   function pick(zone: string) {
     open = false;

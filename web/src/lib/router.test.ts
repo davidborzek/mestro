@@ -110,6 +110,17 @@ describe("matchRoute", () => {
     });
   });
 
+  test("the device sections are plain settings sections", () => {
+    for (const section of ["audio", "system"]) {
+      expect(matchRoute(`/settings/${section}`)).toEqual({
+        page: "settings",
+        path: `/settings/${section}`,
+        section,
+        skin: null,
+      });
+    }
+  });
+
   test("the legacy /system path redirects to the info section", () => {
     expect(matchRoute("/system")).toEqual(matchRoute("/settings/info"));
   });
@@ -250,6 +261,30 @@ describe("navigate", () => {
 });
 
 describe("back", () => {
+  test("goBack from a device section lands on the list, from a deep link too", () => {
+    const { history, routes, router } = setup("/settings");
+    router.navigate("/settings/system");
+    router.goBack("/settings");
+    expect(history.index).toBe(0);
+    expect(last(routes)).toMatchObject({ page: "settings", section: null });
+
+    const deepLink = setup("/settings/audio");
+    deepLink.router.goBack("/settings");
+    expect(last(deepLink.routes)).toMatchObject({
+      page: "settings",
+      path: "/settings",
+      section: null,
+    });
+  });
+
+  test("the wifi setup returns to the system section", () => {
+    const { history, routes, router } = setup("/settings/system");
+    router.navigate("/setup/wifi");
+    router.goBack("/settings/system");
+    expect(history.index).toBe(0);
+    expect(last(routes)).toMatchObject({ page: "settings", section: "system" });
+  });
+
   test("popstate restores the previous route", () => {
     const { history, routes, router } = setup("/settings");
     router.navigate("/settings/info");

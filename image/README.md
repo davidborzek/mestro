@@ -37,7 +37,7 @@ system that runs entirely from RAM — piCorePlayer-style.
   - `mestro.env` — environment for mestro, sourced by `S50mestro`
     (`RUST_LOG`, `SLINT_DRM_OUTPUT`, `MESTRO_REMOTE_PORT`, …) and
     `TZ`, the timezone: the image bakes `/etc/localtime` =
-    Europe/Berlin, `TZ` overrides it. The web app's Settings → Info →
+    Europe/Berlin, `TZ` overrides it. The web app's Settings → System →
     Time zone writes exactly that one line (every other line,
     comment and CRLF stays) and restarts mestro to apply it —
     feature `timezone`; the first paired browser's zone is adopted

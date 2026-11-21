@@ -165,7 +165,7 @@ power-save = false            # off by default — the latency spikes
 
 ### `[system]`
 
-The timezone picker (web app → Settings → Info; player images
+The timezone picker (web app → Settings → System; player images
 built with the `timezone` feature). `timezone` is an IANA zone
 name and a normal device setting: **empty means never chosen** —
 the first paired browser may still set it (see

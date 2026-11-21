@@ -55,7 +55,11 @@
     return { target: "/", label: t("nav.remote") };
   });
   const backLabel = $derived(
-    layout.shape === "A" ? t("common.back") : inWifiSetup ? t("info.section") : settingsBack.label,
+    layout.shape === "A"
+      ? t("common.back")
+      : inWifiSetup
+        ? t("system.section")
+        : settingsBack.label,
   );
 
   const playerName = $derived(remoteState.player.name || device.app);
@@ -102,7 +106,7 @@
   <TopBar>
     {#snippet left()}
       {#if paired}
-        <button class="back" onclick={() => goBack("/settings/info")}>
+        <button class="back" onclick={() => goBack("/settings/system")}>
           <Icon name="chevronLeft" />
           <span class="back-label">{backLabel}</span>
         </button>
