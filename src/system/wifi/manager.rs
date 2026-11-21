@@ -1022,9 +1022,14 @@ pub async fn run(
     web_port: u16,
     shutdown: WifiShutdown,
 ) {
-    // one plan per device: interface detection plus the [wifi] paths
+    // one plan per device: interface detection plus the image paths
     let roots = super::backend::Roots::default();
-    let Ok(plan) = super::plan(&config, &roots) else {
+    let Ok(plan) = super::plan(
+        &config,
+        &roots,
+        std::path::Path::new(crate::system::paths::WPA_CTRL_DIR),
+        std::path::Path::new(crate::system::paths::WPA_CONF),
+    ) else {
         tracing::warn!("wifi: no wireless interface — the setup lane stays off");
         return;
     };
@@ -1038,7 +1043,7 @@ pub async fn run(
     let stop_children = children.clone();
     let mut backend = RealBackend::new(
         &plan.iface,
-        &config.ctrl_dir,
+        &plan.ctrl_dir.to_string_lossy(),
         &roots.net_class,
         &roots.proc,
         children,

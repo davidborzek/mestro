@@ -1,5 +1,5 @@
 //! wpa_supplicant.conf writing. The STA conf is the persistent one
-//! (`[wifi] conf`, PC-editable, survives re-flashes); the AP conf
+//! (`system::paths::WPA_CONF`, PC-editable, survives re-flashes); the AP conf
 //! is ephemeral under /run. Writes are atomic (tmp in the same
 //! dir, fsync, rename) and the STA write keeps the previous file
 //! as `.bak` — the join-failure path restores it.

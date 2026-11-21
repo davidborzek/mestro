@@ -29,11 +29,12 @@ mod wpa_ctrl;
 pub use manager::Phase;
 
 use crate::remote::web::{WifiChannel, WifiRequest, WifiShutdown};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-/// the `[wifi]` section resolved: interface, socket, files, the
-/// hotspot's addresses and the radio policy (power save, regdom)
+/// the `[wifi]` section and the image paths resolved: interface,
+/// socket, files, the hotspot's addresses and the radio policy
+/// (power save, regdom)
 pub struct Plan {
     pub iface: String,
     pub ctrl_dir: PathBuf,
@@ -59,12 +60,17 @@ pub struct Plan {
 
 /// resolve the config against the device: interface detection plus
 /// the derived paths. Errors when the board has no wifi at all
-pub fn plan(config: &crate::config::Wifi, roots: &backend::Roots) -> Result<Plan, String> {
+pub fn plan(
+    config: &crate::config::Wifi,
+    roots: &backend::Roots,
+    ctrl_dir: &Path,
+    sta: &Path,
+) -> Result<Plan, String> {
     let iface = backend::detect_wireless(roots, &config.interface)?;
-    let sta = PathBuf::from(&config.conf);
+    let sta = sta.to_path_buf();
     Ok(Plan {
         iface,
-        ctrl_dir: PathBuf::from(&config.ctrl_dir),
+        ctrl_dir: ctrl_dir.to_path_buf(),
         sta_bak: sta.with_extension("conf.bak"),
         sta_good: sta.with_extension("conf.good"),
         sta,

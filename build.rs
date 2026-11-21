@@ -33,6 +33,8 @@ const IMAGE_VARS: &[&str] = &[
     "MESTRO_LOCALTIME",
     "MESTRO_DIAG_LOGS",
     "MESTRO_DIAG_STATUS",
+    "MESTRO_WPA_CTRL_DIR",
+    "MESTRO_WPA_CONF",
 ];
 
 fn main() {

@@ -251,16 +251,11 @@ shm_prefix = "squeezelite"
 
 # the first-boot WiFi setup (the player image; config-file only — never
 # in the settings editor). Everything resolves at runtime: one
-# binary per board, no paths in code
+# binary per board
 [wifi]
 # auto = the first wireless netdev (an entry under
 # /sys/class/net/<if>/wireless, an up one preferred); a name pins one
 #interface = "auto"
-# wpa_supplicant's control socket directory
-#ctrl-dir = "/run/wpa_supplicant"
-# the persistent credentials — must match what the boot scripts
-# start wpa_supplicant with
-#conf = "/data/wpa_supplicant.conf"
 # the setup hotspot's own address: private a.b.c.d/16-29; the DHCP
 # pool (.10-.50, clamped for small prefixes) and the captive portal
 # derive from it

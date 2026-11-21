@@ -432,7 +432,7 @@ is in the output):
    `Bearer …`;
 3. the whole finished report is scrubbed **by value**: the pairing
    PIN and cookie token, the stored MA token, `MESTRO_TOKEN` and
-   every passphrase in the wifi conf (`[wifi] conf` and its `.good`
+   every passphrase in the wifi conf (the wifi conf (`MESTRO_WPA_CONF`) and its `.good`
    copy) are replaced wherever they still appear.
 
 Files that are secrets by nature are never opened, whatever

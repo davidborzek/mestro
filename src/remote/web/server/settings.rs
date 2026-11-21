@@ -242,12 +242,10 @@ fn factory_reset(
     wifi: bool,
 ) -> Result<crate::system::reset::WifiReset, String> {
     use crate::system::reset::ResetPaths;
-    // the wifi conf is the configured one ([wifi] conf)
-    let conf_path = settings
-        .effective()
-        .map(|cfg| cfg.wifi.conf.clone())
-        .unwrap_or_else(|_| "/data/wpa_supplicant.conf".to_string());
-    let outcome = crate::system::reset::factory_reset(&ResetPaths::device(&conf_path), wifi)?;
+    let outcome = crate::system::reset::factory_reset(
+        &ResetPaths::device(crate::system::paths::WPA_CONF),
+        wifi,
+    )?;
     // clears the in-memory overlay too; the dispatch owns the
     // UI resync (the restart redraws everything anyway)
     dispatch(&Command::ResetAllSettings);
