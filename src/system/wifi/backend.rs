@@ -486,10 +486,10 @@ pub(crate) mod fake {
         /// the association identity from it)
         pub status: String,
         pub mac: String,
-        /// the flag to sample on every `run`/`spawn` (the mDNS pause
-        /// signal), and what it read each time
-        pub watch: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
-        pub watched: Vec<bool>,
+        /// the mDNS gate to sample on every `run`/`spawn`, and the
+        /// phase it showed each time
+        pub watch: Option<std::sync::Arc<crate::remote::web::MdnsGate>>,
+        pub watched: Vec<crate::remote::web::GatePhase>,
     }
 
     impl FakeBackend {
@@ -506,9 +506,8 @@ pub(crate) mod fake {
         }
 
         fn sample_watch(&mut self) {
-            if let Some(flag) = &self.watch {
-                self.watched
-                    .push(flag.load(std::sync::atomic::Ordering::Relaxed));
+            if let Some(gate) = &self.watch {
+                self.watched.push(gate.phase());
             }
         }
     }

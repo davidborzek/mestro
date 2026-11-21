@@ -7,7 +7,7 @@
 #![deny(clippy::indexing_slicing)]
 
 use super::pbkdf2;
-use std::io::Write as _;
+use crate::atomic_file::{sync_dir, write_atomic, write_atomic_with};
 use std::path::Path;
 
 /// the socket and config-reload lines every mestro-written conf
@@ -88,51 +88,6 @@ pub fn usable_sta(text: &str) -> bool {
         }
     }
     false
-}
-
-/// write atomically: tmp in the same directory (rename cannot cross
-/// filesystems), fsync before the rename, the directory after —
-/// only EINVAL/ENOTSUP are tolerated (vfat refuses the sync);
-/// anything else (EIO) fails the write: the rename may never
-/// have reached the disk
-pub fn write_atomic(path: &Path, text: &str) -> Result<(), String> {
-    write_atomic_with(path, text, &sync_dir)
-}
-
-/// [`write_atomic`] with the directory-sync seam injected — the
-/// tests pin the failure discipline
-fn write_atomic_with(
-    path: &Path,
-    text: &str,
-    dir_sync: &dyn Fn(&Path) -> std::io::Result<()>,
-) -> Result<(), String> {
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| format!("mkdir {}: {e}", dir.display()))?;
-    }
-    let tmp = path.with_extension("conf.tmp");
-    let mut file =
-        std::fs::File::create(&tmp).map_err(|e| format!("create {}: {e}", tmp.display()))?;
-    file.write_all(text.as_bytes())
-        .and_then(|()| file.sync_all())
-        .map_err(|e| format!("write {}: {e}", tmp.display()))?;
-    std::fs::rename(&tmp, path).map_err(|e| format!("rename to {}: {e}", path.display()))?;
-    if let Some(dir) = path.parent() {
-        match dir_sync(dir) {
-            // vfat has no directory sync — the rename happened
-            Ok(()) => {}
-            Err(e)
-                if e.raw_os_error() == Some(libc::EINVAL)
-                    || e.raw_os_error() == Some(libc::ENOTSUP) => {}
-            Err(e) => return Err(format!("cannot sync {}: {e}", dir.display())),
-        }
-    }
-    Ok(())
-}
-
-/// fsync the directory a rename happened in — the rename must
-/// survive a power cut, not just the file contents
-fn sync_dir(dir: &Path) -> std::io::Result<()> {
-    std::fs::File::open(dir)?.sync_all()
 }
 
 /// copy atomically — the same crash discipline as
@@ -372,7 +327,7 @@ mod tests {
         assert!(!bak.exists(), "the first write has no predecessor");
         assert_eq!(std::fs::read_to_string(&sta).unwrap(), first);
         assert!(
-            !sta.with_extension("conf.tmp").exists(),
+            !crate::atomic_file::tmp_path(&sta).exists(),
             "no tmp left behind"
         );
 
@@ -383,7 +338,7 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&sta).unwrap(), second);
         assert_eq!(std::fs::read_to_string(&bak).unwrap(), first);
         assert!(
-            !bak.with_extension("conf.tmp").exists(),
+            !crate::atomic_file::tmp_path(&bak).exists(),
             "no bak tmp left behind"
         );
 
@@ -441,14 +396,6 @@ mod tests {
         std::fs::remove_file(&bak).unwrap();
         std::fs::remove_file(&sta).unwrap();
         recover_sta(&sta, &bak);
-    }
-
-    #[test]
-    fn write_atomic_creates_the_dir() {
-        let dir = tempfile::tempdir().unwrap();
-        let ap = dir.path().join("run").join("ap.conf");
-        write_atomic(&ap, &ap_conf("mestro-0000", "/run/wpa_supplicant", "")).unwrap();
-        assert!(ap.is_file());
     }
 
     /// a failing directory sync (EIO — the rename may never have

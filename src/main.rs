@@ -653,7 +653,7 @@ fn wire_remote(
         let shutdown = mestro::remote::web::WifiShutdown::default();
         let channel = mestro::system::wifi::spawn(
             web_info.ap_mode.clone(),
-            web_info.mdns_pause.clone(),
+            web_info.mdns_gate.clone(),
             ui.as_weak(),
             config.wifi.clone(),
             config.remote.port,

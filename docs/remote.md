@@ -64,10 +64,12 @@ UDP 5353) and announces **IPv4 addresses only** — the web endpoint
 listens on `0.0.0.0`, an IPv6 address would not be reachable. It
 is **stopped while the setup hotspot is in play** — the responder
 never sits on the hotspot interface, dnsmasq owns that network.
-The wifi manager raises a dedicated pause signal (not the auth
-`ap_mode` flag) at the start of the hotspot transition, before
-anything is built, and drops it when the station network is back;
-the announcer polls it every second and tears the daemon down.
+The wifi manager asks the announcer to pause (a handshake, not the
+auth `ap_mode` flag) at the start of the hotspot transition and
+waits up to 3 s until the announcer confirms the daemon is shut
+down, then builds the hotspot; a stuck announcer never blocks the
+hotspot, the manager warns and goes on. The pause ends when the
+station network is back (a failed hotspot stays paused until then).
 Hotspot clients that are not paired see the same identity (`id`,
 `name`, version) through `hello` anyway, so nothing is hidden by
 the pause. Address changes (DHCP, link up/down) are followed
@@ -235,8 +237,10 @@ is down and the hotspot runs on the same radio, so the id
 survives restarts and interface up/down. A host without any
 physical interface (container, minimal VM) generates a random
 12-hex id once and keeps it in the state dir
-(`$XDG_STATE_HOME/mestro/device-id`), so it is stable across
-restarts and two installs never share one.
+(`$XDG_STATE_HOME/mestro/device-id`, written atomically), so it is
+stable across restarts and two installs never share one. If the
+state dir is not writable the id derives from the hostname
+instead (stable, warned once).
 `id` and `name` are also in the mDNS record (below).
 
 Replies: `{"id": …, "ok": true, "data": …}` or

@@ -1,4 +1,5 @@
 // what mestro does
+pub(crate) mod atomic_file;
 pub mod config;
 pub mod display;
 pub mod library;

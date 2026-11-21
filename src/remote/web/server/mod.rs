@@ -458,7 +458,7 @@ mod tests {
             name: "wohnzimmer".into(),
             display_supported: true,
             ap_mode: std::sync::Arc::default(),
-            mdns_pause: std::sync::Arc::default(),
+            mdns_gate: std::sync::Arc::default(),
             ap_net: ap_net(),
         }
     }

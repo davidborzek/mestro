@@ -17,8 +17,10 @@ const ID_FILE: &str = "device-id";
 /// physical wifi interface and never changes its MAC. Without any
 /// such interface (container, minimal VM) a random id is generated
 /// once and persisted in the state dir (`device-id`): stable across
-/// restarts, and two installs never share one
-pub(crate) fn device_id(net_class: &Path, state_dir: &Path) -> String {
+/// restarts, and two installs never share one. When the state dir is
+/// not writable the id derives from the hostname instead: stable
+/// across restarts as well
+pub(crate) fn device_id(net_class: &Path, state_dir: &Path, hostname: &str) -> String {
     let mut names: Vec<_> = std::fs::read_dir(net_class)
         .map(|dir| dir.flatten().map(|e| e.file_name()).collect())
         .unwrap_or_default();
@@ -27,7 +29,7 @@ pub(crate) fn device_id(net_class: &Path, state_dir: &Path) -> String {
         .iter()
         .filter(|name| net_class.join(name).join("device").exists())
         .find_map(|name| mac_id(&net_class.join(name).join("address")))
-        .unwrap_or_else(|| persisted_id(&state_dir.join(ID_FILE)))
+        .unwrap_or_else(|| persisted_id(&state_dir.join(ID_FILE), hostname))
 }
 
 /// one `address` file as an id: 6 hex pairs, not all zero
@@ -41,8 +43,10 @@ fn mac_id(address_file: &Path) -> Option<String> {
 }
 
 /// the stored id when it is valid, else a fresh random one that is
-/// stored for the next start
-fn persisted_id(path: &Path) -> String {
+/// stored for the next start. When storing fails the id would change
+/// with every restart (and break the Home Assistant identity), so the
+/// stable hostname-derived id stands in and the failure is warned once
+fn persisted_id(path: &Path, hostname: &str) -> String {
     if let Ok(stored) = std::fs::read_to_string(path) {
         let id = stored.trim().to_string();
         if is_id(&id) {
@@ -50,14 +54,24 @@ fn persisted_id(path: &Path) -> String {
         }
     }
     let id = random_id();
-    let saved = path
-        .parent()
-        .map_or(Ok(()), std::fs::create_dir_all)
-        .and_then(|()| std::fs::write(path, &id));
-    if let Err(e) = saved {
-        tracing::warn!("web: cannot persist the player id: {e}");
+    match crate::atomic_file::write_atomic(path, &id) {
+        Ok(()) => id,
+        Err(e) => {
+            static WARNED: std::sync::Once = std::sync::Once::new();
+            WARNED.call_once(|| {
+                tracing::warn!(
+                    "web: cannot persist the player id ({e}), using the hostname-derived one"
+                );
+            });
+            hostname_id(hostname)
+        }
     }
-    id
+}
+
+/// a stable id from the hostname: 12 hex chars of its SHA-256
+fn hostname_id(hostname: &str) -> String {
+    let digest = Sha256::digest(hostname.as_bytes());
+    digest.iter().take(6).map(|b| format!("{b:02x}")).collect()
 }
 
 fn is_id(id: &str) -> bool {
@@ -107,6 +121,8 @@ pub(crate) fn hostname() -> String {
 mod tests {
     use super::*;
 
+    const HOST: &str = "wohnzimmer";
+
     /// a fresh state dir that outlives the test (the OS cleans up)
     fn state() -> std::path::PathBuf {
         tempfile::tempdir().unwrap().keep()
@@ -134,7 +150,7 @@ mod tests {
             ("lo", "00:00:00:00:00:00", false),
             ("wlan0", "D8:3A:DD:77:34:56", true),
         ]);
-        assert_eq!(device_id(root.path(), &state()), "d83add773455");
+        assert_eq!(device_id(root.path(), &state(), HOST), "d83add773455");
     }
 
     #[test]
@@ -144,7 +160,7 @@ mod tests {
             ("eth1", "garbage", true),
             ("wlan0", "a8:72:4d:0c:41:71", true),
         ]);
-        assert_eq!(device_id(root.path(), &state()), "a8724d0c4171");
+        assert_eq!(device_id(root.path(), &state(), HOST), "a8724d0c4171");
     }
 
     #[test]
@@ -152,26 +168,54 @@ mod tests {
         let root = tree(&[("wlan0", "a8:72:4d:0c:41:71", true)]);
         let state = state();
         std::fs::write(state.join(ID_FILE), "0123456789ab").unwrap();
-        assert_eq!(device_id(root.path(), &state), "a8724d0c4171");
+        assert_eq!(device_id(root.path(), &state, HOST), "a8724d0c4171");
     }
 
     #[test]
     fn without_a_physical_interface_a_persisted_random_id_is_reused() {
         let root = tree(&[("lo", "00:00:00:00:00:00", false)]);
         let state = state();
-        let id = device_id(root.path(), &state);
+        let id = device_id(root.path(), &state, HOST);
         assert!(is_id(&id), "{id}");
         assert_eq!(std::fs::read_to_string(state.join(ID_FILE)).unwrap(), id);
-        assert_eq!(device_id(root.path(), &state), id);
+        assert_eq!(device_id(root.path(), &state, HOST), id);
         // a missing tree behaves the same
-        assert_eq!(device_id(Path::new("/nonexistent"), &state), id);
+        assert_eq!(device_id(Path::new("/nonexistent"), &state, HOST), id);
+    }
+
+    #[test]
+    fn an_unwritable_state_dir_falls_back_to_the_hostname_id_every_time() {
+        let root = tree(&[]);
+        // a regular file where the state dir should be: nothing can
+        // be created below it
+        let blocker = tempfile::NamedTempFile::new().unwrap();
+        let state = blocker.path().join("state");
+        let first = device_id(root.path(), &state, HOST);
+        let second = device_id(root.path(), &state, HOST);
+        assert!(is_id(&first), "{first}");
+        assert_eq!(first, second, "a failed persist must not mint a new id");
+        assert_eq!(first, hostname_id(HOST));
+        assert_ne!(first, hostname_id("kueche"));
+    }
+
+    #[test]
+    fn persisting_the_id_leaves_no_tmp_files() {
+        let root = tree(&[]);
+        let state = state().join("nested");
+        let id = device_id(root.path(), &state, HOST);
+        assert_eq!(std::fs::read_to_string(state.join(ID_FILE)).unwrap(), id);
+        let names: Vec<_> = std::fs::read_dir(&state)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(names, [std::ffi::OsString::from(ID_FILE)]);
     }
 
     #[test]
     fn two_fresh_state_dirs_get_different_ids() {
         let root = tree(&[]);
-        let first = device_id(root.path(), &state());
-        let second = device_id(root.path(), &state());
+        let first = device_id(root.path(), &state(), HOST);
+        let second = device_id(root.path(), &state(), HOST);
         assert!(is_id(&first) && is_id(&second));
         assert_ne!(first, second);
     }
@@ -181,7 +225,7 @@ mod tests {
         let root = tree(&[]);
         let state = state();
         std::fs::write(state.join(ID_FILE), "not-an-id").unwrap();
-        let id = device_id(root.path(), &state);
+        let id = device_id(root.path(), &state, HOST);
         assert!(is_id(&id), "{id}");
         assert_eq!(std::fs::read_to_string(state.join(ID_FILE)).unwrap(), id);
     }

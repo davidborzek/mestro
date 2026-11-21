@@ -23,6 +23,9 @@ pub mod push;
 mod server;
 mod state;
 
+pub use mdns::MdnsGate;
+#[cfg(all(test, feature = "wifi-setup"))]
+pub(crate) use mdns::{fake_announcer::confirming_worker, GatePhase};
 pub use protocol::{Envelope, MaOp, PlayerAction, Request, Response, SettingsOp, WifiOp};
 pub use push::{Events, Push};
 
@@ -76,11 +79,12 @@ pub struct WebInfo {
     /// portal and relaxes the pairing gate on it (feature
     /// `wifi-setup`; a build without it never sets it)
     pub ap_mode: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    /// the wifi manager's "hotspot in play" signal for the mDNS
-    /// announcer: raised before the hotspot is built, dropped when
-    /// it is gone. Separate from `ap_mode`, the auth trust, which
-    /// only opens once the hotspot is confirmed up
-    pub mdns_pause: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// the wifi manager's pause handshake with the mDNS announcer:
+    /// the announcer is confirmed down before the hotspot is built
+    /// and resumes when the hotspot is gone. Separate from
+    /// `ap_mode`, the auth trust, which only opens once the
+    /// hotspot is confirmed up
+    pub mdns_gate: std::sync::Arc<MdnsGate>,
     /// the hotspot's subnet (`[wifi] ap-address`, ApNet) — the
     /// peer-side half of the AP trust boundary: a connection is
     /// hotspot-trusted when its peer address lies inside and the
@@ -92,12 +96,6 @@ impl WebInfo {
     /// the AP-mode shortcut the server routes on
     pub fn ap(&self) -> bool {
         self.ap_mode.load(std::sync::atomic::Ordering::Relaxed)
-    }
-
-    /// the mDNS announcer must be silent (the hotspot is coming
-    /// up, up, or going down)
-    pub(crate) fn mdns_paused(&self) -> bool {
-        self.mdns_pause.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// the port in URL form: nothing on 80 (the default port, the
@@ -206,11 +204,12 @@ pub fn info(
         id: identity::device_id(
             std::path::Path::new("/sys/class/net"),
             &crate::settings::state_dir(),
+            &hostname,
         ),
         name: identity::label(player_name, &hostname),
         display_supported,
         ap_mode: std::sync::Arc::default(),
-        mdns_pause: std::sync::Arc::default(),
+        mdns_gate: std::sync::Arc::default(),
         ap_net,
     };
     // the wizard URL carries the pairing PIN — the kiosk connection
@@ -578,7 +577,7 @@ mod tests {
             name: "wohnzimmer".into(),
             display_supported: true,
             ap_mode: std::sync::Arc::default(),
-            mdns_pause: std::sync::Arc::default(),
+            mdns_gate: std::sync::Arc::default(),
             ap_net: ap_net([10, 42, 0, 1]),
         };
         if ap_up {
