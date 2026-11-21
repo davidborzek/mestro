@@ -64,6 +64,7 @@ set the device up again on purpose.
 | `[remote]` | the web app / web endpoint |
 | `[wifi]` | the setup hotspot's device paths (the player image) |
 | `[system]` | the timezone (a device setting the web app writes) |
+| `[diagnostics]` | what the web app's diagnostics download collects (the player image) |
 
 Deep dives:
 [standby clocks and backgrounds](standby.md) ·
@@ -189,6 +190,32 @@ seconds and the web app reconnects by itself.
 ```toml
 [system]
 # timezone = "Europe/Berlin"  # written by the web app; empty = never chosen
+```
+
+### `[diagnostics]`
+
+What Settings → Info → *Download diagnostics* puts into the report
+([remote.md](remote.md#diagnostics-report-get-diagnostics)) besides
+the version, the redacted settings and the wifi status. Config file
+only; the defaults are the player image's paths, and anything that
+is not there is skipped — no key is required to exist.
+
+`logs` are tailed (the last `log-lines`, 1–5000, of each; at most
+256 KiB are read) — the image keeps mestro's log in RAM at
+`/tmp/mestro.log` (`.old` is the previous run) and the OTA scripts'
+at `/tmp/ota.log`. `files` are small text files copied whole (a
+tail of the same size cap), `status-command` is run without a shell
+for at most 5 s and its output added (`""` = none). Text from all
+three passes the secret redaction; paths that are secrets by nature
+(host keys, the wpa conf, `web-pin`, the settings overlay, …) are
+refused whatever is configured.
+
+```toml
+[diagnostics]
+logs = ["/tmp/mestro.log", "/tmp/mestro.log.old", "/tmp/ota.log"]
+log-lines = 200
+files = ["/proc/version", "/proc/asound/cards"]
+status-command = "/usr/sbin/mestro-upgrade --status"
 ```
 
 ## Environment and command line

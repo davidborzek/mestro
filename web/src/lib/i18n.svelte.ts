@@ -119,6 +119,11 @@ const strings = {
     "info.diagReconnects": "Neuverbindungen",
     "info.diagKeepalive": "Keepalive",
     "info.diagNoCommands": "Noch keine Befehle in dieser Sitzung.",
+    "info.diagDownload": "Diagnosebericht herunterladen",
+    "info.diagDownloading": "Bericht wird erstellt …",
+    "info.diagDownloadHelp":
+      "Für Fehlermeldungen: Version, Einstellungen, WLAN-Status und die letzten Logzeilen. Zugangsdaten, Token und PIN sind entfernt.",
+    "info.diagDownloadFailed": "Bericht fehlgeschlagen: {reason}",
 
     "audio.section": "Audio",
     "audio.outputTitle": "Audioausgang",
@@ -345,6 +350,11 @@ const strings = {
     "info.diagReconnects": "Reconnects",
     "info.diagKeepalive": "Keepalive",
     "info.diagNoCommands": "No commands in this session yet.",
+    "info.diagDownload": "Download diagnostics",
+    "info.diagDownloading": "Creating report …",
+    "info.diagDownloadHelp":
+      "For bug reports: version, settings, wifi status and the latest log lines. Credentials, tokens and the PIN are removed.",
+    "info.diagDownloadFailed": "Report failed: {reason}",
 
     "audio.section": "Audio",
     "audio.outputTitle": "Audio output",

@@ -23,11 +23,12 @@ GET  /vu-preview?skin=<name>&v=<hash>   a VU skin's preview PNG (auth)
 GET  /clock-preview?style=<name>&v=<hash>   a clock style's preview PNG (auth)
 GET  /ws                  WS upgrade → JSON protocol (auth)
 POST /ota                 system-image upload (feature `ota`, auth)
+GET  /diagnostics         the bug-report file, JSON attachment (auth)
 anything else             404 (missing files, non-GET)
 ```
 
-Static assets need no auth. `/ws`, `/ota`, `/cover`, `/vu-preview`
-and `/clock-preview` accept either `?pair=<PIN>` or the pairing
+Static assets need no auth. `/ws`, `/ota`, `/cover`, `/diagnostics`,
+`/vu-preview` and `/clock-preview` accept either `?pair=<PIN>` or the pairing
 cookie.
 
 ## Configuration
@@ -160,7 +161,7 @@ keeps the regular behavior.
 | actor | can do |
 |---|---|
 | no PIN, no cookie | fetch the app shell and assets, nothing else (`401`) |
-| paired | read the effective config **redacted**, write/reset any setting, reset-all, restart, run MA probe/login/players, drive the transport (`ctl`, incl. `vu-select`) and volume, mirror the player views, upload a system image (`ota`), switch the audio output (`audio`), set the timezone (`timezone`, restarts the player) |
+| paired | read the effective config **redacted**, write/reset any setting, reset-all, restart, run MA probe/login/players, drive the transport (`ctl`, incl. `vu-select`) and volume, mirror the player views, upload a system image (`ota`), switch the audio output (`audio`), set the timezone (`timezone`, restarts the player), download the diagnostics report |
 | unpaired, from the setup hotspot (peer inside the hotspot subnet, hotspot confirmed up) | wifi ops only (`scan`/`join`/`status`) and `hello` — no settings, no player data, **no pushes**; the socket closes the moment AP mode ends (a successful join leaves it) |
 | on the wire | plaintext HTTP/WS on a trusted LAN — no TLS, treat the LAN as the trust boundary |
 
@@ -380,6 +381,64 @@ is written.
   process's environment); the socket drops and the web app reconnects. The init
   script sources the file on every start, so the zone also survives
   reboots.
+
+### Diagnostics report (`GET /diagnostics`)
+
+Settings → Info → *Download diagnostics* saves one JSON file for bug
+reports. **Paired only** — the cookie (or `?pair=`) is checked in
+the route, and the unpaired hotspot path never reaches it (that
+path is `hello` plus the wifi ops); without it the answer is `401`.
+The reply is `application/json` with
+`Content-Disposition: attachment; filename="mestro-diagnostics-<id>.json"`
+and `Cache-Control: no-store`. It is a JSON file, not an archive:
+a `.tar.gz` would need a new direct dependency (flate2 is only in
+the tree through the UI stack).
+
+```jsonc
+{
+  "report": "mestro-diagnostics", "format": 1,
+  "generated": "2026-11-21T10:00:00+01:00",
+  "version": "0.1.0 (abc1234)",
+  "hello": { … },          // as an unpaired caller sees it: no pairing URL
+  "state": { … },          // settings state: config + effective, redacted
+  "wifi": { "state": "sta", "ssid": "Home", … },  // status only, never a PSK
+  "files": { "/proc/version": [ … ], "/proc/asound/cards": [ … ] },
+  "logs": { "/tmp/mestro.log": [ last N lines ], "/tmp/mestro.log.old": [ … ], "/tmp/ota.log": [ … ] },
+  "upgrade_status": { "command": "/usr/sbin/mestro-upgrade --status", "output": [ … ] },
+  "skipped": { "missing": [ … ], "refused": [ … ] }
+}
+```
+
+What is collected and from where is `[diagnostics]`
+([configuration.md](configuration.md#diagnostics)); a file that is
+not there is listed under `skipped.missing` and the download goes
+on. Whatever the UI thread or the wifi manager does not answer in
+time is reported as `{"error": …}` in its slot.
+
+**Redaction** works in three layers, and a known secret must not
+survive any of them (a test builds a report from inputs that carry
+the MA token, the pairing PIN and cookie token, `MESTRO_TOKEN`, a
+wifi passphrase and a bearer token in every shape and asserts none
+is in the output):
+
+1. config trees are redacted **by key name** — `token`, `password`,
+   `psk`, `pin`, `pair`, `secret`, `passphrase`, `authorization`,
+   API/private keys and anything ending in `-<name>`/`_<name>` —
+   the value becomes `[redacted]`, an unset secret stays empty;
+2. log and file text is redacted **by shape**, line by line:
+   `psk="…"`, `"token":"…"`, `MA_TOKEN=…`, `?pair=…`, `#pair=…`,
+   `Bearer …`;
+3. the whole finished report is scrubbed **by value**: the pairing
+   PIN and cookie token, the stored MA token, `MESTRO_TOKEN` and
+   every passphrase in the wifi conf (`[wifi] conf` and its `.good`
+   copy) are replaced wherever they still appear.
+
+Files that are secrets by nature are never opened, whatever
+`[diagnostics]` says: dropbear host keys and `authorized_keys`,
+`.ssh`, `shadow`/`passwd`, the wpa conf, `web-pin`, the settings
+overlay, `device-id`, `*.pem`/`*.key` and names containing `secret`
+or `token` (listed under `skipped.refused`). The pairing URL
+(it carries the PIN) is dropped from `hello` and `state`.
 
 ### Push frames (no `id`)
 

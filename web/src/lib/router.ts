@@ -25,6 +25,7 @@ export const RESERVED_PATHS = [
   "/ota",
   "/vu-preview",
   "/clock-preview",
+  "/diagnostics",
 ];
 
 // legacy paths fold onto their new home (the System hub became
