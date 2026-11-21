@@ -8,10 +8,13 @@
 //!    `psk`, …) like the settings state,
 //! 2. text (logs, files, command output) is redacted by `key=value`
 //!    shape (`psk=…`, `"token": "…"`, `?pair=…`, `Bearer …`),
-//! 3. the whole finished report is scrubbed **by value**: every
-//!    secret the device knows (pairing PIN and cookie token, the MA
-//!    token, `MESTRO_TOKEN`, the wifi passphrases from the wpa
-//!    conf) is replaced wherever it still appears,
+//! 3. the whole report is scrubbed **by value**: every secret the
+//!    device knows (pairing PIN and cookie token, the MA token,
+//!    `MESTRO_TOKEN`, the wifi passphrases from the wpa conf) is
+//!    replaced wherever it still appears — in every string and
+//!    object key of the data tree before it is serialized (JSON
+//!    escaping hides `"` and `\` from a text match), then once more
+//!    over the finished text,
 //! 4. files that hold secrets by nature (dropbear keys, the wpa
 //!    conf, the settings overlay, …) are never read at all.
 
@@ -209,15 +212,58 @@ pub(super) fn redact_text(text: &str) -> String {
 /// every occurrence of a known secret replaced (the value layer).
 /// Very short secrets are skipped — they would shred ordinary text
 pub(super) fn scrub_secrets(text: &str, secrets: &[String]) -> String {
-    let mut secrets: Vec<&String> = secrets.iter().filter(|s| s.chars().count() >= 4).collect();
-    // longest first: a secret that contains another must not leave
-    // a remainder behind
+    scrub_ordered(text, &scrubbable(secrets))
+}
+
+/// the secrets worth scrubbing, longest first: a secret that
+/// contains another must not leave a remainder behind
+fn scrubbable(secrets: &[String]) -> Vec<&str> {
+    let mut secrets: Vec<&str> = secrets
+        .iter()
+        .map(String::as_str)
+        .filter(|s| s.chars().count() >= 4)
+        .collect();
     secrets.sort_by_key(|secret| std::cmp::Reverse(secret.len()));
+    secrets
+}
+
+fn scrub_ordered(text: &str, secrets: &[&str]) -> String {
     let mut out = text.to_string();
     for secret in secrets {
-        out = out.replace(secret.as_str(), REDACTED);
+        out = out.replace(secret, REDACTED);
     }
     out
+}
+
+/// `value` with every known secret replaced in every string and
+/// object key — before serialization, where the secret is still
+/// raw (JSON escapes `"`, `\` and control characters, so the
+/// finished text no longer contains it)
+pub(super) fn scrub_value(value: &Value, secrets: &[String]) -> Value {
+    scrub_value_ordered(value, &scrubbable(secrets))
+}
+
+fn scrub_value_ordered(value: &Value, secrets: &[&str]) -> Value {
+    match value {
+        Value::String(text) => Value::String(scrub_ordered(text, secrets)),
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(|item| scrub_value_ordered(item, secrets))
+                .collect(),
+        ),
+        Value::Object(map) => Value::Object(
+            map.iter()
+                .map(|(key, item)| {
+                    (
+                        scrub_ordered(key, secrets),
+                        scrub_value_ordered(item, secrets),
+                    )
+                })
+                .collect(),
+        ),
+        other => other.clone(),
+    }
 }
 
 /// the last `count` lines
@@ -231,15 +277,27 @@ pub(super) fn tail_lines(text: &str, count: usize) -> Vec<String> {
         .collect()
 }
 
-/// the passphrases a wpa_supplicant conf holds (`psk="…"`, a 64-hex
-/// psk, `password=`, `wep_key0=`) — never reported, only used to
-/// scrub the report
+/// the secrets a wpa_supplicant conf holds (`psk="…"`, a 64-hex psk,
+/// `password=`, `wep_key0=`, and the plaintext `#psk="…"` comment
+/// `wpa_passphrase` leaves next to the hash) — never reported, only
+/// used to scrub the report
 pub(super) fn wifi_secrets(conf: &str) -> Vec<String> {
-    conf.lines()
-        .filter_map(|line| {
-            let (key, value) = line.trim().split_once('=')?;
+    let mut secrets: Vec<String> = Vec::new();
+    for line in conf.lines() {
+        let line = line.trim();
+        let (is_comment, assignment) = match line.strip_prefix('#') {
+            Some(rest) => (true, rest.trim_start()),
+            None => (false, line),
+        };
+        let Some((key, value)) = assignment.split_once('=') else {
+            continue;
+        };
+        let key = key.trim();
+        let secret_key = if is_comment {
+            key == "psk"
+        } else {
             matches!(
-                key.trim(),
+                key,
                 "psk"
                     | "password"
                     | "wep_key0"
@@ -248,10 +306,55 @@ pub(super) fn wifi_secrets(conf: &str) -> Vec<String> {
                     | "wep_key3"
                     | "sae_password"
             )
-            .then(|| value.trim().trim_matches('"').to_string())
-        })
-        .filter(|value| !value.is_empty())
-        .collect()
+        };
+        if !secret_key {
+            continue;
+        }
+        for secret in conf_value_secrets(value.trim()) {
+            if !secret.is_empty() && !secrets.contains(&secret) {
+                secrets.push(secret);
+            }
+        }
+    }
+    secrets
+}
+
+/// the secret forms of one conf value. A quoted value ends at its
+/// closing quote — what follows is an inline comment. `wpa_passphrase`
+/// writes the passphrase unescaped while a hand-written conf may
+/// escape `\"` and `\\`, so the unescaped reading, the literal text
+/// between the quotes and the text up to the line's last quote are
+/// all returned. Unquoted (a 64-hex psk) ends at whitespace or `#`
+fn conf_value_secrets(value: &str) -> Vec<String> {
+    let Some(quoted) = value.strip_prefix('"') else {
+        let end = value
+            .find(|c: char| c.is_whitespace() || c == '#')
+            .unwrap_or(value.len());
+        return vec![value.get(..end).unwrap_or_default().to_string()];
+    };
+    let mut unescaped = String::new();
+    let mut literal_len = quoted.len();
+    let mut chars = quoted.char_indices();
+    while let Some((at, c)) = chars.next() {
+        match c {
+            '"' => {
+                literal_len = at;
+                break;
+            }
+            '\\' => match chars.next() {
+                Some((_, escaped)) => unescaped.push(escaped),
+                None => unescaped.push(c),
+            },
+            _ => unescaped.push(c),
+        }
+    }
+    let literal = quoted.get(..literal_len).unwrap_or_default().to_string();
+    let to_last_quote = quoted
+        .rfind('"')
+        .and_then(|at| quoted.get(..at))
+        .unwrap_or_default()
+        .to_string();
+    vec![unescaped, literal, to_last_quote]
 }
 
 /// a file the report must never read
@@ -514,8 +617,8 @@ pub(super) struct Inputs {
     pub secrets: Vec<String>,
 }
 
-/// the finished report: assembled, key-redacted, then scrubbed by
-/// value over its whole text
+/// the finished report: assembled, key-redacted, scrubbed by value
+/// in the data tree and once more over the serialized text
 pub(super) fn report(inputs: &Inputs) -> String {
     let state = match &inputs.state {
         Ok(state) => {
@@ -552,6 +655,7 @@ pub(super) fn report(inputs: &Inputs) -> String {
             "refused": inputs.collected.refused,
         },
     });
+    let value = scrub_value(&value, &inputs.secrets);
     let text = serde_json::to_string_pretty(&value).unwrap_or_else(|e| {
         format!(r#"{{"report":"mestro-diagnostics","error":"serialize: {e}"}}"#)
     });
@@ -689,6 +793,52 @@ mod tests {
             ]
         );
         assert!(wifi_secrets("ssid=\"x\"\n").is_empty());
+    }
+
+    #[test]
+    fn wpa_passphrase_comment_lines_hold_the_plaintext_passphrase() {
+        // `wpa_passphrase` output: the plaintext in a comment, the hash below
+        let conf = "network={\n\tssid=\"Home\"\n\t#psk=\"plain pass phrase\"\n\tpsk=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n}\n";
+        assert_eq!(
+            wifi_secrets(conf),
+            [
+                "plain pass phrase",
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+            ]
+        );
+        // a spaced comment marker, and comments that are no psk
+        assert_eq!(wifi_secrets("# psk=\"spaced one\"\n"), ["spaced one"]);
+        assert!(wifi_secrets("# just a note\n#ssid=\"x\"\n# psk is set below\n").is_empty());
+    }
+
+    #[test]
+    fn a_quoted_psk_ends_at_the_closing_quote() {
+        // an inline comment after the value is no part of the secret
+        assert_eq!(
+            wifi_secrets("psk=\"hunter22 pass\" # my wifi\n"),
+            ["hunter22 pass"]
+        );
+        assert_eq!(wifi_secrets("psk=\"a#b\"#c\n"), ["a#b"]);
+        // escapes: the unescaped passphrase (and the literal text between
+        // the quotes, which is how wpa_supplicant reads it)
+        assert_eq!(
+            wifi_secrets("psk=\"pa\\\"ss\\\\w\" # note\n"),
+            ["pa\"ss\\w", "pa\\\"ss\\\\w"]
+        );
+        // wpa_passphrase does not escape: a quote inside the passphrase
+        assert!(wifi_secrets("#psk=\"pa\"ss\"\n").contains(&"pa\"ss".to_string()));
+        // a non-ASCII passphrase, spaces around the equals sign
+        assert_eq!(wifi_secrets("  psk = \"pässwörd\"  \n"), ["pässwörd"]);
+        // an empty value is no secret
+        assert!(wifi_secrets("psk=\"\"\n").is_empty());
+    }
+
+    #[test]
+    fn an_unquoted_psk_is_the_hex_secret_without_a_trailing_comment() {
+        let hex = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        assert_eq!(wifi_secrets(&format!("psk={hex}\n")), [hex]);
+        assert_eq!(wifi_secrets(&format!("psk={hex} # home\n")), [hex]);
+        assert_eq!(wifi_secrets(&format!("\tpsk={hex}\r\n")), [hex]);
     }
 
     #[test]
@@ -880,6 +1030,42 @@ mod tests {
             .insert("/tmp/x.log".into(), json!([format!("blob:{PSK}:end")]));
         let text = report(&inputs);
         assert!(!text.contains(MA_TOKEN) && !text.contains(PSK), "{text}");
+    }
+
+    #[test]
+    fn a_secret_with_json_special_characters_is_gone_after_decoding_the_report() {
+        // `"` and `\` are escaped by the serializer, so a text-level
+        // scrub of the finished JSON never sees the raw secret
+        let password = "pa\"ss\\wörd-ß\"";
+        let mut inputs = leaky_inputs();
+        inputs.secrets.push(password.to_string());
+        inputs.collected.logs.insert(
+            "/tmp/plain.log".into(),
+            json!([format!("neutral text {password} more text")]),
+        );
+        inputs
+            .collected
+            .files
+            .insert(format!("/tmp/{password}.conf"), json!(["line"]));
+        let value: Value = serde_json::from_str(&report(&inputs)).unwrap();
+        let decoded = value.to_string();
+        assert!(!decoded.contains(password), "{decoded}");
+        assert_eq!(
+            value.pointer("/logs/~1tmp~1plain.log/0"),
+            Some(&json!("neutral text [redacted] more text"))
+        );
+    }
+
+    #[test]
+    fn scrubbing_a_value_covers_nested_strings_and_object_keys() {
+        let secrets = vec!["hunter22".to_string()];
+        let tree = json!({
+            "hunter22": ["a hunter22 b", {"deep": "hunter22"}, 7, null, true],
+        });
+        assert_eq!(
+            scrub_value(&tree, &secrets),
+            json!({"[redacted]": ["a [redacted] b", {"deep": "[redacted]"}, 7, null, true]})
+        );
     }
 
     #[test]
