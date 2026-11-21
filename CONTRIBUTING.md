@@ -55,6 +55,9 @@ only the production call sites read the constants.
 |---|---|---|
 | `MESTRO_SQUEEZELITE_ENV` | `/data/squeezelite.env` | the env file the audio output picker rewrites (`OUTPUT=`); the picker shows only while it exists |
 | `MESTRO_SQUEEZELITE_RESTART` | `/etc/init.d/S60squeezelite restart` | the command that restarts squeezelite (split on whitespace, no shell) |
+| `MESTRO_ENV_FILE` | `/data/mestro.env` | the env file the init script sources before it starts mestro; the timezone picker writes `TZ=` there |
+| `MESTRO_ZONEINFO_DIR` | `/usr/share/zoneinfo` | the zoneinfo database a chosen zone must exist in; the timezone picker shows only while it exists |
+| `MESTRO_LOCALTIME` | `/etc/localtime` | the system zone link, read to learn the running zone when `TZ` is unset |
 
 ## Formatting
 

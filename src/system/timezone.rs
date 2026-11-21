@@ -8,7 +8,6 @@
 
 #![deny(clippy::indexing_slicing)]
 
-use crate::config::System;
 use std::path::Path;
 
 /// longest zone name accepted (the longest real one is 32)
@@ -137,7 +136,8 @@ pub struct Applied {
 /// for a rejected zone. The caller records the setting when `taken`
 /// and restarts when `restart`
 pub fn apply(
-    config: &System,
+    zoneinfo_dir: &Path,
+    env_file: &Path,
     chosen: &str,
     process_zone: Option<&str>,
     source: Source,
@@ -150,8 +150,8 @@ pub fn apply(
             restart: false,
         });
     }
-    validate_zone(Path::new(&config.zoneinfo_dir), zone)?;
-    super::envfile::set_key_in_file(Path::new(&config.env_file), "TZ", zone)?;
+    validate_zone(zoneinfo_dir, zone)?;
+    super::envfile::set_key_in_file(env_file, "TZ", zone)?;
     Ok(Applied {
         zone: zone.to_string(),
         taken: true,
@@ -175,8 +175,8 @@ pub fn take_pending_zone() -> Option<String> {
 }
 
 /// the capability: a zoneinfo database to validate against
-pub fn available(config: &System) -> bool {
-    Path::new(&config.zoneinfo_dir).is_dir()
+pub fn available(zoneinfo_dir: &Path) -> bool {
+    zoneinfo_dir.is_dir()
 }
 
 #[cfg(test)]
@@ -205,14 +205,6 @@ mod tests {
         std::fs::write(dir.path().join("tzdata.zi"), "# not a zone\n").unwrap();
         std::fs::write(dir.path().join("Europe/notes"), "plain text").unwrap();
         dir
-    }
-
-    fn config(zoneinfo: &Path, env: &Path) -> System {
-        System {
-            zoneinfo_dir: zoneinfo.display().to_string(),
-            env_file: env.display().to_string(),
-            ..System::default()
-        }
     }
 
     #[test]
@@ -339,9 +331,9 @@ mod tests {
         let dir = zoneinfo();
         let env = dir.path().join("mestro.env");
         std::fs::write(&env, "# mestro env\r\nRUST_LOG=debug\r\n").unwrap();
-        let config = config(dir.path(), &env);
         let applied = apply(
-            &config,
+            dir.path(),
+            &env,
             "",
             Some("Europe/Berlin"),
             Source::User,
@@ -362,7 +354,8 @@ mod tests {
         );
         // a second choice rewrites the one line
         apply(
-            &config,
+            dir.path(),
+            &env,
             "Europe/London",
             Some("Europe/London"),
             Source::User,
@@ -379,9 +372,9 @@ mod tests {
     fn the_zone_the_process_already_runs_in_needs_no_restart() {
         let dir = zoneinfo();
         let env = dir.path().join("mestro.env");
-        let config = config(dir.path(), &env);
         let applied = apply(
-            &config,
+            dir.path(),
+            &env,
             "",
             Some("Europe/Berlin"),
             Source::User,
@@ -390,7 +383,7 @@ mod tests {
         .unwrap();
         assert!(applied.taken && !applied.restart);
         // an unknown process zone restarts
-        let applied = apply(&config, "", None, Source::User, "Europe/Berlin").unwrap();
+        let applied = apply(dir.path(), &env, "", None, Source::User, "Europe/Berlin").unwrap();
         assert!(applied.restart);
     }
 
@@ -398,10 +391,10 @@ mod tests {
     fn a_browser_zone_is_adopted_once_and_never_over_a_choice() {
         let dir = zoneinfo();
         let env = dir.path().join("mestro.env");
-        let config = config(dir.path(), &env);
         // never chosen: taken
         let first = apply(
-            &config,
+            dir.path(),
+            &env,
             "",
             Some("Europe/Berlin"),
             Source::Browser,
@@ -414,7 +407,8 @@ mod tests {
         // phone in another zone changes nothing, and writes nothing
         let before = std::fs::read_to_string(&env).unwrap();
         let second = apply(
-            &config,
+            dir.path(),
+            &env,
             "Europe/London",
             Some("Europe/London"),
             Source::Browser,
@@ -426,7 +420,8 @@ mod tests {
             "a zone the device does not even know is ignored quietly"
         );
         let third = apply(
-            &config,
+            dir.path(),
+            &env,
             "Europe/London",
             Some("Europe/London"),
             Source::Browser,
@@ -442,7 +437,6 @@ mod tests {
         let dir = zoneinfo();
         let env = dir.path().join("mestro.env");
         std::fs::write(&env, "RUST_LOG=debug\n").unwrap();
-        let config = config(dir.path(), &env);
         for source in [Source::User, Source::Browser] {
             for zone in [
                 "../../etc/passwd",
@@ -450,7 +444,10 @@ mod tests {
                 "",
                 "Europe/Berlin\nEXTRA=1",
             ] {
-                assert!(apply(&config, "", None, source, zone).is_err(), "{zone:?}");
+                assert!(
+                    apply(dir.path(), &env, "", None, source, zone).is_err(),
+                    "{zone:?}"
+                );
             }
         }
         assert_eq!(std::fs::read_to_string(&env).unwrap(), "RUST_LOG=debug\n");
@@ -459,10 +456,7 @@ mod tests {
     #[test]
     fn the_capability_needs_a_zoneinfo_database() {
         let dir = zoneinfo();
-        assert!(available(&config(dir.path(), Path::new("/x"))));
-        assert!(!available(&config(
-            &dir.path().join("missing"),
-            Path::new("/x")
-        )));
+        assert!(available(dir.path()));
+        assert!(!available(&dir.path().join("missing")));
     }
 }

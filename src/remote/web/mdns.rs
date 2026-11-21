@@ -278,7 +278,6 @@ mod tests {
             ap_mode: std::sync::Arc::default(),
             mdns_gate: std::sync::Arc::default(),
             ap_net: crate::config::Wifi::default().ap_net(),
-            system: crate::config::System::default(),
         }
     }
 

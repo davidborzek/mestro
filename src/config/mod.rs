@@ -333,6 +333,28 @@ mod tests {
         );
     }
 
+    /// a config written before the image paths became build settings
+    /// still loads: the stale keys are reported and dropped, the rest stays
+    #[test]
+    fn stale_image_path_keys_are_dropped_with_a_warning() {
+        let tree: toml::Value = toml::from_str(
+            "[system]\ntimezone = \"Europe/Berlin\"\nenv-file = \"/data/mestro.env\"\n\
+             zoneinfo-dir = \"/usr/share/zoneinfo\"\nlocaltime = \"/etc/localtime\"\n",
+        )
+        .unwrap();
+        let (cfg, problems) = lenient::parse::<Config>(tree).unwrap();
+        assert_eq!(
+            cfg.system.timezone, "Europe/Berlin",
+            "the real setting stays"
+        );
+        let mut keys: Vec<_> = problems.iter().map(|p| p.key.as_str()).collect();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            ["system.env-file", "system.localtime", "system.zoneinfo-dir"]
+        );
+    }
+
     #[test]
     fn remote_port_env_beats_the_file_and_garbage_keeps_it() {
         // precedence like the other MESTRO_* overlays: env wins

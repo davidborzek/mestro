@@ -28,6 +28,17 @@ pub const SQUEEZELITE_RESTART: &str = setting(
     "/etc/init.d/S60squeezelite restart",
 );
 
+/// the env file the init script sources before it starts mestro; the
+/// timezone picker writes `TZ=` there
+pub const ENV_FILE: &str = setting(option_env!("MESTRO_ENV_FILE"), "/data/mestro.env");
+
+/// the zoneinfo database a chosen zone must exist in
+pub const ZONEINFO_DIR: &str = setting(option_env!("MESTRO_ZONEINFO_DIR"), "/usr/share/zoneinfo");
+
+/// the system zone link, read to learn the running zone when `TZ` is
+/// not set
+pub const LOCALTIME: &str = setting(option_env!("MESTRO_LOCALTIME"), "/etc/localtime");
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -48,6 +59,22 @@ mod tests {
             SQUEEZELITE_RESTART,
             option_env!("MESTRO_SQUEEZELITE_RESTART")
                 .unwrap_or("/etc/init.d/S60squeezelite restart")
+        );
+    }
+
+    #[test]
+    fn the_system_settings_follow_their_build_variables() {
+        assert_eq!(
+            ENV_FILE,
+            option_env!("MESTRO_ENV_FILE").unwrap_or("/data/mestro.env")
+        );
+        assert_eq!(
+            ZONEINFO_DIR,
+            option_env!("MESTRO_ZONEINFO_DIR").unwrap_or("/usr/share/zoneinfo")
+        );
+        assert_eq!(
+            LOCALTIME,
+            option_env!("MESTRO_LOCALTIME").unwrap_or("/etc/localtime")
         );
     }
 
