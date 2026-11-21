@@ -107,6 +107,16 @@ impl Dispatch {
             // commands work from anywhere, incl. from VU
             Command::Queue => self.nav.show_queue(&ui),
             Command::Vu => self.nav.show_vu(&ui),
+            Command::VuSelect(index) => {
+                // the web ctl op answers out-of-range with an error
+                // before it gets here; the other sources land here
+                if self.vui.select(&ui, *index) {
+                    ui.set_vu_overview_open(false);
+                    self.nav.show_vu(&ui);
+                } else {
+                    tracing::warn!("vu-select:{index}: outside the cycle");
+                }
+            }
             // standby = the player powered off via the source; the
             // state update lands back on the UI, toggle reads the
             // last known flag

@@ -261,6 +261,7 @@ impl Push {
                         standby: false,
                         vu_index: 0,
                         vu_count: 0,
+                        vu_skins: Vec::new(),
                     },
                     display: RemoteDisplay {
                         supported: false,
@@ -410,6 +411,9 @@ fn context_of(ui: &Mestro, ws_url: &str) -> RemoteContext {
             standby: ui.get_standby_showing(),
             vu_index: ui.get_vu_view_index(),
             vu_count: ui.get_vu_view_count(),
+            vu_skins: slint::Model::iter(&ui.get_vu_view_names())
+                .map(|name| name.to_string())
+                .collect(),
         },
         display: RemoteDisplay {
             supported: ui.get_display_supported(),
@@ -469,6 +473,7 @@ mod tests {
                 standby: false,
                 vu_index: 1,
                 vu_count: 3,
+                vu_skins: vec!["night".into(), "cream".into(), "round".into()],
             },
             display: RemoteDisplay {
                 supported: true,
@@ -521,6 +526,10 @@ mod tests {
         assert!(frame.contains("\"vu\":true"), "{frame}");
         assert!(frame.contains("\"vu_index\":1"), "{frame}");
         assert!(frame.contains("\"vu_count\":3"), "{frame}");
+        assert!(
+            frame.contains("\"vu_skins\":[\"night\",\"cream\",\"round\"]"),
+            "{frame}"
+        );
         assert!(
             frame.contains("\"display\":{\"supported\":true,\"brightness\":60}"),
             "{frame}"

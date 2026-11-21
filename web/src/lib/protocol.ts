@@ -92,6 +92,7 @@ export type RemoteState = {
     standby: boolean;
     vu_index: number;
     vu_count: number;
+    vu_skins: string[];
   };
   display: { supported: boolean; brightness: number };
 };

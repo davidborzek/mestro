@@ -149,6 +149,13 @@ impl Vui {
         // would sit in the hidden container evaluating (the tick
         // attaches it on open, and pins the start view otherwise)
         ui.set_vu_view_count(self.0.views.len() as i32);
+        ui.set_vu_view_names(slint::ModelRc::new(slint::VecModel::from(
+            self.0
+                .views
+                .iter()
+                .map(|&view| slint::SharedString::from(self.0.compiled[view].name.as_str()))
+                .collect::<Vec<_>>(),
+        )));
         ui.set_vu_view_index(0);
         if !self.0.views.is_empty() && ui.get_vu_open() {
             self.activate(ui, self.0.views[0]);
@@ -218,6 +225,30 @@ impl Vui {
             }
         });
         self.start_tick(ui, ui_weak);
+    }
+
+    /// remote selection: make the cycle's `index` the active view.
+    /// While the overlay is up the skin switches now (sliding
+    /// unless a slide is still running); otherwise the next open
+    /// attaches it. False when the index is outside the cycle —
+    /// nothing changes then
+    pub fn select(&self, ui: &Mestro, index: usize) -> bool {
+        let inner = &self.0;
+        let Some(&view) = inner.views.get(index) else {
+            return false;
+        };
+        let previous = inner.view_state.get();
+        inner.view_state.set(index);
+        ui.set_vu_view_index(index as i32);
+        if ui.get_vu_open() && previous != index {
+            let direction = match (ui.get_vu_transitioning(), index > previous) {
+                (true, _) => 0,
+                (false, true) => 1,
+                (false, false) => -1,
+            };
+            self.activate_direction(ui, view, direction);
+        }
+        true
     }
 
     /// activate a view: every view embeds its skin through a

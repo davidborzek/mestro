@@ -20,7 +20,15 @@ const emptyState: RemoteState = {
     cover: "",
     accent: "",
   },
-  view: { now_playing: false, queue: false, vu: false, standby: false, vu_index: 0, vu_count: 0 },
+  view: {
+    now_playing: false,
+    queue: false,
+    vu: false,
+    standby: false,
+    vu_index: 0,
+    vu_count: 0,
+    vu_skins: [],
+  },
   display: { supported: false, brightness: 0 },
 };
 
