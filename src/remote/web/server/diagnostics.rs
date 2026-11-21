@@ -23,7 +23,6 @@
 use super::http;
 use super::http::json;
 use super::pair::Pairing;
-use crate::config::Diagnostics;
 use crate::remote::web::{
     Bridge, Envelope, Ingress, Request, Response, SettingsOp, WebInfo, WifiChannel, WifiOp,
 };
@@ -51,7 +50,7 @@ const SECRET_KEY_NAMES: &[&str] = &[
 ];
 
 /// path fragments of files that hold secrets: refused wherever they
-/// appear in `[diagnostics]`
+/// appear in the sources
 const SECRET_PATHS: &[&str] = &[
     "dropbear",
     "ssh",
@@ -377,6 +376,43 @@ fn read_tail(path: &Path) -> Option<String> {
     Some(String::from_utf8_lossy(&bytes).into_owned())
 }
 
+/// the log files a report tails, the small files it copies whole
+/// and the command whose output joins it (kernel version and sound
+/// cards are Linux facts; the logs and the command are the image's,
+/// build settings in `system::paths`)
+#[derive(Debug, Clone, PartialEq)]
+pub struct Sources {
+    pub logs: Vec<String>,
+    /// lines kept per log file
+    pub log_lines: usize,
+    pub files: Vec<String>,
+    /// split on whitespace, no shell; empty or a missing program = skipped
+    pub status_command: String,
+}
+
+impl Sources {
+    /// what a report collects on the player image
+    pub fn image() -> Self {
+        use crate::system::paths;
+        Self {
+            logs: paths::DIAG_LOGS
+                .split(':')
+                .filter(|path| !path.is_empty())
+                .map(String::from)
+                .collect(),
+            log_lines: LOG_LINES,
+            files: KERNEL_FILES.iter().map(|path| path.to_string()).collect(),
+            status_command: paths::DIAG_STATUS.to_string(),
+        }
+    }
+}
+
+/// lines kept per log file
+const LOG_LINES: usize = 200;
+
+/// small text files copied whole: kernel version, sound cards
+const KERNEL_FILES: &[&str] = &["/proc/version", "/proc/asound/cards"];
+
 /// the files and logs a report carries
 #[derive(Debug, Default, PartialEq)]
 pub(super) struct Collected {
@@ -390,11 +426,11 @@ pub(super) struct Collected {
     pub refused: Vec<String>,
 }
 
-/// read what `[diagnostics]` names; missing files are noted and
+/// read what the sources name; missing files are noted and
 /// skipped, secret-bearing paths are refused unread
-pub(super) fn collect_files(config: &Diagnostics) -> Collected {
+pub(super) fn collect_files(config: &Sources) -> Collected {
     let mut collected = Collected::default();
-    let lines = config.lines();
+    let lines = config.log_lines;
     let sources = config
         .files
         .iter()
@@ -861,8 +897,8 @@ mod tests {
         }
     }
 
-    fn config_in(dir: &Path) -> Diagnostics {
-        Diagnostics {
+    fn config_in(dir: &Path) -> Sources {
+        Sources {
             logs: vec![
                 dir.join("mestro.log").display().to_string(),
                 dir.join("mestro.log.old").display().to_string(),
@@ -875,6 +911,23 @@ mod tests {
                 dir.join("dropbear").display().to_string(),
             ],
             status_command: String::new(),
+        }
+    }
+
+    #[test]
+    fn the_image_sources_split_the_log_list_and_name_no_secret_path() {
+        let sources = Sources::image();
+        assert_eq!(
+            sources.logs,
+            crate::system::paths::DIAG_LOGS
+                .split(':')
+                .filter(|path| !path.is_empty())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(sources.log_lines, 200);
+        assert_eq!(sources.files, ["/proc/version", "/proc/asound/cards"]);
+        for path in sources.logs.iter().chain(&sources.files) {
+            assert!(!is_secret_path(path), "{path}");
         }
     }
 

@@ -58,6 +58,8 @@ only the production call sites read the constants.
 | `MESTRO_ENV_FILE` | `/data/mestro.env` | the env file the init script sources before it starts mestro; the timezone picker writes `TZ=` there |
 | `MESTRO_ZONEINFO_DIR` | `/usr/share/zoneinfo` | the zoneinfo database a chosen zone must exist in; the timezone picker shows only while it exists |
 | `MESTRO_LOCALTIME` | `/etc/localtime` | the system zone link, read to learn the running zone when `TZ` is unset |
+| `MESTRO_DIAG_LOGS` | `/tmp/mestro.log:/tmp/mestro.log.old:/tmp/ota.log` | colon-separated log files whose last 200 lines go into the diagnostics download (`.old` is the previous run); a missing file is skipped |
+| `MESTRO_DIAG_STATUS` | `/usr/sbin/mestro-upgrade --status` | the command whose output joins the diagnostics download (split on whitespace, no shell, 5 s budget); empty = none |
 
 ## Formatting
 

@@ -39,6 +39,21 @@ pub const ZONEINFO_DIR: &str = setting(option_env!("MESTRO_ZONEINFO_DIR"), "/usr
 /// not set
 pub const LOCALTIME: &str = setting(option_env!("MESTRO_LOCALTIME"), "/etc/localtime");
 
+/// the log files a diagnostics report tails, colon-separated (the image
+/// logs mestro and the OTA scripts to tmpfs; the `.old` file is the
+/// previous run — what a crash leaves)
+pub const DIAG_LOGS: &str = setting(
+    option_env!("MESTRO_DIAG_LOGS"),
+    "/tmp/mestro.log:/tmp/mestro.log.old:/tmp/ota.log",
+);
+
+/// the command whose output joins a diagnostics report (split on
+/// whitespace, no shell); empty = none
+pub const DIAG_STATUS: &str = setting(
+    option_env!("MESTRO_DIAG_STATUS"),
+    "/usr/sbin/mestro-upgrade --status",
+);
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -75,6 +90,19 @@ mod tests {
         assert_eq!(
             LOCALTIME,
             option_env!("MESTRO_LOCALTIME").unwrap_or("/etc/localtime")
+        );
+    }
+
+    #[test]
+    fn the_diagnostics_settings_follow_their_build_variables() {
+        assert_eq!(
+            DIAG_LOGS,
+            option_env!("MESTRO_DIAG_LOGS")
+                .unwrap_or("/tmp/mestro.log:/tmp/mestro.log.old:/tmp/ota.log")
+        );
+        assert_eq!(
+            DIAG_STATUS,
+            option_env!("MESTRO_DIAG_STATUS").unwrap_or("/usr/sbin/mestro-upgrade --status")
         );
     }
 

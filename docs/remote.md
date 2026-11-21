@@ -409,8 +409,10 @@ the tree through the UI stack).
 }
 ```
 
-What is collected and from where is `[diagnostics]`
-([configuration.md](configuration.md#diagnostics)); a file that is
+What is collected is fixed per image (build settings, CONTRIBUTING.md
+"Building for another image"): the last 200 lines of mestro's and
+the OTA scripts' logs (at most 256 KiB read per file), `/proc/version`,
+`/proc/asound/cards` and the output of `mestro-upgrade --status`. A file that is
 not there is listed under `skipped.missing` and the download goes
 on. Whatever the UI thread or the wifi manager does not answer in
 time is reported as `{"error": …}` in its slot.
@@ -434,7 +436,7 @@ is in the output):
    copy) are replaced wherever they still appear.
 
 Files that are secrets by nature are never opened, whatever
-`[diagnostics]` says: dropbear host keys and `authorized_keys`,
+the build settings name: dropbear host keys and `authorized_keys`,
 `.ssh`, `shadow`/`passwd`, the wpa conf, `web-pin`, the settings
 overlay, `device-id`, `*.pem`/`*.key` and names containing `secret`
 or `token` (listed under `skipped.refused`). The pairing URL

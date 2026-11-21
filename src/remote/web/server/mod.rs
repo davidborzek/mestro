@@ -20,7 +20,7 @@ mod audio;
 mod auth;
 mod captive;
 mod ctl;
-mod diagnostics;
+pub(crate) mod diagnostics;
 mod http;
 mod ma;
 #[cfg(feature = "ota")]
@@ -480,7 +480,7 @@ mod tests {
             ap_mode: std::sync::Arc::default(),
             mdns_gate: std::sync::Arc::default(),
             ap_net: ap_net(),
-            diagnostics: crate::config::Diagnostics::default(),
+            diagnostics: diagnostics::Sources::image(),
         }
     }
 
@@ -1588,11 +1588,11 @@ mod tests {
         .unwrap();
         let mut info = info();
         info.pin = PIN.into();
-        info.diagnostics = crate::config::Diagnostics {
+        info.diagnostics = diagnostics::Sources {
             logs: vec![log.display().to_string()],
+            log_lines: 200,
             files: vec![],
             status_command: String::new(),
-            ..crate::config::Diagnostics::default()
         };
         let pairing = Arc::new(Pairing::new(PIN));
         let token = auth::pair_token(PIN);

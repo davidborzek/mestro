@@ -92,8 +92,8 @@ pub struct WebInfo {
     /// hotspot-trusted when its peer address lies inside and the
     /// hotspot is confirmed up
     pub ap_net: crate::config::ApNet,
-    /// what the diagnostics report collects (`[diagnostics]`)
-    pub diagnostics: crate::config::Diagnostics,
+    /// what the diagnostics report collects
+    pub diagnostics: server::diagnostics::Sources,
 }
 
 impl WebInfo {
@@ -214,7 +214,7 @@ pub fn info(
         ap_mode: std::sync::Arc::default(),
         mdns_gate: std::sync::Arc::default(),
         ap_net: config.wifi.ap_net(),
-        diagnostics: config.diagnostics.clone(),
+        diagnostics: server::diagnostics::Sources::image(),
     };
     // the wizard URL carries the pairing PIN — the kiosk connection
     // page shows it too (restart-stable secret for a LAN device,
@@ -583,7 +583,7 @@ mod tests {
             ap_mode: std::sync::Arc::default(),
             mdns_gate: std::sync::Arc::default(),
             ap_net: ap_net([10, 42, 0, 1]),
-            diagnostics: crate::config::Diagnostics::default(),
+            diagnostics: server::diagnostics::Sources::image(),
         };
         if ap_up {
             info.ap_mode
