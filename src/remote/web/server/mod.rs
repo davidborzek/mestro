@@ -41,6 +41,10 @@ use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::accept_async;
 
+/// the wire protocol revision `hello` reports — bumped only on
+/// a breaking change (additive fields and ops keep it)
+pub(crate) const PROTOCOL_VERSION: u32 = 1;
+
 pub async fn serve(
     port: u16,
     info: WebInfo,
@@ -380,6 +384,9 @@ pub(crate) async fn dispatch(
                 json!({
                     "app": info.app_version,
                     "version": info.app_version,
+                    "protocol": PROTOCOL_VERSION,
+                    "id": info.id,
+                    "name": info.name,
                     "remote_url": remote_url,
                     "ota": cfg!(feature = "ota"),
                     "capabilities": {
@@ -447,6 +454,8 @@ mod tests {
             port: 8787,
             pin: String::new(),
             app_version: "0.1.0 (abc1234)".into(),
+            id: "a8724d0c4171".into(),
+            name: "wohnzimmer".into(),
             display_supported: true,
             ap_mode: std::sync::Arc::default(),
             ap_net: ap_net(),
@@ -574,6 +583,13 @@ mod tests {
             ));
         let reply: serde_json::Value = serde_json::from_str(&reply).unwrap();
         assert_eq!(reply["data"]["version"], "0.1.0 (abc1234)");
+        assert_eq!(reply["data"]["protocol"], 1);
+        let id = reply["data"]["id"].as_str().unwrap();
+        assert!(
+            id.len() == 12 && id.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')),
+            "{id}"
+        );
+        assert!(!reply["data"]["name"].as_str().unwrap().is_empty());
         assert_eq!(reply["data"]["ota"], cfg!(feature = "ota"));
         assert_eq!(reply["data"]["capabilities"]["ota"], cfg!(feature = "ota"));
         assert_eq!(reply["data"]["capabilities"]["display"], true);

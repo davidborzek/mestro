@@ -16,6 +16,7 @@
 //! it once for the `mestro_pair` cookie (see the `pair` module),
 //! and either opens `/ws`, `/ota` and `/cover`.
 
+mod identity;
 mod protocol;
 pub mod push;
 mod server;
@@ -60,6 +61,12 @@ pub struct WebInfo {
     pub port: u16,
     pub pin: String,
     pub app_version: String,
+    /// the stable player id (a hardware MAC, 12 lowercase hex
+    /// chars) — `hello` and the mDNS announcement carry it
+    pub id: String,
+    /// the player's label: the configured MA player name, else
+    /// the hostname
+    pub name: String,
     /// a backlight exists (hello capabilities + the remote's
     /// display row)
     pub display_supported: bool,
@@ -167,6 +174,7 @@ pub fn info(
     app_version: &str,
     display_supported: bool,
     ap_net: crate::config::ApNet,
+    player_name: &str,
 ) -> (WebInfo, String) {
     tracing::info!(
         "web: start: enabled={} port={}",
@@ -178,10 +186,13 @@ pub fn info(
     } else {
         String::new()
     };
+    let hostname = identity::hostname();
     let info = WebInfo {
         port: remote.port,
         pin: pin.clone(),
         app_version: app_version.to_string(),
+        id: identity::device_id(std::path::Path::new("/sys/class/net"), &hostname),
+        name: identity::label(player_name, &hostname),
         display_supported,
         ap_mode: std::sync::Arc::default(),
         ap_net,
@@ -546,6 +557,8 @@ mod tests {
             port: 8787,
             pin: String::new(),
             app_version: "0.1.0".into(),
+            id: "a8724d0c4171".into(),
+            name: "wohnzimmer".into(),
             display_supported: true,
             ap_mode: std::sync::Arc::default(),
             ap_net: ap_net([10, 42, 0, 1]),

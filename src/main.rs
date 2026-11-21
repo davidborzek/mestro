@@ -624,6 +624,7 @@ fn wire_remote(
         &mestro::app_version(),
         ui.get_display_supported(),
         config.wifi.ap_net(),
+        &config.music_assistant.player,
     );
     // the settings-preview thumbnails: rendered on this (UI)
     // thread from the compiled registries, on demand through the
