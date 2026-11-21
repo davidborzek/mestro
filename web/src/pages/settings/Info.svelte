@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { connection, device, socket } from "../../lib/connection.svelte";
   import { diagnostics } from "../../lib/diagnostics.svelte";
+  import { downloadDiagnostics } from "../../lib/diagnosticsDownload";
   import { remoteState } from "../../lib/remoteState.svelte";
   import { getLocale, setLocale, t, type Locale } from "../../lib/i18n.svelte";
   import type { WifiStatusData } from "../../lib/protocol";
@@ -26,6 +27,8 @@
   let resetSheet = $state(false);
   let resetting = $state(false);
   let diagOpen = $state(false);
+  let downloading = $state(false);
+  let downloadError = $state("");
 
   // the Diagnose row: raw numbers, no i18n — a device-side
   // latency reading is the same in every language
@@ -56,6 +59,25 @@
     } catch {
       // the socket drops while the kiosk reboots — the banner
       // covers the gap and the socket reconnects on its own
+    }
+  }
+
+  // the bug-report file: the player collects it, the browser saves it
+  async function downloadReport() {
+    downloading = true;
+    downloadError = "";
+    try {
+      const file = await downloadDiagnostics();
+      const url = URL.createObjectURL(file.blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = file.name;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      downloadError = error instanceof Error ? error.message : String(error);
+    } finally {
+      downloading = false;
     }
   }
 
@@ -138,6 +160,17 @@
     {t("info.diag")}
     <Icon name={diagOpen ? "chevronDown" : "chevronRight"} size={18} />
   </button>
+  <button class="download" disabled={downloading} onclick={() => void downloadReport()}>
+    <Icon name="download" size={18} />
+    {downloading ? t("info.diagDownloading") : t("info.diagDownload")}
+  </button>
+  <p class="diag-help">{t("info.diagDownloadHelp")}</p>
+  {#if downloadError}
+    <div class="err" role="alert">
+      <Icon name="alert" size={16} />
+      {t("info.diagDownloadFailed", { reason: downloadError })}
+    </div>
+  {/if}
   {#if diagOpen}
     <dl class="diag-data">
       <div class="line">
@@ -251,6 +284,26 @@
   }
   .diag-data {
     margin-top: var(--sp-1);
+  }
+  .download {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text);
+    border-top: 1px solid var(--hairline);
+  }
+  .download :global(svg) {
+    color: var(--mute);
+  }
+  .download:disabled {
+    color: var(--mute);
+  }
+  .diag-help {
+    font-size: 13px;
+    color: var(--dim);
   }
   .diag-commands {
     margin: var(--sp-2) 0 0;

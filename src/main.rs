@@ -619,15 +619,8 @@ fn wire_remote(
     // display-supported is up (app::display::sync ran first);
     // the trust boundary needs the hotspot's subnet (`[wifi]
     // ap-address`) — the peer check derives from it
-    let (web_info, web_pin) = mestro::remote::web::info(
-        &config.remote,
-        &mestro::app_version(),
-        ui.get_display_supported(),
-        config.wifi.ap_net(),
-        &config.music_assistant.player,
-        config.audio.clone(),
-        config.system.clone(),
-    );
+    let (web_info, web_pin) =
+        mestro::remote::web::info(config, &mestro::app_version(), ui.get_display_supported());
     // the settings-preview thumbnails: rendered on this (UI)
     // thread from the compiled registries, on demand through the
     // bridge; the effective config keeps them in sync with edits

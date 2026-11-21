@@ -20,6 +20,7 @@
 mod audio;
 mod background;
 mod clock;
+mod diagnostics;
 mod display;
 mod hub;
 pub mod lenient;
@@ -39,6 +40,7 @@ pub use background::Background;
 pub use clock::{
     BackgroundSource, Clock, StandbyBackground, BUILTIN_STYLES as CLOCK_BUILTIN_STYLES,
 };
+pub use diagnostics::Diagnostics;
 pub use display::Display;
 pub use hub::{Hub, HubEntry, HubLayout};
 pub use music::MusicAssistant;
@@ -96,6 +98,10 @@ pub struct Config {
     /// applied through (feature `timezone` on the kiosk)
     #[serde(default)]
     pub system: System,
+    /// [diagnostics]: what the web app's diagnostics report collects
+    /// (log files, system files; config-file only)
+    #[serde(default)]
+    pub diagnostics: Diagnostics,
 }
 
 /// load defaults, then the TOML file if present, then env overrides.

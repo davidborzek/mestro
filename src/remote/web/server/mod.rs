@@ -20,6 +20,7 @@ mod audio;
 mod auth;
 mod captive;
 mod ctl;
+mod diagnostics;
 mod http;
 mod ma;
 #[cfg(feature = "ota")]
@@ -199,6 +200,14 @@ async fn handle(
             }
         }
         "/cover" => http::reply(&mut stream, "401 Unauthorized", "pairing required").await,
+        // the bug-report download: paired only, never on the hotspot
+        // path (the unpaired AP vocabulary is hello + wifi)
+        "/diagnostics" if method == "GET" && authorized => {
+            diagnostics::serve(&mut stream, &info, &bridge, &pairing, &wifi).await
+        }
+        "/diagnostics" if method == "GET" => {
+            http::reply(&mut stream, "401 Unauthorized", "pairing required").await
+        }
         // the settings thumbnails (the schema's preview URLs):
         // auth like /cover, served from the Events cache, rendered
         // once per (name, version) on the UI thread
@@ -354,6 +363,33 @@ fn show_update_status(ui: &crate::Mestro, phase: &ota::OtaPhase) {
     }
 }
 
+/// the `hello` payload; the wizard URL carries the pairing PIN and
+/// is only filled in for a paired caller
+pub(crate) fn hello_data(info: &WebInfo, paired: bool) -> serde_json::Value {
+    let remote_url = if paired {
+        info.remote_url()
+    } else {
+        String::new()
+    };
+    json!({
+        "app": info.app_version,
+        "version": info.app_version,
+        "protocol": PROTOCOL_VERSION,
+        "id": info.id,
+        "name": info.name,
+        "remote_url": remote_url,
+        "ota": cfg!(feature = "ota"),
+        "capabilities": {
+            "ota": cfg!(feature = "ota"),
+            "display": info.display_supported,
+            "wifi": cfg!(feature = "wifi-setup"),
+            "factory_reset": cfg!(feature = "wifi-setup"),
+            "audio_output": audio::capable(info),
+            "timezone": timezone::capable(&info.system),
+        },
+    })
+}
+
 /// one protocol round: the MA and wifi domains run here, everything
 /// else goes through the bridge onto the UI thread ([`settings`]).
 /// `paired` carries the HTTP route's verdict: unpaired callers only
@@ -372,36 +408,9 @@ pub(crate) async fn dispatch(
     };
     let id = env.id;
     match env.request {
-        Request::Hello => {
-            // the wizard URL carries the pairing PIN — an unpaired
-            // socket must never see it (it could pair with it);
-            // the paired wizard already has its own
-            let remote_url = if paired {
-                info.remote_url()
-            } else {
-                String::new()
-            };
-            http::json(&Response::ok(
-                id,
-                json!({
-                    "app": info.app_version,
-                    "version": info.app_version,
-                    "protocol": PROTOCOL_VERSION,
-                    "id": info.id,
-                    "name": info.name,
-                    "remote_url": remote_url,
-                    "ota": cfg!(feature = "ota"),
-                    "capabilities": {
-                        "ota": cfg!(feature = "ota"),
-                        "display": info.display_supported,
-                        "wifi": cfg!(feature = "wifi-setup"),
-                        "factory_reset": cfg!(feature = "wifi-setup"),
-                        "audio_output": audio::capable(info),
-                        "timezone": timezone::capable(&info.system),
-                    },
-                }),
-            ))
-        }
+        // hello_data withholds the wizard URL (it carries the pairing
+        // PIN) from an unpaired socket
+        Request::Hello => http::json(&Response::ok(id, hello_data(info, paired))),
         Request::Wifi { action } => wifi::handle(id, action, info, wifi, ingress, paired).await,
         // paired-only, like every device op; the work is blocking
         Request::Audio { action } => {
@@ -473,6 +482,7 @@ mod tests {
             ap_net: ap_net(),
             audio: crate::config::Audio::default(),
             system: crate::config::System::default(),
+            diagnostics: crate::config::Diagnostics::default(),
         }
     }
 
@@ -1626,5 +1636,103 @@ mod tests {
         assert_eq!(hello(&info), false, "no zoneinfo database");
         std::fs::create_dir_all(dir.path().join("zoneinfo")).unwrap();
         assert_eq!(hello(&info), cfg!(feature = "timezone"));
+    }
+
+    // ── GET /diagnostics: paired only ──
+
+    #[test]
+    fn diagnostics_need_the_pairing_cookie_everywhere() {
+        // no cookie: 401 — STA, hotspot-up-LAN peer and the AP-trusted
+        // hotspot peer alike (the unpaired AP vocabulary is hello +
+        // wifi, never the report)
+        let request = "GET /diagnostics HTTP/1.1\r\nHost: x\r\n\r\n";
+        // the hotspot peer dials the gateway by its own address (any
+        // other host would be bounced into the portal page first)
+        let gateway = "GET /diagnostics HTTP/1.1\r\nHost: 127.0.0.2\r\n\r\n";
+        for response in [
+            roundtrip(request),
+            roundtrip_ap(request),
+            roundtrip_hotspot(gateway),
+        ] {
+            assert!(response.starts_with("HTTP/1.1 401"), "{response}");
+            assert!(!response.contains("mestro-diagnostics"), "{response}");
+        }
+        // a wrong cookie too
+        let response =
+            roundtrip("GET /diagnostics HTTP/1.1\r\nHost: x\r\nCookie: mestro_pair=nope\r\n\r\n");
+        assert!(response.starts_with("HTTP/1.1 401"), "{response}");
+        // only GET is a route; anything else falls to the app (404 for POST)
+        let response = roundtrip("POST /diagnostics HTTP/1.1\r\nHost: x\r\n\r\n");
+        assert!(response.starts_with("HTTP/1.1 404"), "{response}");
+    }
+
+    #[test]
+    fn a_paired_download_is_a_json_attachment_without_any_known_secret() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("mestro.log");
+        // the log carries the pairing PIN and a bearer token the way a
+        // real log would
+        std::fs::write(
+            &log,
+            format!(
+                "INFO web: wizard url: http://192.168.1.50/#pair={PIN}\nINFO ma: connected\nWARN auth Bearer {PIN}-leftover\n"
+            ),
+        )
+        .unwrap();
+        let mut info = info();
+        info.pin = PIN.into();
+        info.diagnostics = crate::config::Diagnostics {
+            logs: vec![log.display().to_string()],
+            files: vec![],
+            status_command: String::new(),
+            ..crate::config::Diagnostics::default()
+        };
+        let pairing = Arc::new(Pairing::new(PIN));
+        let token = auth::pair_token(PIN);
+        let request =
+            format!("GET /diagnostics HTTP/1.1\r\nHost: x\r\nCookie: mestro_pair={token}\r\n\r\n");
+        let response = roundtrip_with(
+            &request,
+            info,
+            pairing,
+            Events::new(),
+            assets::TABLE,
+            no_wifi(),
+        );
+        assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+        let headers = headers_of(&response);
+        assert!(
+            headers.contains("Content-Type: application/json"),
+            "{headers}"
+        );
+        assert!(
+            headers.contains("Content-Disposition: attachment; filename=\"mestro-diagnostics-a8724d0c4171.json\""),
+            "{headers}"
+        );
+        assert!(headers.contains("Cache-Control: no-store"), "{headers}");
+        let body = body_of(&response);
+        for secret in [PIN, token.as_str()] {
+            assert!(!body.contains(secret), "{secret} leaked:\n{body}");
+        }
+        let report: serde_json::Value = serde_json::from_str(body).unwrap();
+        assert_eq!(report["report"], "mestro-diagnostics");
+        assert_eq!(report["version"], "0.1.0 (abc1234)");
+        assert_eq!(
+            report["hello"]["remote_url"], "",
+            "no pairing URL in the report"
+        );
+        // the detached UI and the missing wifi manager are reported,
+        // the download still works
+        assert!(report["state"]["error"].is_string(), "{report}");
+        assert!(report["wifi"]["error"].is_string(), "{report}");
+        assert!(report["logs"]
+            .as_object()
+            .unwrap()
+            .values()
+            .any(|lines| lines
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|line| line.as_str().unwrap().contains("connected"))));
     }
 }

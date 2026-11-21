@@ -208,6 +208,20 @@ power-save = false
 # country = "DE"
 ```
 
+## Bug reports (diagnostics)
+
+The web app's Settings → Info → *Download diagnostics* saves one
+JSON file (`GET /diagnostics`, paired phones only): the version,
+the redacted settings, the wifi status, the tail of `/tmp/mestro.log`
+(and `.old`, the previous run) and `/tmp/ota.log`, `/proc/version`,
+`/proc/asound/cards` and the output of `mestro-upgrade --status`.
+Tokens, the pairing PIN and wifi passphrases are removed; host
+keys, `wpa_supplicant.conf` and the settings overlay are never read.
+The paths are `[diagnostics]` in the config
+([configuration.md](../docs/configuration.md#diagnostics)); the log
+files live in RAM, so the report has to be taken before a reboot
+to contain the crash it is about.
+
 ## Known limits
 
 - Raspberry Pi 4 only (Pi 3/5 and Zero 2 W defconfigs are

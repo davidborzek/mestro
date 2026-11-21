@@ -96,6 +96,8 @@ pub struct WebInfo {
     pub audio: crate::config::Audio,
     /// the timezone picker's paths (`[system]`)
     pub system: crate::config::System,
+    /// what the diagnostics report collects (`[diagnostics]`)
+    pub diagnostics: crate::config::Diagnostics,
 }
 
 impl WebInfo {
@@ -186,14 +188,11 @@ impl Bridge {
 /// no PIN file is written (the first-run overlay then points at
 /// config.toml instead of a dead end).
 pub fn info(
-    remote: &crate::config::Remote,
+    config: &crate::config::Config,
     app_version: &str,
     display_supported: bool,
-    ap_net: crate::config::ApNet,
-    player_name: &str,
-    audio: crate::config::Audio,
-    system: crate::config::System,
 ) -> (WebInfo, String) {
+    let remote = &config.remote;
     tracing::info!(
         "web: start: enabled={} port={}",
         remote.enabled,
@@ -214,13 +213,14 @@ pub fn info(
             &crate::settings::state_dir(),
             &hostname,
         ),
-        name: identity::label(player_name, &hostname),
+        name: identity::label(&config.music_assistant.player, &hostname),
         display_supported,
         ap_mode: std::sync::Arc::default(),
         mdns_gate: std::sync::Arc::default(),
-        ap_net,
-        audio,
-        system,
+        ap_net: config.wifi.ap_net(),
+        audio: config.audio.clone(),
+        system: config.system.clone(),
+        diagnostics: config.diagnostics.clone(),
     };
     // the wizard URL carries the pairing PIN — the kiosk connection
     // page shows it too (restart-stable secret for a LAN device,
@@ -591,6 +591,7 @@ mod tests {
             ap_net: ap_net([10, 42, 0, 1]),
             audio: crate::config::Audio::default(),
             system: crate::config::System::default(),
+            diagnostics: crate::config::Diagnostics::default(),
         };
         if ap_up {
             info.ap_mode

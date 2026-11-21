@@ -23,6 +23,7 @@ export default defineConfig({
       "/pair": "http://localhost:8787",
       "/cover": "http://localhost:8787",
       "/ota": "http://localhost:8787",
+      "/diagnostics": "http://localhost:8787",
     },
   },
 });

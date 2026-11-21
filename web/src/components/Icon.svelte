@@ -30,6 +30,7 @@
     ma: `<circle cx="12" cy="12" r="9.2"/><path fill="currentColor" stroke="none" d="M10.3 15.3V7.4l6-1.6v2.1l-4 1.1v6"/><circle cx="8.9" cy="15.6" r="1.9" fill="currentColor" stroke="none"/><circle cx="14.9" cy="13" r="1.9" fill="currentColor" stroke="none"/>`,
     alert: `<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>`,
     remote: `<path d="M8 2h8a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z"/><path d="M12 18h.01"/>`,
+    download: `<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>`,
     upload: `<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>`,
     check: `<path d="M20 6 9 17l-5-5"/>`,
     lock: `<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>`,
