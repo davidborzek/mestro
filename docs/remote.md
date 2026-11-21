@@ -60,13 +60,20 @@ TXT  id=<mac>          the stable player id (as in hello)
 
 The announcement carries no secret: pairing still needs the PIN.
 It runs on the regular networks (wifi STA, ethernet; multicast
-UDP 5353) and is **stopped while the setup hotspot runs** — the
-responder never sits on the hotspot interface, dnsmasq owns that
-network — and started again when AP mode ends. Address changes
-(DHCP, link up/down) are followed automatically. If the responder
-cannot start (UDP 5353 held exclusively by another process),
-mestro logs a warning and retries every 30 s; the player stays
-reachable by address. `[remote] enabled = false` turns it off
+UDP 5353) and announces **IPv4 addresses only** — the web endpoint
+listens on `0.0.0.0`, an IPv6 address would not be reachable. It
+is **stopped while the setup hotspot is in play** — the responder
+never sits on the hotspot interface, dnsmasq owns that network.
+The wifi manager raises a dedicated pause signal (not the auth
+`ap_mode` flag) at the start of the hotspot transition, before
+anything is built, and drops it when the station network is back;
+the announcer polls it every second and tears the daemon down.
+Hotspot clients that are not paired see the same identity (`id`,
+`name`, version) through `hello` anyway, so nothing is hidden by
+the pause. Address changes (DHCP, link up/down) are followed
+automatically. If the responder cannot start (UDP 5353 held
+exclusively by another process), mestro logs a warning and retries
+every 30 s; the player stays reachable by address. `[remote] enabled = false` turns it off
 with the endpoint. Check with `avahi-browse -rt _mestro._tcp`.
 
 ## Auth model
@@ -226,7 +233,10 @@ name; one with a `device` entry in `/sys/class/net`, so no
 bridges, veth or tunnels). sysfs keeps the address while a link
 is down and the hotspot runs on the same radio, so the id
 survives restarts and interface up/down. A host without any
-physical interface derives the id from the hostname instead.
+physical interface (container, minimal VM) generates a random
+12-hex id once and keeps it in the state dir
+(`$XDG_STATE_HOME/mestro/device-id`), so it is stable across
+restarts and two installs never share one.
 `id` and `name` are also in the mDNS record (below).
 
 Replies: `{"id": …, "ok": true, "data": …}` or
@@ -268,7 +278,9 @@ player — the state frame reports the truth.
 ### Push frames (no `id`)
 
 Every **paired** socket receives `{"event":"state","data":…}` right
-after the upgrade (a snapshot) and on every change afterwards —
+after the upgrade (a snapshot, always the first frame: the hub
+publishes an initial one — `connected: false`, an empty player —
+before the listener accepts connections) and on every change afterwards —
 coalesced to at most one frame per 100 ms, except player view
 changes (np/queue/vu/standby/vu-index), which are published at
 once. Unpaired sockets (the hotspot's setup clients) receive no

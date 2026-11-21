@@ -76,6 +76,11 @@ pub struct WebInfo {
     /// portal and relaxes the pairing gate on it (feature
     /// `wifi-setup`; a build without it never sets it)
     pub ap_mode: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// the wifi manager's "hotspot in play" signal for the mDNS
+    /// announcer: raised before the hotspot is built, dropped when
+    /// it is gone. Separate from `ap_mode`, the auth trust, which
+    /// only opens once the hotspot is confirmed up
+    pub mdns_pause: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// the hotspot's subnet (`[wifi] ap-address`, ApNet) — the
     /// peer-side half of the AP trust boundary: a connection is
     /// hotspot-trusted when its peer address lies inside and the
@@ -87,6 +92,12 @@ impl WebInfo {
     /// the AP-mode shortcut the server routes on
     pub fn ap(&self) -> bool {
         self.ap_mode.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// the mDNS announcer must be silent (the hotspot is coming
+    /// up, up, or going down)
+    pub(crate) fn mdns_paused(&self) -> bool {
+        self.mdns_pause.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// the port in URL form: nothing on 80 (the default port, the
@@ -192,10 +203,14 @@ pub fn info(
         port: remote.port,
         pin: pin.clone(),
         app_version: app_version.to_string(),
-        id: identity::device_id(std::path::Path::new("/sys/class/net"), &hostname),
+        id: identity::device_id(
+            std::path::Path::new("/sys/class/net"),
+            &crate::settings::state_dir(),
+        ),
         name: identity::label(player_name, &hostname),
         display_supported,
         ap_mode: std::sync::Arc::default(),
+        mdns_pause: std::sync::Arc::default(),
         ap_net,
     };
     // the wizard URL carries the pairing PIN — the kiosk connection
@@ -563,6 +578,7 @@ mod tests {
             name: "wohnzimmer".into(),
             display_supported: true,
             ap_mode: std::sync::Arc::default(),
+            mdns_pause: std::sync::Arc::default(),
             ap_net: ap_net([10, 42, 0, 1]),
         };
         if ap_up {

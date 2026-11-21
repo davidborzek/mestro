@@ -458,6 +458,7 @@ mod tests {
             name: "wohnzimmer".into(),
             display_supported: true,
             ap_mode: std::sync::Arc::default(),
+            mdns_pause: std::sync::Arc::default(),
             ap_net: ap_net(),
         }
     }
@@ -836,6 +837,58 @@ mod tests {
                     second.contains("\"app\":\"0.1.0"),
                     "unexpected frame: {second}"
                 );
+            });
+    }
+
+    #[test]
+    fn a_socket_opened_right_after_startup_gets_a_state_frame_first() {
+        // startup order: the initial snapshot is published before the
+        // listener accepts — no player update has happened yet
+        let events = Events::new();
+        let ma_cfg = std::sync::Arc::new(std::sync::RwLock::new(crate::providers::ma::Config {
+            ws_url: String::new(),
+            token: String::new(),
+            player_name: "wohnzimmer".into(),
+        }));
+        crate::remote::web::Push::new(events.clone(), ma_cfg, "wohnzimmer").publish_snapshot();
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(async {
+                let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let addr = listener.local_addr().unwrap();
+                let pairing = Arc::new(Pairing::new(PIN));
+                tokio::spawn(async move {
+                    let (stream, peer) = listener.accept().await.unwrap();
+                    let _ = handle(
+                        stream,
+                        peer,
+                        info(),
+                        detached_bridge(),
+                        pairing,
+                        events,
+                        assets::TABLE,
+                        no_wifi(),
+                    )
+                    .await;
+                });
+                use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+                let mut request = format!("ws://{addr}/ws").into_client_request().unwrap();
+                request.headers_mut().insert(
+                    "cookie",
+                    format!("mestro_pair={}", auth::pair_token(PIN))
+                        .parse()
+                        .unwrap(),
+                );
+                let (mut ws, _) = tokio_tungstenite::connect_async(request).await.unwrap();
+                // a hello sent at once must not overtake the snapshot
+                ws.send("{\"id\":1,\"op\":\"hello\"}".into()).await.unwrap();
+                let first: serde_json::Value =
+                    serde_json::from_str(&ws.next().await.unwrap().unwrap().into_text().unwrap())
+                        .unwrap();
+                assert_eq!(first["event"], "state", "{first}");
+                assert_eq!(first["data"]["player"]["name"], "wohnzimmer");
             });
     }
 

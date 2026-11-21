@@ -3,20 +3,22 @@
 //! without an address. The TXT record carries the player id, the
 //! app version, the protocol revision and the label.
 //!
-//! The announcer is stopped while the setup hotspot runs: the
+//! The announcer is stopped while the setup hotspot is in play: the
 //! responder must never sit on the hotspot interface (dnsmasq owns
-//! that network), so AP mode tears the daemon down and the end of
-//! AP mode brings it back. Address changes (DHCP, link up/down)
-//! are followed by the daemon itself.
+//! that network). The wifi manager raises a pause signal before it
+//! builds the hotspot and drops it once the hotspot is gone; the
+//! daemon is torn down on it and brought back after. Address
+//! changes (DHCP, link up/down) are followed by the daemon itself.
 
 use super::WebInfo;
-use mdns_sd::{ServiceDaemon, ServiceInfo, MDNS_PORT};
+use mdns_sd::{IfKind, ServiceDaemon, ServiceInfo, MDNS_PORT};
 use std::time::{Duration, Instant};
 
 /// the service type clients browse for
 pub(crate) const SERVICE_TYPE: &str = "_mestro._tcp.local.";
 
-/// how often the AP flag is looked at
+/// how often the pause signal is looked at; a poll is enough because
+/// enter_ap takes longer than one before the hotspot address exists
 const POLL: Duration = Duration::from_secs(1);
 /// wait before the next start attempt after a failed one (port
 /// held without sharing, no interface yet)
@@ -32,9 +34,9 @@ enum Step {
     Keep,
 }
 
-/// the announce decision: announce exactly while the hotspot is down
-fn step(running: bool, ap_mode: bool) -> Step {
-    match (running, ap_mode) {
+/// the announce decision: announce exactly while not paused
+fn step(running: bool, paused: bool) -> Step {
+    match (running, paused) {
         (false, false) => Step::Start,
         (true, true) => Step::Stop,
         _ => Step::Keep,
@@ -79,7 +81,7 @@ fn supervise(info: &WebInfo) -> ! {
     let mut daemon: Option<ServiceDaemon> = None;
     let mut retry_at = Instant::now();
     loop {
-        match step(daemon.is_some(), info.ap()) {
+        match step(daemon.is_some(), info.mdns_paused()) {
             Step::Start if Instant::now() >= retry_at => match start(info, MDNS_PORT) {
                 Ok(started) => daemon = Some(started),
                 Err(e) => {
@@ -103,7 +105,12 @@ fn start(info: &WebInfo, mdns_port: u16) -> Result<ServiceDaemon, mdns_sd::Error
     let record = service_info(info)?;
     let fullname = record.get_fullname().to_string();
     let daemon = ServiceDaemon::new_with_port(mdns_port)?;
-    if let Err(e) = daemon.register(record) {
+    // the web server binds 0.0.0.0 only: an IPv6 address in the
+    // record would be unreachable for the client that picks it
+    if let Err(e) = daemon
+        .disable_interface(IfKind::IPv6)
+        .and_then(|()| daemon.register(record))
+    {
         stop(&daemon);
         return Err(e);
     }
@@ -132,6 +139,7 @@ mod tests {
             name: "Wohnzimmer".into(),
             display_supported: true,
             ap_mode: std::sync::Arc::default(),
+            mdns_pause: std::sync::Arc::default(),
             ap_net: crate::config::Wifi::default().ap_net(),
         }
     }
@@ -195,6 +203,23 @@ mod tests {
     }
 
     #[test]
+    fn the_daemon_announces_no_ipv6_address() {
+        // the web server binds 0.0.0.0 only: an IPv6 address in
+        // the record would be unreachable
+        let announcer = start(&info(), 25_354).unwrap();
+        let status = announcer.status().unwrap().recv_timeout(STOP_WAIT).unwrap();
+        stop(&announcer);
+        let mdns_sd::DaemonStatus::Running(state) = status else {
+            panic!("the daemon is not running");
+        };
+        assert!(
+            state.enabled_intfs().iter().all(|i| i.ipv6().is_none()),
+            "{:?}",
+            state.enabled_intfs()
+        );
+    }
+
+    #[test]
     fn the_port_follows_the_web_port() {
         let mut on_80 = info();
         on_80.port = 80;
@@ -202,12 +227,23 @@ mod tests {
     }
 
     #[test]
-    fn announcing_follows_the_hotspot_flag() {
-        // STA mode: start, then stay
+    fn announcing_follows_the_pause_signal() {
+        // not paused: start, then stay
         assert_eq!(step(false, false), Step::Start);
         assert_eq!(step(true, false), Step::Keep);
-        // AP mode: stop what runs, never start
+        // paused: stop what runs, never start
         assert_eq!(step(true, true), Step::Stop);
         assert_eq!(step(false, true), Step::Keep);
+    }
+
+    #[test]
+    fn the_pause_signal_is_not_the_auth_flag() {
+        let web = info();
+        web.ap_mode
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        assert!(!web.mdns_paused());
+        web.mdns_pause
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        assert!(web.mdns_paused());
     }
 }

@@ -66,6 +66,11 @@ pub struct Manager<B: WifiBackend> {
     backend: B,
     plan: Plan,
     ap_mode: Arc<AtomicBool>,
+    /// the mDNS pause signal: up from the first step of a hotspot
+    /// start (before anything is torn down or built) until the
+    /// station network is back, so the announcer never overlaps
+    /// the hotspot interface. Not the trust flag above
+    mdns_pause: Arc<AtomicBool>,
     ui: slint::Weak<crate::Mestro>,
     phase: Phase,
     /// the trust flag, explicit: true ONLY once the hotspot is
@@ -105,10 +110,12 @@ pub struct Manager<B: WifiBackend> {
 }
 
 impl<B: WifiBackend> Manager<B> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         backend: B,
         plan: Plan,
         ap_mode: Arc<AtomicBool>,
+        mdns_pause: Arc<AtomicBool>,
         ui: slint::Weak<crate::Mestro>,
         mac: &str,
         web_port: u16,
@@ -126,6 +133,7 @@ impl<B: WifiBackend> Manager<B> {
             backend,
             plan,
             ap_mode,
+            mdns_pause,
             ui,
             phase: Phase::Sta,
             ap_up: false,
@@ -172,6 +180,11 @@ impl<B: WifiBackend> Manager<B> {
         self.phase = phase;
         // fail closed: only a confirmed hotspot opens the gate
         self.ap_mode.store(self.ap_up, Ordering::Relaxed);
+        // the station network is back: the hotspot is gone, mDNS may
+        // announce again
+        if self.phase == Phase::Sta {
+            self.mdns_pause.store(false, Ordering::Relaxed);
+        }
         self.update_snapshot();
         self.push_panel();
     }
@@ -452,6 +465,9 @@ impl<B: WifiBackend> Manager<B> {
     }
 
     fn start_ap(&mut self, reason: ApReason) {
+        // before enter_ap: the announcer must be gone by the time the
+        // hotspot address exists
+        self.mdns_pause.store(true, Ordering::Relaxed);
         self.ap_reason = reason;
         self.ap_secs = 0;
         if let Err(e) = self.enter_ap() {
@@ -934,6 +950,7 @@ impl<B: WifiBackend> Ops<B> {
 pub async fn run(
     mut rx: tokio::sync::mpsc::Receiver<WifiRequest>,
     ap_mode: Arc<AtomicBool>,
+    mdns_pause: Arc<AtomicBool>,
     ui: slint::Weak<crate::Mestro>,
     config: crate::config::Wifi,
     web_port: u16,
@@ -965,6 +982,7 @@ pub async fn run(
         backend,
         plan,
         ap_mode.clone(),
+        mdns_pause,
         ui,
         &mac,
         web_port,
@@ -1063,6 +1081,7 @@ mod tests {
             backend,
             plan(dir.path()),
             ap_mode.clone(),
+            Arc::new(AtomicBool::new(false)),
             slint::Weak::default(),
             MAC,
             80,
@@ -1092,6 +1111,7 @@ mod tests {
         let short = Manager::new(
             FakeBackend::new("aa:bb"),
             plan(dir.path()),
+            Arc::new(AtomicBool::new(false)),
             Arc::new(AtomicBool::new(false)),
             slint::Weak::default(),
             "aa:bb",
@@ -1208,6 +1228,7 @@ mod tests {
                 ..FakeBackend::new(MAC)
             },
             plan(dir.path()),
+            Arc::new(AtomicBool::new(false)),
             Arc::new(AtomicBool::new(false)),
             slint::Weak::default(),
             MAC,
@@ -1412,6 +1433,64 @@ mod tests {
         let status = mgr.op(WifiOp::Status).unwrap();
         assert_eq!(status["ssid"], "FritzBox");
         assert_eq!(status["state"], "sta");
+    }
+
+    #[test]
+    fn the_mdns_pause_is_up_before_the_hotspot_is_built() {
+        let dir = tempfile::tempdir().unwrap();
+        let pause = Arc::new(AtomicBool::new(false));
+        let ap_mode = Arc::new(AtomicBool::new(false));
+        let mut mgr = Manager::new(
+            FakeBackend {
+                ping_ok: true,
+                watch: Some(pause.clone()),
+                ..FakeBackend::new(MAC)
+            },
+            plan(dir.path()),
+            ap_mode.clone(),
+            pause.clone(),
+            slint::Weak::default(),
+            MAC,
+            80,
+            WifiShutdown::default(),
+        );
+        std::mem::forget(dir);
+        mgr.start_ap(ApReason::Setup);
+        // every command of the transition saw the pause already
+        assert!(!mgr.backend.watched.is_empty());
+        assert!(mgr.backend.watched.iter().all(|up| *up));
+        // it is its own signal: the trust flag follows the confirmed
+        // hotspot, the pause covers the whole span
+        assert!(pause.load(Ordering::Relaxed));
+        assert!(ap_mode.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn the_mdns_pause_also_covers_a_failed_hotspot_and_ends_on_sta() {
+        let dir = tempfile::tempdir().unwrap();
+        let pause = Arc::new(AtomicBool::new(false));
+        let mut mgr = Manager::new(
+            FakeBackend {
+                ping_ok: true,
+                wlan_addrs: WLAN_ADDR.into(),
+                ..FakeBackend::new(MAC)
+            },
+            plan(dir.path()),
+            Arc::new(AtomicBool::new(false)),
+            pause.clone(),
+            slint::Weak::default(),
+            MAC,
+            80,
+            WifiShutdown::default(),
+        );
+        std::mem::forget(dir);
+        mgr.boot();
+        assert_eq!(mgr.phase(), &Phase::Ap);
+        assert!(pause.load(Ordering::Relaxed));
+        // the join leaves the hotspot: announcing may resume
+        mgr.join("FritzBox", Some("password12")).unwrap();
+        assert_eq!(mgr.phase(), &Phase::Sta);
+        assert!(!pause.load(Ordering::Relaxed));
     }
 
     #[test]
@@ -1690,6 +1769,7 @@ mod tests {
         Manager::new(
             backend,
             resolved,
+            Arc::new(AtomicBool::new(false)),
             Arc::new(AtomicBool::new(false)),
             slint::Weak::default(),
             MAC,
@@ -2090,6 +2170,7 @@ mod tests {
             },
             plan(dir.path()),
             ap_mode,
+            Arc::new(AtomicBool::new(false)),
             slint::Weak::default(),
             MAC,
             80,

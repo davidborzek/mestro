@@ -486,6 +486,10 @@ pub(crate) mod fake {
         /// the association identity from it)
         pub status: String,
         pub mac: String,
+        /// the flag to sample on every `run`/`spawn` (the mDNS pause
+        /// signal), and what it read each time
+        pub watch: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+        pub watched: Vec<bool>,
     }
 
     impl FakeBackend {
@@ -499,6 +503,13 @@ pub(crate) mod fake {
 
         pub fn log(&self) -> Vec<String> {
             self.log.clone()
+        }
+
+        fn sample_watch(&mut self) {
+            if let Some(flag) = &self.watch {
+                self.watched
+                    .push(flag.load(std::sync::atomic::Ordering::Relaxed));
+            }
         }
     }
 
@@ -526,6 +537,7 @@ pub(crate) mod fake {
 
         fn run(&mut self, program: &str, args: &[&str]) -> Result<String, String> {
             self.log.push(format!("run {program} {}", args.join(" ")));
+            self.sample_watch();
             if program == "ip" && args.contains(&"show") && !args.contains(&"dev") {
                 return Ok(self.all_addrs.clone());
             }
@@ -538,6 +550,7 @@ pub(crate) mod fake {
         fn spawn(&mut self, name: &str, program: &str, args: &[&str]) -> Result<(), String> {
             self.log
                 .push(format!("spawn {name} {program} {}", args.join(" ")));
+            self.sample_watch();
             if self.spawn_fails {
                 Err(format!("spawn {program}: no radio"))
             } else {
