@@ -9,6 +9,8 @@
 //! runtime; desktop builds compile without any of it (the protocol
 //! reports the missing capabilities).
 
+#[cfg(feature = "audio-output")]
+pub mod audio;
 #[cfg(any(feature = "audio-output", feature = "timezone"))]
 pub mod envfile;
 #[cfg(feature = "wifi-setup")]

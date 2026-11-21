@@ -18,7 +18,9 @@ src/
   providers/       PlaybackSource trait + the Music Assistant client
   remote/          control vocabulary, ctl socket, web endpoint, QR
   system/          wifi hotspot + first-boot setup, factory reset
-                   (behind the `wifi-setup` feature)
+                   (feature `wifi-setup`); the env-file editor, audio
+                   output and timezone pickers (features
+                   `audio-output`, `timezone`)
   restart.rs       self-restart after a settings change or update
 ui/                the slint views (mestro.slint is the root)
 web/               the companion web app (Svelte PWA)
