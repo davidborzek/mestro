@@ -16,8 +16,8 @@ pub mod remote;
 
 // device-level system logic (kiosk builds: wifi setup + factory
 // reset — feature `wifi-setup`; the audio output and timezone
-// pickers — features `audio-output`, `timezone`)
-#[cfg(any(feature = "wifi-setup", feature = "audio-output", feature = "timezone"))]
+// pickers — features `audio-output`, `timezone`; each part is gated
+// inside, the image paths in `system::paths` are always there)
 pub mod system;
 
 /// `0.1.0 (<git hash>)`; the plain version when git was unavailable
