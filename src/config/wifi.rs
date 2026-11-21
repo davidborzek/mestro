@@ -26,11 +26,6 @@ pub struct Wifi {
     /// (an entry under /sys/class/net/<if>/wireless, an up one
     /// preferred); a name pins one explicitly
     pub interface: String,
-    /// wpa_supplicant's control socket directory
-    pub ctrl_dir: String,
-    /// the persistent STA conf (must match what the boot scripts
-    /// start wpa_supplicant with)
-    pub conf: String,
     /// the setup hotspot's own address, a private "a.b.c.d/<prefix>"
     /// — the DHCP pool (10–50 hosts, clamped for small prefixes)
     /// and the captive portal derive from it
@@ -50,8 +45,6 @@ impl Default for Wifi {
     fn default() -> Self {
         Self {
             interface: "auto".into(),
-            ctrl_dir: "/run/wpa_supplicant".into(),
-            conf: "/data/wpa_supplicant.conf".into(),
             ap_address: DEFAULT_AP_ADDRESS.into(),
             power_save: false,
             country: String::new(),
@@ -161,20 +154,6 @@ impl Wifi {
             });
             self.interface = "auto".into();
         }
-        if !self.conf.starts_with('/') {
-            problems.push(Problem {
-                key: "wifi.conf".into(),
-                reason: format!("{} is not absolute — using the default", self.conf),
-            });
-            self.conf = Self::default().conf;
-        }
-        if !self.ctrl_dir.starts_with('/') {
-            problems.push(Problem {
-                key: "wifi.ctrl-dir".into(),
-                reason: format!("{} is not absolute — using the default", self.ctrl_dir),
-            });
-            self.ctrl_dir = Self::default().ctrl_dir;
-        }
         if parse_ap_address(&self.ap_address).is_none() {
             problems.push(Problem {
                 key: "wifi.ap-address".into(),
@@ -209,8 +188,6 @@ mod tests {
     fn defaults_roundtrip() {
         let wifi = Wifi::default();
         assert_eq!(wifi.interface, "auto");
-        assert_eq!(wifi.ctrl_dir, "/run/wpa_supplicant");
-        assert_eq!(wifi.conf, "/data/wpa_supplicant.conf");
         assert_eq!(wifi.ap_address, DEFAULT_AP_ADDRESS);
         assert!(!wifi.power_save, "power saving is off by default");
         assert_eq!(wifi.country, "", "no country by default");
@@ -290,25 +267,14 @@ mod tests {
     fn garbage_falls_back_with_problems() {
         let mut wifi = Wifi {
             interface: "  ".into(),
-            conf: "relative.conf".into(),
-            ctrl_dir: "run/wpa".into(),
             ap_address: "8.8.8.8/24".into(),
             country: "DEU".into(),
             ..Default::default()
         };
         let problems = wifi.validate();
-        assert_eq!(problems.len(), 5);
+        assert_eq!(problems.len(), 3);
         let keys: Vec<&str> = problems.iter().map(|p| p.key.as_str()).collect();
-        assert_eq!(
-            keys,
-            [
-                "wifi.interface",
-                "wifi.conf",
-                "wifi.ctrl-dir",
-                "wifi.ap-address",
-                "wifi.country"
-            ]
-        );
+        assert_eq!(keys, ["wifi.interface", "wifi.ap-address", "wifi.country"]);
         assert_eq!(wifi, Wifi::default());
         // a valid section reports nothing and stays
         let mut wifi = Wifi {

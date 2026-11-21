@@ -579,20 +579,7 @@ pub(super) async fn serve(
     wifi: &WifiChannel,
 ) -> Result<(), String> {
     let state = fetch_state(bridge).await;
-    // the effective config names the wifi conf; the default is the image's
-    let wifi_conf = state
-        .as_ref()
-        .ok()
-        .and_then(|state| {
-            state
-                .get("effective")?
-                .get("wifi")?
-                .get("conf")?
-                .as_str()
-                .map(str::to_string)
-        })
-        .unwrap_or_else(|| crate::config::Wifi::default().conf);
-    let secrets = known_secrets(info, bridge, pairing, &wifi_conf).await;
+    let secrets = known_secrets(info, bridge, pairing, crate::system::paths::WPA_CONF).await;
     let wifi_status = wifi
         .request(
             WifiOp::Status,

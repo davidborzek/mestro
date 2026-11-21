@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 pub struct ResetPaths {
     pub settings: PathBuf,
     pub web_pin: PathBuf,
-    /// the wifi conf ([wifi] conf on the device) + its .bak and
+    /// the wifi conf (`system::paths::WPA_CONF` on the device) + its .bak and
     /// .good sidecars
     pub wpa_conf: PathBuf,
     pub wpa_template: PathBuf,
@@ -20,7 +20,7 @@ pub struct ResetPaths {
 
 impl ResetPaths {
     /// the device locations: the state dir is /data/state/mestro on
-    /// the kiosk (XDG_STATE_HOME); the wifi conf is the configured
+    /// the kiosk (XDG_STATE_HOME); the wifi conf is the image's
     /// one, the template is the image's seeded default
     pub fn device(wifi_conf: &str) -> Self {
         let state = crate::settings::state_dir();

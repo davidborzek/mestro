@@ -54,6 +54,13 @@ pub const DIAG_STATUS: &str = setting(
     "/usr/sbin/mestro-upgrade --status",
 );
 
+/// wpa_supplicant's control socket directory
+pub const WPA_CTRL_DIR: &str = setting(option_env!("MESTRO_WPA_CTRL_DIR"), "/run/wpa_supplicant");
+
+/// the persistent STA conf; must match what the boot scripts start
+/// wpa_supplicant with
+pub const WPA_CONF: &str = setting(option_env!("MESTRO_WPA_CONF"), "/data/wpa_supplicant.conf");
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -74,6 +81,18 @@ mod tests {
             SQUEEZELITE_RESTART,
             option_env!("MESTRO_SQUEEZELITE_RESTART")
                 .unwrap_or("/etc/init.d/S60squeezelite restart")
+        );
+    }
+
+    #[test]
+    fn the_wifi_settings_follow_their_build_variables() {
+        assert_eq!(
+            WPA_CTRL_DIR,
+            option_env!("MESTRO_WPA_CTRL_DIR").unwrap_or("/run/wpa_supplicant")
+        );
+        assert_eq!(
+            WPA_CONF,
+            option_env!("MESTRO_WPA_CONF").unwrap_or("/data/wpa_supplicant.conf")
         );
     }
 

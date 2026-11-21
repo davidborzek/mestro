@@ -60,6 +60,8 @@ only the production call sites read the constants.
 | `MESTRO_LOCALTIME` | `/etc/localtime` | the system zone link, read to learn the running zone when `TZ` is unset |
 | `MESTRO_DIAG_LOGS` | `/tmp/mestro.log:/tmp/mestro.log.old:/tmp/ota.log` | colon-separated log files whose last 200 lines go into the diagnostics download (`.old` is the previous run); a missing file is skipped |
 | `MESTRO_DIAG_STATUS` | `/usr/sbin/mestro-upgrade --status` | the command whose output joins the diagnostics download (split on whitespace, no shell, 5 s budget); empty = none |
+| `MESTRO_WPA_CTRL_DIR` | `/run/wpa_supplicant` | wpa_supplicant's control socket directory (the wifi setup lane) |
+| `MESTRO_WPA_CONF` | `/data/wpa_supplicant.conf` | the persistent STA conf; must match what the boot scripts start wpa_supplicant with |
 
 ## Formatting
 

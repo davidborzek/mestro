@@ -192,7 +192,7 @@ themselves — the web endpoint runs on port 80 in the image
 portal URI carry no port. A fallback hotspot retries the saved
 network every two minutes (never while a phone is connected to
 it); a hotspot that cannot start falls back to the last working
-network. Addresses and paths are configurable in `[wifi]`
+network. The addresses are configurable in `[wifi]`
 (docs/configuration.md).
 
 The image ships `regulatory.db` (wireless-regdb) — without it the

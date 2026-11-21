@@ -356,6 +356,21 @@ mod tests {
     }
 
     #[test]
+    fn stale_wifi_path_keys_are_dropped_with_a_warning() {
+        let tree: toml::Value = toml::from_str(
+            "[wifi]\ninterface = \"wlan1\"\nctrl-dir = \"/run/wpa_supplicant\"\n\
+             conf = \"/data/wpa_supplicant.conf\"\ncountry = \"DE\"\n",
+        )
+        .unwrap();
+        let (cfg, problems) = lenient::parse::<Config>(tree).unwrap();
+        assert_eq!(cfg.wifi.interface, "wlan1", "the real settings stay");
+        assert_eq!(cfg.wifi.country, "DE");
+        let mut keys: Vec<_> = problems.iter().map(|p| p.key.as_str()).collect();
+        keys.sort_unstable();
+        assert_eq!(keys, ["wifi.conf", "wifi.ctrl-dir"]);
+    }
+
+    #[test]
     fn remote_port_env_beats_the_file_and_garbage_keeps_it() {
         // precedence like the other MESTRO_* overlays: env wins
         let mut cfg: Config = toml::from_str("[remote]\nport = 9000\n").unwrap();

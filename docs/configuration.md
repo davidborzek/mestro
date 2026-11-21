@@ -62,7 +62,7 @@ set the device up again on purpose.
 | `[vu]` | VU source, the faceplates and their order, custom skins |
 | `[keyboard]` | key bindings for USB remotes and keyboards |
 | `[remote]` | the web app / web endpoint |
-| `[wifi]` | the setup hotspot's device paths (the player image) |
+| `[wifi]` | the setup hotspot: interface, address, power save, country (the player image) |
 | `[system]` | the timezone (a device setting the web app writes) |
 
 Deep dives:
@@ -153,11 +153,15 @@ reconnects; mestro re-applies the state after every association.
 `00` (5 GHz restricted). The image ships `regulatory.db` — an
 empty `country` leaves the kernel's regdom alone.
 
+wpa_supplicant's control socket directory and the persistent
+credentials file are build settings of the image, not config
+(CONTRIBUTING.md, "Building for another image"). A config that still
+carries `ctrl-dir` or `conf` loads: both keys are reported as
+unknown and ignored.
+
 ```toml
 [wifi]
 interface = "auto"            # auto | an interface name
-ctrl-dir = "/run/wpa_supplicant" # wpa_supplicant's control socket dir
-conf = "/data/wpa_supplicant.conf" # the persistent credentials (must match the boot scripts)
 ap-address = "10.42.0.1/24"    # private a.b.c.d/16-29; DHCP pool = .10-.50
 power-save = false            # off by default — the latency spikes
 # country = "DE"              # ISO 3166-1 alpha-2 regdom; empty = kernel default

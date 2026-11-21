@@ -190,7 +190,7 @@ pub trait WifiBackend {
     /// [`FOREIGN_KILL_WAIT`] — a fresh supplicant needs the iface
     /// and the ctrl socket free. The fake kills instantly
     fn kill_foreign(&mut self, exe: &str, applet: &str, argv: &[&[&str]]);
-    /// remove the ctrl socket file `<ctrl-dir>/<iface>` when no
+    /// remove the ctrl socket file `<ctrl dir>/<iface>` when no
     /// supplicant owns it — wpa_supplicant refuses to start over
     /// a socket a corpse left behind. Call it right before
     /// spawning one, after the old one is confirmed gone
