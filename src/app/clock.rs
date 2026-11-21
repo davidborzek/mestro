@@ -1,23 +1,27 @@
 //! The standby clock: built-in faces, custom skins with their
 //! previews, the image backdrop, and the per-tick clock values.
 
-use chrono::Timelike;
 use mestro::config::{Clock, StandbyBackground};
-use mestro::standby::{Backdrop, Skins, Tick};
+use mestro::standby::{Backdrop, ClockValues, Skins};
 use mestro::Mestro;
 use slint::ComponentHandle;
 use std::cell::Cell;
 use std::rc::Rc;
 
-/// the values every face receives, for now
-pub fn tick_now() -> Tick {
-    let now = chrono::Local::now();
-    Tick {
-        hour: now.hour() as i32,
-        minute: now.minute() as i32,
-        time_label: now.format("%H:%M").to_string(),
-        date_label: now.format("%a %d %b").to_string().to_uppercase(),
-    }
+/// the values every face receives, for now (the placeholder while
+/// the system time is not trustworthy yet)
+pub fn tick_now() -> ClockValues {
+    ClockValues::at(chrono::Local::now().naive_local())
+}
+
+/// the clock properties of the window: the topbar label, the
+/// standby faces and their validity
+pub fn show(ui: &Mestro, values: &ClockValues) {
+    ui.set_clock_label(values.time_label.as_str().into());
+    ui.set_clock_date(values.date_label.as_str().into());
+    ui.set_clock_minute(values.minute);
+    ui.set_clock_hour(values.hour);
+    ui.set_clock_valid(values.valid);
 }
 
 /// skins + backdrop, activated from the config and re-activated
@@ -99,15 +103,12 @@ impl StandbyClock {
     /// once per ticker round: the clock values for the built-in
     /// faces and the running skin
     pub fn tick(&self, ui: &Mestro) {
-        let now = chrono::Local::now();
         // cheap: slint change-tracking only repaints when the minute
         // (or label) actually changes
-        ui.set_clock_label(now.format("%H:%M").to_string().into());
-        ui.set_clock_date(now.format("%a %d %b").to_string().to_uppercase().into());
-        ui.set_clock_minute(now.minute() as i32);
-        ui.set_clock_hour(now.hour() as i32);
+        let values = tick_now();
+        show(ui, &values);
         // runtime skins: values + the (cover-following) accent
-        self.skins.push(&tick_now());
+        self.skins.push(&values);
         self.skins.push_accent(ui.get_accent_color());
     }
 }

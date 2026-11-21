@@ -11,6 +11,8 @@
 export component AnalogClock inherits Rectangle {
     in property <int> clock-hour;
     in property <int> clock-minute;
+    // false: no trustworthy time yet — a bare dial, no hands
+    in property <bool> valid: true;
     // passed in (no Theme import: the settings preview
     // compiles this file standalone at runtime)
     in property <color> accent: #d8a657;
@@ -33,7 +35,7 @@ export component AnalogClock inherits Rectangle {
     // 60 marks: larger dots at the hours, small ones between
     for m[index] in 60: Rectangle {
         property <bool> hour-mark: Math.mod(index, 5) == 0;
-        property <bool> elapsed: index <= root.clock-minute;
+        property <bool> elapsed: root.valid && index <= root.clock-minute;
         property <angle> a: 6deg * index;
         width: self.hour-mark ? 7px : 3px;
         height: self.width;
@@ -45,7 +47,7 @@ export component AnalogClock inherits Rectangle {
 
     // hour hand outline: 7px dots from the tail to the tip, ~1px
     // apart so they merge into one stroke
-    for d[i] in 75: Rectangle {
+    for d[i] in root.valid ? 75 : 0: Rectangle {
         property <length> r: -root.hour-tail + (root.hour-length + root.hour-tail) * i / 74;
         width: 7px;
         height: 7px;
@@ -55,7 +57,7 @@ export component AnalogClock inherits Rectangle {
         background: root.hand;
     }
     // ...hollowed by a black core (ends stay solid)
-    for d[i] in 63: Rectangle {
+    for d[i] in root.valid ? 63 : 0: Rectangle {
         property <length> r: -root.hour-tail + 6px + (root.hour-length + root.hour-tail - 12px) * i / 62;
         width: 3px;
         height: 3px;
@@ -66,7 +68,7 @@ export component AnalogClock inherits Rectangle {
     }
 
     // minute hand: thin accent chain with a counterweight tail
-    for d[i] in 121: Rectangle {
+    for d[i] in root.valid ? 121 : 0: Rectangle {
         property <length> r: -root.minute-tail + (root.minute-length + root.minute-tail) * i / 120;
         width: 3px;
         height: 3px;

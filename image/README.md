@@ -202,7 +202,6 @@ power-save = false
 - The panel's touch firmware can hang the display bus under heavy
   backlight traffic; mestro routes backlight writes through the
   firmware mailbox to avoid it.
-- The first network scan after boot can be incomplete.
 
 ## Follow-up backlog
 
@@ -210,7 +209,5 @@ power-save = false
   flow — SLINT_SCALE_FACTOR is read at backend init)
 - settings UI: timezone picker writing `/data/timezone`
 - settings UI: squeezelite.env editor + `S60squeezelite restart`
-- kiosk polish: hide the clock until the first NTP sync (boots
-  into 1970 for ~a minute on a fresh image)
 - USB-C gadget network as a rescue path
 - release pipeline: versioned images + checksums as release assets

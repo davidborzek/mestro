@@ -42,7 +42,8 @@ impl WpaCtrl {
     }
 
     /// one command → its reply. Unsolicited event frames (`<…`) are
-    /// dropped until the reply arrives
+    /// dropped until the reply arrives (an attached client reads them
+    /// with [`Self::wait_event`])
     pub fn request(&mut self, cmd: &str) -> Result<String, String> {
         self.socket
             .set_read_timeout(Some(REPLY_TIMEOUT))
@@ -61,6 +62,49 @@ impl WpaCtrl {
                 continue;
             }
             return Ok(reply);
+        }
+    }
+}
+
+/// the events that end a scan: results are ready, or the scan
+/// failed (the cached results are all there is)
+pub const SCAN_FINISHED_EVENTS: &[&str] = &["CTRL-EVENT-SCAN-RESULTS", "CTRL-EVENT-SCAN-FAILED"];
+
+impl WpaCtrl {
+    /// subscribe to the unsolicited event stream (`ATTACH`)
+    pub fn attach(&mut self) -> Result<(), String> {
+        expect_ok(&self.request("ATTACH")?)
+    }
+
+    /// wait up to `timeout` for an event frame naming one of `wanted`;
+    /// other events are skipped. false = none came in time
+    pub fn wait_event(&mut self, wanted: &[&str], timeout: Duration) -> Result<bool, String> {
+        let deadline = std::time::Instant::now() + timeout;
+        let mut buf = [0u8; 4096];
+        loop {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            if left.is_zero() {
+                return Ok(false);
+            }
+            self.socket
+                .set_read_timeout(Some(left))
+                .map_err(|e| format!("wpa ctrl timeout: {e}"))?;
+            let n = match self.socket.recv(&mut buf) {
+                Ok(n) => n,
+                Err(e)
+                    if matches!(
+                        e.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) =>
+                {
+                    return Ok(false)
+                }
+                Err(e) => return Err(format!("wpa ctrl recv event: {e}")),
+            };
+            let frame = String::from_utf8_lossy(buf.get(..n).unwrap_or(&[]));
+            if frame.starts_with('<') && wanted.iter().any(|event| frame.contains(event)) {
+                return Ok(true);
+            }
         }
     }
 }
@@ -203,6 +247,7 @@ pub fn parse_status(reply: &str) -> StatusInfo {
 }
 
 #[cfg(test)]
+#[allow(clippy::indexing_slicing)] // the fake supplicant slices the datagrams it just received
 mod tests {
     use super::*;
 
@@ -286,6 +331,118 @@ mod tests {
         assert_eq!(status.wpa_state, "SCANNING");
         assert_eq!(status.ssid, "");
         assert_eq!(parse_status("").wpa_state, "");
+    }
+
+    /// a fake supplicant on a socket in a temp dir: replies OK to
+    /// ATTACH, then sends the given event frames to the client
+    fn fake_supplicant(
+        frames: Vec<&'static str>,
+        pause: Duration,
+    ) -> (PathBuf, std::thread::JoinHandle<()>) {
+        let dir = std::env::temp_dir().join(format!(
+            "mestro-wpa-events-{}-{}",
+            std::process::id(),
+            frames.len()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("wlan0");
+        let server = UnixDatagram::bind(&path).unwrap();
+        let handle = std::thread::spawn(move || {
+            let mut buf = [0u8; 64];
+            let (n, client) = server.recv_from(&mut buf).unwrap();
+            assert_eq!(&buf[..n], b"ATTACH");
+            let client = client.as_pathname().unwrap().to_path_buf();
+            server.send_to(b"OK\n", &client).unwrap();
+            for frame in frames {
+                std::thread::sleep(pause);
+                server.send_to(frame.as_bytes(), &client).unwrap();
+            }
+        });
+        (path, handle)
+    }
+
+    #[test]
+    fn attach_then_wait_returns_when_the_scan_results_event_arrives() {
+        let (path, supplicant) = fake_supplicant(
+            vec![
+                "<3>CTRL-EVENT-BSS-ADDED 1 aa:bb:cc:dd:ee:ff",
+                "<3>CTRL-EVENT-SCAN-STARTED ",
+                "<3>CTRL-EVENT-SCAN-RESULTS ",
+            ],
+            Duration::from_millis(20),
+        );
+        let mut client = WpaCtrl::connect(&path).unwrap();
+        client.attach().unwrap();
+        let started = std::time::Instant::now();
+        assert_eq!(
+            client.wait_event(SCAN_FINISHED_EVENTS, Duration::from_secs(3)),
+            Ok(true)
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "returned on the event, not the timeout"
+        );
+        supplicant.join().unwrap();
+    }
+
+    #[test]
+    fn a_failed_scan_also_ends_the_wait() {
+        let (path, supplicant) = fake_supplicant(
+            vec![
+                "<3>CTRL-EVENT-SCAN-FAILED ret=-16",
+                "<3>CTRL-EVENT-SCAN-RESULTS ",
+                "x",
+            ],
+            Duration::from_millis(10),
+        );
+        let mut client = WpaCtrl::connect(&path).unwrap();
+        client.attach().unwrap();
+        assert_eq!(
+            client.wait_event(SCAN_FINISHED_EVENTS, Duration::from_secs(3)),
+            Ok(true)
+        );
+        supplicant.join().unwrap();
+    }
+
+    #[test]
+    fn without_the_event_the_wait_runs_out_of_time_and_says_so() {
+        let (path, supplicant) = fake_supplicant(
+            vec![
+                "<3>CTRL-EVENT-BSS-ADDED 1 aa:bb:cc:dd:ee:ff",
+                "<3>CTRL-EVENT-SCAN-STARTED ",
+                "a",
+                "b",
+            ],
+            Duration::from_millis(10),
+        );
+        let mut client = WpaCtrl::connect(&path).unwrap();
+        client.attach().unwrap();
+        let started = std::time::Instant::now();
+        assert_eq!(
+            client.wait_event(SCAN_FINISHED_EVENTS, Duration::from_millis(300)),
+            Ok(false)
+        );
+        assert!(started.elapsed() >= Duration::from_millis(250));
+        supplicant.join().unwrap();
+    }
+
+    #[test]
+    fn a_refused_attach_is_an_error() {
+        let dir = std::env::temp_dir().join(format!("mestro-wpa-refuse-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let server = UnixDatagram::bind(dir.join("wlan0")).unwrap();
+        let handle = std::thread::spawn(move || {
+            let mut buf = [0u8; 64];
+            let (_, client) = server.recv_from(&mut buf).unwrap();
+            server
+                .send_to(b"FAIL\n", client.as_pathname().unwrap())
+                .unwrap();
+        });
+        let mut client = WpaCtrl::connect(&dir.join("wlan0")).unwrap();
+        assert!(client.attach().is_err());
+        handle.join().unwrap();
     }
 
     #[test]
