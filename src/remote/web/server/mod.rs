@@ -398,7 +398,7 @@ pub(crate) async fn dispatch(
                         "factory_reset": cfg!(feature = "wifi-setup"),
                         "audio_output": audio::capable(),
                         "audio_output": audio::capable(),
-                        "timezone": timezone::capable(&info.system),
+                        "timezone": timezone::capable(),
                     },
                 }),
             ))
@@ -472,7 +472,6 @@ mod tests {
             ap_mode: std::sync::Arc::default(),
             mdns_gate: std::sync::Arc::default(),
             ap_net: ap_net(),
-            system: crate::config::System::default(),
         }
     }
 
@@ -1535,21 +1534,5 @@ mod tests {
                 );
             }
         }
-    }
-
-    #[test]
-    fn hello_reports_the_timezone_capability_only_with_the_feature_and_a_zoneinfo() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut info = info();
-        info.system.zoneinfo_dir = dir.path().join("zoneinfo").display().to_string();
-        let hello = |info: &WebInfo| -> serde_json::Value {
-            let reply = dispatch_blocking(r#"{"id":1,"op":"hello"}"#, info, Ingress::Lan, true);
-            serde_json::from_str::<serde_json::Value>(&reply).unwrap()["data"]["capabilities"]
-                ["timezone"]
-                .clone()
-        };
-        assert_eq!(hello(&info), false, "no zoneinfo database");
-        std::fs::create_dir_all(dir.path().join("zoneinfo")).unwrap();
-        assert_eq!(hello(&info), cfg!(feature = "timezone"));
     }
 }

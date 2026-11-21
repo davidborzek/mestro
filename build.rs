@@ -25,7 +25,13 @@ fn year_of(epoch_seconds: i64) -> i64 {
 
 /// the build variables src/system/paths.rs reads (a test there checks
 /// that every one is listed here)
-const IMAGE_VARS: &[&str] = &["MESTRO_SQUEEZELITE_ENV", "MESTRO_SQUEEZELITE_RESTART"];
+const IMAGE_VARS: &[&str] = &[
+    "MESTRO_SQUEEZELITE_ENV",
+    "MESTRO_SQUEEZELITE_RESTART",
+    "MESTRO_ENV_FILE",
+    "MESTRO_ZONEINFO_DIR",
+    "MESTRO_LOCALTIME",
+];
 
 fn main() {
     // component-container is experimental and gates ComponentContainer

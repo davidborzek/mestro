@@ -6,8 +6,8 @@
 //! record and whether to restart; `settings::handle_ui` carries it
 //! out.
 
-use crate::config::System;
 use crate::remote::web::{Response, TimezoneOp};
+
 /// what an op decided
 #[derive(Debug)]
 pub(super) struct Outcome {
@@ -29,41 +29,64 @@ impl Outcome {
 }
 
 /// the capability hello reports: built in and a zoneinfo database
-pub(super) fn capable(system: &System) -> bool {
+pub(super) fn capable() -> bool {
     #[cfg(feature = "timezone")]
     {
-        crate::system::timezone::available(system)
+        crate::system::timezone::available(std::path::Path::new(crate::system::paths::ZONEINFO_DIR))
     }
     #[cfg(not(feature = "timezone"))]
     {
-        let _ = system;
         false
     }
+}
+
+/// the files one timezone op works on
+#[cfg(feature = "timezone")]
+struct Paths<'a> {
+    zoneinfo_dir: &'a std::path::Path,
+    env_file: &'a std::path::Path,
+    localtime: &'a std::path::Path,
 }
 
 /// `chosen` is the `system.timezone` setting, `tz_env` the process's
 /// `TZ`
 #[cfg(feature = "timezone")]
-pub(super) fn run(
+pub(super) fn run(id: u64, action: TimezoneOp, chosen: &str, tz_env: Option<&str>) -> Outcome {
+    use crate::system::paths;
+    use std::path::Path;
+    run_in(
+        &Paths {
+            zoneinfo_dir: Path::new(paths::ZONEINFO_DIR),
+            env_file: Path::new(paths::ENV_FILE),
+            localtime: Path::new(paths::LOCALTIME),
+        },
+        id,
+        action,
+        chosen,
+        tz_env,
+    )
+}
+
+#[cfg(feature = "timezone")]
+fn run_in(
+    paths: &Paths,
     id: u64,
     action: TimezoneOp,
-    system: &System,
     chosen: &str,
     tz_env: Option<&str>,
 ) -> Outcome {
     use crate::system::timezone as tz;
     use serde_json::json;
-    use std::path::Path;
-    if !tz::available(system) {
+    if !tz::available(paths.zoneinfo_dir) {
         return Outcome::reply(Response::err(id, "timezone not available"));
     }
-    let process_zone = tz::process_zone(tz_env, Path::new(&system.localtime));
+    let process_zone = tz::process_zone(tz_env, paths.localtime);
     let (source, zone) = match action {
         TimezoneOp::Zones => {
             return Outcome::reply(Response::ok(
                 id,
                 json!({
-                    "zones": tz::list_zones(Path::new(&system.zoneinfo_dir)),
+                    "zones": tz::list_zones(paths.zoneinfo_dir),
                     "chosen": chosen,
                     "current": process_zone,
                 }),
@@ -72,7 +95,14 @@ pub(super) fn run(
         TimezoneOp::Set { zone } => (tz::Source::User, zone),
         TimezoneOp::Adopt { zone } => (tz::Source::Browser, zone),
     };
-    match tz::apply(system, chosen, process_zone.as_deref(), source, &zone) {
+    match tz::apply(
+        paths.zoneinfo_dir,
+        paths.env_file,
+        chosen,
+        process_zone.as_deref(),
+        source,
+        &zone,
+    ) {
         Ok(applied) => Outcome {
             response: Response::ok(
                 id,
@@ -90,13 +120,7 @@ pub(super) fn run(
 }
 
 #[cfg(not(feature = "timezone"))]
-pub(super) fn run(
-    id: u64,
-    _action: TimezoneOp,
-    _system: &System,
-    _chosen: &str,
-    _tz_env: Option<&str>,
-) -> Outcome {
+pub(super) fn run(id: u64, _action: TimezoneOp, _chosen: &str, _tz_env: Option<&str>) -> Outcome {
     Outcome::reply(Response::err(id, "timezone not available"))
 }
 
@@ -106,9 +130,36 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    /// the files of a fake device
+    struct Device {
+        zoneinfo_dir: std::path::PathBuf,
+        env_file: std::path::PathBuf,
+        localtime: std::path::PathBuf,
+    }
+
+    fn run(
+        id: u64,
+        action: TimezoneOp,
+        device: &Device,
+        chosen: &str,
+        tz_env: Option<&str>,
+    ) -> Outcome {
+        run_in(
+            &Paths {
+                zoneinfo_dir: &device.zoneinfo_dir,
+                env_file: &device.env_file,
+                localtime: &device.localtime,
+            },
+            id,
+            action,
+            chosen,
+            tz_env,
+        )
+    }
+
     /// a device: zoneinfo with two zones, a localtime link to Berlin,
     /// an env file with another key in it
-    fn device() -> (tempfile::TempDir, System) {
+    fn device() -> (tempfile::TempDir, Device) {
         let dir = tempfile::tempdir().unwrap();
         for zone in ["Europe/Berlin", "Europe/London", "Asia/Tokyo"] {
             let path = dir.path().join("zoneinfo").join(zone);
@@ -118,11 +169,10 @@ mod tests {
         let berlin = dir.path().join("zoneinfo/Europe/Berlin");
         std::os::unix::fs::symlink(&berlin, dir.path().join("localtime")).unwrap();
         std::fs::write(dir.path().join("mestro.env"), "RUST_LOG=debug\n").unwrap();
-        let system = System {
-            timezone: String::new(),
-            env_file: dir.path().join("mestro.env").display().to_string(),
-            zoneinfo_dir: dir.path().join("zoneinfo").display().to_string(),
-            localtime: dir.path().join("localtime").display().to_string(),
+        let system = Device {
+            env_file: dir.path().join("mestro.env"),
+            zoneinfo_dir: dir.path().join("zoneinfo"),
+            localtime: dir.path().join("localtime"),
         };
         (dir, system)
     }
@@ -133,7 +183,7 @@ mod tests {
     fn adopt(zone: &str) -> TimezoneOp {
         TimezoneOp::Adopt { zone: zone.into() }
     }
-    fn env_text(system: &System) -> String {
+    fn env_text(system: &Device) -> String {
         std::fs::read_to_string(&system.env_file).unwrap()
     }
 
@@ -228,6 +278,5 @@ mod tests {
             outcome.response.error.as_deref(),
             Some("timezone not available")
         );
-        assert!(!capable(&system));
     }
 }

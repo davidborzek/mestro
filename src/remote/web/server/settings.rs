@@ -144,7 +144,7 @@ pub(crate) fn handle_ui(
                 }
                 Request::Player { action } => super::player::handle(id, &action, player),
                 Request::Timezone { action } => {
-                    timezone_response(id, action, ui, settings, dispatch, info)
+                    timezone_response(id, action, ui, settings, dispatch)
                 }
                 Request::Hello
                 | Request::Ma { .. }
@@ -167,14 +167,13 @@ fn timezone_response(
     ui: &Mestro,
     settings: &Handle,
     dispatch: &Dispatch,
-    info: &WebInfo,
 ) -> Response {
     let chosen = settings
         .effective()
         .map(|cfg| cfg.system.timezone)
         .unwrap_or_default();
     let tz_env = std::env::var("TZ").ok();
-    let outcome = super::timezone::run(id, action, &info.system, &chosen, tz_env.as_deref());
+    let outcome = super::timezone::run(id, action, &chosen, tz_env.as_deref());
     if let Some(zone) = outcome.record {
         // restart.rs execs with the current environment and the init
         // script's mestro.env is not read again — the exec must carry

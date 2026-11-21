@@ -343,14 +343,14 @@ in progress` and touches nothing.
 The picker behind Settings → System → Time zone. Paired only (the
 pairing check comes first, on the hotspot too). `hello` reports
 `capabilities.timezone`: true only when the build has the feature
-**and** the zoneinfo database exists (`[system] zoneinfo-dir`);
-without it every op answers `timezone not available` and nothing
+**and** the zoneinfo database exists (a build setting,
+CONTRIBUTING.md "Building for another image"); without it every op answers `timezone not available` and nothing
 is written.
 
 ```jsonc
 // → {"id": 15, "op": "timezone", "action": "zones"}
 {"id": 15, "ok": true, "data": {
-  "zones": ["Africa/Abidjan", "…", "UTC"],  // TZif files under zoneinfo-dir, sorted
+  "zones": ["Africa/Abidjan", "…", "UTC"],  // TZif files under the zoneinfo database, sorted
   "chosen": "",                           // system.timezone, "" = never chosen
   "current": "Europe/Berlin"              // the zone the player runs in, null = unknown
 }}
@@ -367,13 +367,13 @@ is written.
   is set — by the user or by the first adoption — a phone in another
   timezone (travel) changes nothing (`taken: false`, nothing
   written).
-- A zone must exist as a TZif file inside `zoneinfo-dir`: names
+- A zone must exist as a TZif file inside the zoneinfo database: names
   are `[A-Za-z0-9_+-]` segments (`../`, absolute paths, empty or
   dot segments are refused), and the resolved path must stay inside
   the directory (a symlink out of it is no zone). A rejected zone
   answers an error and writes nothing.
 - A taken zone is stored as the `system.timezone` setting and
-  written as `TZ=<zone>` into `[system] env-file` — one line, every
+  written as `TZ=<zone>` into mestro's env file (a build setting) — one line, every
   other line, comment and CRLF kept (atomic write). If the running
   zone differs, the reply says `restarting: true` and the player
   **restarts** (the settings-restart exec, with `TZ` set in the new

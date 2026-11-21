@@ -63,7 +63,7 @@ set the device up again on purpose.
 | `[keyboard]` | key bindings for USB remotes and keyboards |
 | `[remote]` | the web app / web endpoint |
 | `[wifi]` | the setup hotspot's device paths (the player image) |
-| `[system]` | the timezone and the files it is applied through (the player image) |
+| `[system]` | the timezone (a device setting the web app writes) |
 
 Deep dives:
 [standby clocks and backgrounds](standby.md) ·
@@ -173,13 +173,12 @@ the first paired browser may still set it (see
 zone, only an explicit choice in the picker changes it. A desktop
 build has no picker and follows the OS timezone.
 
-The other keys are paths, config-file only, defaulting to the
-image: `env-file` is what the init script sources before it starts
-mestro (the picker writes `TZ=<zone>` there — one line, the rest
-of the file stays), `zoneinfo-dir` is the database a zone must
-exist in (path traversal and non-zones are refused), `localtime`
-is the system zone link read to learn the running zone when `TZ`
-is unset. The capability is on only while `zoneinfo-dir` exists.
+The picker writes `TZ=<zone>` into the env file the init script
+sources before it starts mestro (one line, the rest of the file
+stays). Where that file, the zoneinfo database and the `/etc/localtime`
+link live is a build setting of the image, not config
+(CONTRIBUTING.md, "Building for another image"). The capability is
+on only while the zoneinfo database exists.
 
 Applying a zone **restarts the player** (the same exec the
 settings restart uses, with the new `TZ` in the new process's environment): a live
@@ -190,9 +189,6 @@ seconds and the web app reconnects by itself.
 ```toml
 [system]
 # timezone = "Europe/Berlin"  # written by the web app; empty = never chosen
-env-file = "/data/mestro.env"
-zoneinfo-dir = "/usr/share/zoneinfo"
-localtime = "/etc/localtime"
 ```
 
 ## Environment and command line
