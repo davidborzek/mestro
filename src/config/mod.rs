@@ -142,16 +142,9 @@ pub fn load_parts(
     let base_path = base.clone();
     let base_tree = match base {
         // a directory: every *.toml inside deep-merges in name
-        // order — the thematic split (theme.toml, keyboard.toml,
-        // vu.toml, ...) is a convention, the merge does not care
-        Some(p) if p.is_dir() => {
-            let single = p.join("config.toml");
-            if single.exists() {
-                tree_or_problem(tree_from_file(&single), "config file")
-            } else {
-                tree_or_problem(tree_from_dir(&p), "config file")
-            }
-        }
+        // order — config.toml is one of them, never the only one
+        // (a lone config.toml used to hide its siblings silently)
+        Some(p) if p.is_dir() => tree_or_problem(tree_from_dir(&p), "config file"),
         Some(p) if p.exists() => tree_or_problem(tree_from_file(&p), "config file"),
         _ => toml::Value::Table(toml::map::Map::new()),
     };

@@ -59,6 +59,14 @@ fn broken_settings_keep_the_rest_and_are_reported() {
     mestro::config::load(Some(&file)).unwrap();
     assert!(mestro::config::problems().is_empty());
 
+    // 4. a config directory merges every *.toml — a config.toml
+    //    next to window.toml must not hide it
+    fs::write(dir.join("config.toml"), "[wifi]\ncountry = \"DE\"\n").unwrap();
+    fs::write(dir.join("window.toml"), "[window]\nscale = 1.5\n").unwrap();
+    let config = mestro::config::load(Some(&dir)).unwrap();
+    assert_eq!(config.window.scale, 1.5, "window.toml beside config.toml");
+    assert_eq!(config.wifi.country, "DE", "config.toml still read");
+
     fs::remove_dir_all(&state).unwrap();
     fs::remove_dir_all(&dir).unwrap();
 }
