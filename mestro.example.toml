@@ -244,14 +244,6 @@ shm_prefix = "squeezelite"
 #enabled = true
 #port = 8787
 
-# the audio output picker (the player image, feature `audio-output`;
-# config-file only): where squeezelite's env file lives and how it is
-# restarted. The picker shows only while the env file exists
-[audio]
-#env-file = "/data/squeezelite.env"
-#restart-command = "/etc/init.d/S60squeezelite restart"
-#asound-dir = "/proc/asound"
-
 # the first-boot WiFi setup (the player image; config-file only — never
 # in the settings editor). Everything resolves at runtime: one
 # binary per board, no paths in code

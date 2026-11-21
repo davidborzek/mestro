@@ -63,7 +63,6 @@ set the device up again on purpose.
 | `[keyboard]` | key bindings for USB remotes and keyboards |
 | `[remote]` | the web app / web endpoint |
 | `[wifi]` | the setup hotspot's device paths (the player image) |
-| `[audio]` | the squeezelite env file the audio output picker edits (the player image) |
 
 Deep dives:
 [standby clocks and backgrounds](standby.md) ·
@@ -161,28 +160,6 @@ conf = "/data/wpa_supplicant.conf" # the persistent credentials (must match the 
 ap-address = "10.42.0.1/24"    # private a.b.c.d/16-29; DHCP pool = .10-.50
 power-save = false            # off by default — the latency spikes
 # country = "DE"              # ISO 3166-1 alpha-2 regdom; empty = kernel default
-```
-
-### `[audio]`
-
-The audio output picker (web app → Settings → Audio; player images
-built with the `audio-output` feature, config-file only). Defaults
-are the image's paths — a desktop or another board points them
-elsewhere. The capability is on only while `env-file` exists: a
-machine without squeezelite shows no audio row.
-
-`env-file` is the file squeezelite's init script sources; the
-picker rewrites its `OUTPUT=` line and nothing else — comments,
-other keys, quoting and CRLF line endings stay as they were.
-`restart-command` (split on whitespace, run without a shell) applies
-the change. `asound-dir` is where the playback devices are listed
-from (`cards` plus `card<N>/pcm<D>p`).
-
-```toml
-[audio]
-env-file = "/data/squeezelite.env"
-restart-command = "/etc/init.d/S60squeezelite restart"
-asound-dir = "/proc/asound"
 ```
 
 ## Environment and command line

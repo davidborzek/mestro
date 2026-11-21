@@ -32,6 +32,8 @@ system that runs entirely from RAM — piCorePlayer-style.
     it rewrites only the `OUTPUT=` line, keeps comments, other keys
     and CRLF, and reverts to the previous output when squeezelite
     does not start on the new one — feature `audio-output`)
+  (the env file and the restart command are build-time settings:
+  CONTRIBUTING.md, "Building for another image")
 - Squeezelite: the **upstream Buildroot package** with
   `BR2_PACKAGE_SQUEEZELITE_VISEXPORT` (the shm ring mestro's VU
   reads, src/vu/mod.rs) and **no resampler**: `hw:` output stays

@@ -13,6 +13,7 @@
 pub mod audio;
 #[cfg(any(feature = "audio-output", feature = "timezone"))]
 pub mod envfile;
+pub mod paths;
 #[cfg(feature = "wifi-setup")]
 pub mod reset;
 #[cfg(feature = "wifi-setup")]
