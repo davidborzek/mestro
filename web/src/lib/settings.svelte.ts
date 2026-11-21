@@ -21,6 +21,7 @@ import {
   INFO_SECTION_ID,
   MA_SECTION_ID,
   openDeviceSection,
+  SYSTEM_SECTION_ID,
   type DeviceSectionFacts,
 } from "./settingsSections";
 
@@ -117,6 +118,7 @@ export function sectionTitleOf(id: string | null): string {
   if (id === MA_SECTION_ID) return t("ma.section");
   const deviceSection = openDeviceSection(id, deviceSectionFacts());
   if (deviceSection === AUDIO_SECTION_ID) return t("audio.section");
+  if (deviceSection === SYSTEM_SECTION_ID) return t("system.section");
   if (deviceSection === INFO_SECTION_ID) return t("info.section");
   const section = settingsStore.schema?.sections.find((candidate) => candidate.id === id);
   return section ? sectionTitle(section.title, section.id) : t("settings.title");

@@ -98,7 +98,7 @@
   // attempt is all there is to "Fertig"; the paired change returns
   // to the Info page it came from
   function finish(): void {
-    if (connection.paired === true) goBack("/settings/info");
+    if (connection.paired === true) goBack("/settings/system");
     else window.close();
   }
 

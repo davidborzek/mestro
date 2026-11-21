@@ -25,8 +25,10 @@
     INFO_SECTION_ID,
     MA_SECTION_ID,
     openDeviceSection,
+    SYSTEM_SECTION_ID,
     type DeviceSectionId,
   } from "../../lib/settingsSections";
+  import { startSystemFacts, systemSummary } from "../../lib/systemFacts.svelte";
   import { readPath, sectionSummary, sectionVisible } from "../../lib/settingsSchema";
   import { remoteState } from "../../lib/remoteState.svelte";
   import { device } from "../../lib/connection.svelte";
@@ -39,6 +41,7 @@
   import Audio from "./Audio.svelte";
   import Connection from "./Connection.svelte";
   import Info from "./Info.svelte";
+  import System from "./System.svelte";
 
   // the device settings, rendered from its schema: a section
   // list (icon + current-value summary) and the field controls.
@@ -69,6 +72,7 @@
 
   function deviceSummary(id: DeviceSectionId): string {
     if (id === AUDIO_SECTION_ID) return currentOutput(audioOutputs.outputs)?.name ?? "";
+    if (id === SYSTEM_SECTION_ID) return systemSummary();
     return device.version;
   }
 
@@ -138,7 +142,12 @@
 
   onMount(() => {
     void loadSettings();
-    return startSettingsFeed();
+    const stopFeed = startSettingsFeed();
+    const stopSystemFacts = startSystemFacts();
+    return () => {
+      stopFeed();
+      stopSystemFacts();
+    };
   });
 
   // schema icon names (Material Symbols) → this app's icon set
@@ -154,6 +163,7 @@
   const sectionIcon = (icon: string): IconName => ICONS[icon] ?? "settings";
   const DEVICE_SECTION_ICONS: Record<DeviceSectionId, IconName> = {
     audio: "speaker",
+    system: "settings",
     info: "remote",
   };
 </script>
@@ -161,6 +171,8 @@
 {#snippet deviceBody(id: DeviceSectionId)}
   {#if id === AUDIO_SECTION_ID}
     <Audio />
+  {:else if id === SYSTEM_SECTION_ID}
+    <System />
   {:else if id === INFO_SECTION_ID}
     <Info />
   {/if}

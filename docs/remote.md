@@ -340,7 +340,7 @@ in progress` and touches nothing.
 
 ### Timezone (feature `timezone`)
 
-The picker behind Settings → Info → Time zone. Paired only (the
+The picker behind Settings → System → Time zone. Paired only (the
 pairing check comes first, on the hotspot too). `hello` reports
 `capabilities.timezone`: true only when the build has the feature
 **and** the zoneinfo database exists (`[system] zoneinfo-dir`);
