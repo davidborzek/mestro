@@ -61,6 +61,7 @@ export component BottomSheet inherits Rectangle {
             // sticky title row
             Rectangle {
                 height: 30px;
+
                 Text {
                     x: 14px;
                     width: parent.width - 28px;
@@ -76,8 +77,8 @@ export component BottomSheet inherits Rectangle {
             Flickable {
                 width: 100%;
                 height: sheet-panel.height - 30px - 16px;
-                viewport-width: self.width;
-                viewport-height: root.content-height + 16px;
+                content-width: self.width;
+                content-height: root.content-height + 16px;
                 @children
             }
         }

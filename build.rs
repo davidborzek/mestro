@@ -5,9 +5,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 fn main() {
-    // experimental gates ComponentContainer + component-factory,
-    // which the runtime VU skins (ui/vu/page.slint) are built on
-    std::env::set_var("SLINT_ENABLE_EXPERIMENTAL_FEATURES", "1");
+    // component-container is experimental and gates ComponentContainer
+    // + component-factory, which the runtime VU skins (ui/vu/page.slint)
+    // are built on. slint 1.19 names the features instead of accepting "1"
+    std::env::set_var("SLINT_ENABLE_EXPERIMENTAL_FEATURES", "component-container");
 
     // track every file under ui/ and skins/: the slint compiler
     // embeds images at build time and manifest.rs include_str!s
@@ -26,7 +27,12 @@ fn main() {
     walk(std::path::Path::new("ui"));
     walk(std::path::Path::new("skins"));
 
-    slint_build::compile("ui/mestro.slint").unwrap();
+    // the same edition as SLINT_EDITION in src/vu/mod.rs
+    slint_build::compile_with_config(
+        "ui/mestro.slint",
+        slint_build::CompilerConfiguration::new().with_edition((1, 19)),
+    )
+    .unwrap();
 
     // the short git hash next to the crate version (empty without
     // git, e.g. in the nix sandbox)

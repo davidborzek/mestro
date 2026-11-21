@@ -34,6 +34,8 @@ export component HotspotOverlay inherits Rectangle {
     property <length> text-w: Math.min(260px, root.width - 2 * root.pad - root.gap - root.qr-size);
 
     HorizontalLayout {
+        x: 0px;
+        y: 0px;
         padding: root.pad;
         spacing: root.gap;
         alignment: center;
@@ -45,6 +47,7 @@ export component HotspotOverlay inherits Rectangle {
             height: self.width;
             border-radius: 10px;
             background: #ffffff;
+
             Image {
                 x: 8px;
                 y: 8px;

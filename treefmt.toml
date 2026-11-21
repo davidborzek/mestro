@@ -25,8 +25,8 @@ includes = ["*.rs"]
 [formatter.slint]
 command = "slint-lsp"
 # no --check mode; treefmt relies on the file diff and its cache.
-# nixpkgs' slint-lsp version need not match the pinned rev — the
-# formatted files just have to keep compiling
+# The dev shell and CI pin the same slint-lsp version as the
+# slint crates (flake.nix, ci.yml) so formatting stays stable
 options = ["format", "-i"]
 includes = ["*.slint"]
 

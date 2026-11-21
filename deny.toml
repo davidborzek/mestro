@@ -20,15 +20,9 @@ ignore = [
   # step). Unmaintained but stable; no vulnerability, no patch.
   { id = "RUSTSEC-2026-0441", reason = "pin-utils unmaintained; transitive via spin_on, no advisory beyond maintenance status" },
 
-  # paste: proc-macro used by pulp/rav1e inside image's EXR path,
-  # which slint's SVG compiler pulls in. mestro loads only its own
-  # bundled assets and png/jpeg covers; EXR decoding never runs.
-  { id = "RUSTSEC-2024-0436", reason = "paste unmaintained; transitive via slint->image EXR codecs, never used on mestro's png/jpeg-only inputs" },
-
-  # rustybuzz/ttf-parser: SVG text shaping/parsing in resvg, deep in
+  # ttf-parser: SVG text shaping/parsing in resvg, deep in
   # slint's SVG compiler pipeline. mestro only renders its own bundled
   # SVG icons and fonts; no untrusted SVG reaches these crates.
-  { id = "RUSTSEC-2026-0206", reason = "rustybuzz unmaintained; transitive via slint->resvg, only shapes bundled SVG assets" },
   { id = "RUSTSEC-2026-0192", reason = "ttf-parser unmaintained; transitive via slint->resvg/fontdb, only reads bundled fonts" },
 
   # zvariant/zbus_names: D-Bus serialization, reached only through
@@ -60,7 +54,6 @@ allow = [
   "ISC",
   "LGPL-2.1-or-later",
   "MIT",
-  "NCSA",
   "Unicode-3.0",
   "Unlicense",
   "Zlib",
@@ -72,19 +65,14 @@ allow = [
 confidence-threshold = 0.8
 
 # duplicate-version noise is warnings, not CI failures; wildcard
-# version specs ("*") never merge cleanly and are denied. The slint
-# git deps have no version spec by nature of being rev-pinned —
-# allow-wildcard-paths keeps them out of the wildcard check while
-# registry wildcards still fail
+# version specs ("*") never merge cleanly and are denied
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
-allow-wildcard-paths = true
 
-# crates come from crates.io; slint is the only git dependency, at
-# the rev pinned in Cargo.toml
+# crates come from crates.io only — the slint crates are
+# registry-pinned to the same exact version in Cargo.toml
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-allow-git = ["https://github.com/slint-ui/slint"]

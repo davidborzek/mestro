@@ -101,8 +101,8 @@ export component LibraryPage inherits Rectangle {
             flick := Flickable {
                 width: parent.width;
                 height: parent.height;
-                viewport-y <=> root.scroll-y;
-                viewport-height: root.entries.length * 46px;
+                content-y <=> root.scroll-y;
+                content-height: root.entries.length * 46px;
                 // stale list fades out while its replacement is being
                 // fetched — the spinner overlay owns the area (and
                 // blocks touches) until the reply lands

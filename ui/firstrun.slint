@@ -44,6 +44,8 @@ export component FirstRunView inherits Rectangle {
     property <length> text-w: Math.min(260px, root.width - 2 * root.pad - root.gap - root.qr-size);
 
     HorizontalLayout {
+        x: 0px;
+        y: 0px;
         padding: root.pad;
         spacing: root.gap;
         alignment: center;
@@ -55,6 +57,7 @@ export component FirstRunView inherits Rectangle {
             height: self.width;
             border-radius: 10px;
             background: #ffffff;
+
             Image {
                 x: 8px;
                 y: 8px;
@@ -107,12 +110,15 @@ export component FirstRunView inherits Rectangle {
                 height: 44px;
                 border-radius: 8px;
                 background: Theme.tile;
+
                 HorizontalLayout {
                     padding: 12px;
                     spacing: 10px;
+
                     Rectangle {
                         vertical-stretch: 1;
                         width: 10px;
+
                         Rectangle {
                             y: (parent.height - 10px) / 2;
                             width: 10px;
@@ -134,9 +140,11 @@ export component FirstRunView inherits Rectangle {
                 height: 44px;
                 border-radius: 8px;
                 background: #4caf6d22;
+
                 HorizontalLayout {
                     padding: 12px;
                     spacing: 12px;
+
                     Text {
                         text: @tr("Configuration detected — connecting …");
                         font-size: 13px;
@@ -151,6 +159,7 @@ export component FirstRunView inherits Rectangle {
                         height: 30px;
                         border-radius: 6px;
                         background: Theme.tile;
+
                         Text {
                             text: @tr("Restart");
                             font-size: 12px;

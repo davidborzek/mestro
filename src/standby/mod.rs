@@ -13,7 +13,7 @@ pub use wake::StandbyWake;
 
 use crate::Mestro;
 use slint::{ComponentFactory, ComponentHandle};
-use slint_interpreter::{Compiler, ComponentDefinition, ComponentInstance, Value};
+use slint_interpreter::{ComponentDefinition, ComponentInstance, Value};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -189,8 +189,7 @@ impl Skins {
 }
 
 fn compile_source(name: &str, source: String, path: PathBuf) -> Option<ComponentDefinition> {
-    let mut compiler = Compiler::new();
-    crate::vu::select_last_exported(&mut compiler);
+    let compiler = crate::vu::skin_compiler();
     let result = spin_on::spin_on(compiler.build_from_source(source, path));
     for d in result.diagnostics() {
         tracing::warn!("standby skin {name}: {d}");
@@ -248,8 +247,7 @@ export component MestroClockPreview inherits Window {{
 "#,
         face_name = face.name(),
     );
-    let mut compiler = Compiler::new();
-    crate::vu::select_last_exported(&mut compiler);
+    let compiler = crate::vu::skin_compiler();
     let result = spin_on::spin_on(compiler.build_from_source(wrapper, path.to_path_buf()));
     let component = result.components().next();
     if component.is_none() {

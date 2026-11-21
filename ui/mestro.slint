@@ -618,6 +618,7 @@ export component Mestro inherits Window {
                         if root.page == Page.lyrics: Rectangle {
                             width: parent.width;
                             height: parent.height;
+
                             Text {
                                 text: @tr("lyrics — coming later");
                                 color: Theme.text-mute;
@@ -1250,6 +1251,7 @@ export component Mestro inherits Window {
     // window forwarding RAW keys — Rust owns the configurable
     // key map ([keyboard] in the config) and the routing
     forward-focus: key-scope;
+
     key-scope := FocusScope {
         // never grab focus from a click (slint#12044: an
         // unfocused scope CONSUMES the first press — the double-

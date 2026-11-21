@@ -12,6 +12,41 @@
 //   in property <bool>   lossless, has-media, show-info
 //   callback back()                       // close the overlay
 
+// one channel bar; segments light up in amber, the last 13%
+// (0 VU and up) run red. Declared at top level, not nested in
+// MinimalSkin: slint-lsp 1.19's formatter cannot parse nested
+// component declarations
+component Bar inherits Rectangle {
+    in property <float> level;
+    in property <string> label;
+
+    height: 26px;
+
+    HorizontalLayout {
+        spacing: 4px;
+        alignment: start;
+
+        Text {
+            text: root.label;
+            width: 16px;
+            font-size: 11px;
+            color: #a89984;
+            vertical-alignment: center;
+        }
+
+        HorizontalLayout {
+            horizontal-stretch: 1;
+            spacing: 3px;
+            for i in 36: Rectangle {
+                horizontal-stretch: 1;
+                height: 100%;
+                border-radius: 1px;
+                background: i < root.level * 36 ? (i >= 31.3 ? #cc241d : #d8a657) : #ffffff0d;
+            }
+        }
+    }
+}
+
 export component MinimalSkin inherits Rectangle {
     in property <float> level-l: 0;
     in property <float> level-r: 0;
@@ -27,8 +62,8 @@ export component MinimalSkin inherits Rectangle {
     background: #000000;
 
     VerticalLayout {
-        width: parent.width;
-        height: parent.height;
+        width: 100%;
+        height: 100%;
 
         // top bar: back arrow
         HorizontalLayout {
@@ -66,39 +101,6 @@ export component MinimalSkin inherits Rectangle {
             padding-right: 40px;
             spacing: 26px;
 
-            // one channel bar; segments light up in amber, the
-            // last 13% (0 VU and up) run red
-            component Bar inherits Rectangle {
-                in property <float> level;
-                in property <string> label;
-
-                height: 26px;
-
-                HorizontalLayout {
-                    spacing: 4px;
-                    alignment: start;
-
-                    Text {
-                        text: root.label;
-                        width: 16px;
-                        font-size: 11px;
-                        color: #a89984;
-                        vertical-alignment: center;
-                    }
-
-                    HorizontalLayout {
-                        horizontal-stretch: 1;
-                        spacing: 3px;
-                        for i in 36: Rectangle {
-                            horizontal-stretch: 1;
-                            height: 100%;
-                            border-radius: 1px;
-                            background: i < root.level * 36 ? (i >= 31.3 ? #cc241d : #d8a657) : #ffffff0d;
-                        }
-                    }
-                }
-            }
-
             Bar {
                 level: root.level-l;
                 label: "L";
@@ -110,7 +112,6 @@ export component MinimalSkin inherits Rectangle {
                 color: #a89984;
                 horizontal-alignment: center;
                 overflow: elide;
-                width: parent.width;
             }
 
             Bar {

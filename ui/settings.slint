@@ -237,18 +237,18 @@ export component SettingsView {
     in property <int> push-count: 0;
     property <int> seen-pushes: 0;
     changed view => {
-        root.scroll-memory[root.shown-view] = settings-scroll.viewport-y;
+        root.scroll-memory[root.shown-view] = settings-scroll.content-y;
         root.shown-view = root.view;
         if root.push-count != root.seen-pushes {
             root.seen-pushes = root.push-count;
-            settings-scroll.viewport-y = 0px;
+            settings-scroll.content-y = 0px;
         } else {
-            settings-scroll.viewport-y = root.scroll-memory[root.view];
+            settings-scroll.content-y = root.scroll-memory[root.view];
         }
     }
     // the current offset, read and set from outside (tests, and a
     // future keyboard scroll)
-    in-out property <length> scroll-y <=> settings-scroll.viewport-y;
+    in-out property <length> scroll-y <=> settings-scroll.content-y;
 
     // the app backdrop shows through — the page draws no bg
     settings-scroll := Flickable {
@@ -270,14 +270,18 @@ export component SettingsView {
                     background: Theme.danger.with-alpha(0.10);
                     border-width: 1px;
                     border-color: Theme.danger.with-alpha(0.35);
+
                     VerticalLayout {
                         padding: 12px;
                         spacing: 6px;
+
                         HorizontalLayout {
                             spacing: 10px;
+
                             VerticalLayout {
                                 alignment: center;
                                 width: 20px;
+
                                 Text {
                                     text: Icons.glyph(Icon.warning);
                                     font-family: Theme.icon-font;
@@ -315,6 +319,7 @@ export component SettingsView {
                     VerticalLayout {
                         padding: 12px;
                         spacing: 8px;
+
                         HorizontalLayout {
                             spacing: 10px;
                             // fixed icon column: an unconstrained
@@ -323,6 +328,7 @@ export component SettingsView {
                             VerticalLayout {
                                 alignment: center;
                                 width: 20px;
+
                                 Text {
                                     text: Icons.glyph(Icon.info);
                                     font-family: Theme.icon-font;
@@ -334,6 +340,7 @@ export component SettingsView {
                             VerticalLayout {
                                 spacing: 2px;
                                 horizontal-stretch: 1;
+
                                 Text {
                                     text: @tr("Changes here override the config file");
                                     font-size: 13px;
@@ -401,13 +408,16 @@ export component SettingsView {
                         padding-left: 12px;
                         padding-right: 12px;
                         spacing: 12px;
+
                         VerticalLayout {
                             alignment: center;
+
                             Rectangle {
                                 width: 34px;
                                 height: 34px;
                                 border-radius: 9px;
                                 background: Theme.accent;
+
                                 Text {
                                     text: Icons.glyph(Icon.smartphone);
                                     font-family: Theme.icon-font;
@@ -425,6 +435,7 @@ export component SettingsView {
                             alignment: center;
                             spacing: 2px;
                             horizontal-stretch: 1;
+
                             Text {
                                 text: @tr("Remote setup");
                                 font-size: 16px;
@@ -442,6 +453,7 @@ export component SettingsView {
 
                         VerticalLayout {
                             alignment: center;
+
                             Text {
                                 text: Icons.glyph(Icon.chevron-right);
                                 font-family: Theme.icon-font;
@@ -798,9 +810,11 @@ export component SettingsView {
 
         VerticalLayout {
             width: parent.width;
+
             Rectangle {
                 height: 44px;
                 background: confirm-ta.has-hover ? #cc241d22 : transparent;
+
                 confirm-ta := TouchArea {
                     clicked => {
                         root.reset-sheet = false;
@@ -820,6 +834,7 @@ export component SettingsView {
             Rectangle {
                 height: 44px;
                 background: cancel-ta.has-hover ? Theme.panel-hover : transparent;
+
                 cancel-ta := TouchArea {
                     clicked => {
                         root.reset-sheet = false;
@@ -848,9 +863,11 @@ export component SettingsView {
 
         VerticalLayout {
             width: parent.width;
+
             Rectangle {
                 height: 44px;
                 background: conn-confirm-ta.has-hover ? #cc241d22 : transparent;
+
                 conn-confirm-ta := TouchArea {
                     clicked => {
                         root.conn-reset-sheet = false;
@@ -870,6 +887,7 @@ export component SettingsView {
             Rectangle {
                 height: 44px;
                 background: conn-cancel-ta.has-hover ? Theme.panel-hover : transparent;
+
                 conn-cancel-ta := TouchArea {
                     clicked => {
                         root.conn-reset-sheet = false;

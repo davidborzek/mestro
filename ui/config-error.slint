@@ -19,6 +19,8 @@ export component ConfigErrorView inherits Rectangle {
     background: Theme.bg;
 
     VerticalLayout {
+        x: 0px;
+        y: 0px;
         padding: 28px;
         spacing: 14px;
         alignment: center;
@@ -26,6 +28,7 @@ export component ConfigErrorView inherits Rectangle {
         HorizontalLayout {
             spacing: 12px;
             alignment: start;
+
             Text {
                 text: Icons.glyph(Icon.warning);
                 font-family: Theme.icon-font;
@@ -55,11 +58,13 @@ export component ConfigErrorView inherits Rectangle {
             background: Theme.tile;
             border-width: 1px;
             border-color: Theme.hairline;
+
             VerticalLayout {
                 padding: 12px;
                 spacing: 8px;
                 for problem in root.problems: VerticalLayout {
                     spacing: 1px;
+
                     Text {
                         text: problem.key;
                         font-size: 14px;
@@ -81,11 +86,13 @@ export component ConfigErrorView inherits Rectangle {
         HorizontalLayout {
             spacing: 10px;
             alignment: start;
+
             Rectangle {
                 width: 180px;
                 height: 46px;
                 border-radius: 12px;
                 background: setup-ta.has-hover ? Theme.accent.brighter(0.1) : Theme.accent;
+
                 setup-ta := TouchArea {
                     clicked => {
                         root.start-setup();
@@ -111,6 +118,7 @@ export component ConfigErrorView inherits Rectangle {
                 background: restart-ta.has-hover ? Theme.tile-hover : Theme.tile;
                 border-width: 1px;
                 border-color: Theme.hairline;
+
                 restart-ta := TouchArea {
                     clicked => {
                         root.restart-app();

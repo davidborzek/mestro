@@ -17,18 +17,26 @@
 use crate::config::VuMode;
 use crate::locks;
 
-/// The interpreter's Compiler defaults to the ExportedWindows
-/// selection, which deprecates non-Window exports — but embedded
-/// skins ARE non-Window components by design (they embed via
-/// ComponentContainer, not as standalone windows). The old
-/// interpreter default (LastExported) is what we want: generate
-/// the last exported component regardless of Window inheritance.
-/// Needs the `internal` feature (compiler_configuration +
-/// InternalToken) — hence the i-slint-core/i-slint-compiler deps.
-pub(crate) fn select_last_exported(compiler: &mut slint_interpreter::Compiler) {
+/// The Slint edition of every runtime-compiled skin and face;
+/// build.rs compiles the app's own UI with the same one.
+const SLINT_EDITION: (u32, u32) = (1, 19);
+
+/// The interpreter Compiler for every runtime-compiled skin, face
+/// and the embedded svgskin engine. A fresh Compiler defaults to
+/// the ExportedWindows selection, which deprecates non-Window
+/// exports — but embedded skins ARE non-Window components by design
+/// (they embed via ComponentContainer, not as standalone windows).
+/// The old interpreter default (LastExported) is what we want:
+/// generate the last exported component regardless of Window
+/// inheritance. Needs the `internal` feature (compiler_configuration
+/// + InternalToken) — hence the i-slint-core/i-slint-compiler deps.
+pub(crate) fn skin_compiler() -> slint_interpreter::Compiler {
+    let mut compiler = slint_interpreter::Compiler::new();
     compiler
         .compiler_configuration(i_slint_core::InternalToken)
         .components_to_generate = i_slint_compiler::ComponentSelection::LastExported;
+    compiler.set_edition(SLINT_EDITION);
+    compiler
 }
 
 /// spectrum analyzer: FFT + log-spaced bands (see fft.rs)

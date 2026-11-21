@@ -160,7 +160,7 @@ export component QueuePage inherits Rectangle {
 
         Flickable {
             vertical-stretch: 1;
-            viewport-height: root.entries.length * 46px;
+            content-height: root.entries.length * 46px;
 
             VerticalLayout {
                 padding: 0px;
@@ -228,6 +228,7 @@ export component QueuePage inherits Rectangle {
                         VerticalLayout {
                             horizontal-stretch: 1;
                             alignment: center;
+
                             Text {
                                 text: entry.title;
                                 color: entry.current ? Theme.accent : Theme.text;
