@@ -165,7 +165,7 @@ power-save = false            # off by default — the latency spikes
 
 ### `[audio]`
 
-The audio output picker (web app → Settings → Info; player images
+The audio output picker (web app → Settings → Audio; player images
 built with the `audio-output` feature, config-file only). Defaults
 are the image's paths — a desktop or another board points them
 elsewhere. The capability is on only while `env-file` exists: a

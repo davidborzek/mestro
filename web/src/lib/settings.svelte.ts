@@ -16,6 +16,13 @@ import {
 import { t, tf } from "./i18n.svelte";
 import { localizeProviderStatus, PROVIDER_DETAILS } from "./maConnection";
 import { route } from "./router.svelte";
+import {
+  AUDIO_SECTION_ID,
+  INFO_SECTION_ID,
+  MA_SECTION_ID,
+  openDeviceSection,
+  type DeviceSectionFacts,
+} from "./settingsSections";
 
 export const settingsStore = $state({
   schema: null as Schema | null,
@@ -100,16 +107,17 @@ export function skinLabel(skin: string): string {
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
-// hand-built settings sections the served schema does not
-// carry: the MA connection (listed first) and the device info
-// (listed last) — both render fixed pages, not schema fields
-export const MA_SECTION_ID = "connection";
-export const INFO_SECTION_ID = "info";
+export function deviceSectionFacts(): DeviceSectionFacts {
+  return { audioOutput: device.audioOutput };
+}
 
 // a section's localized title, falling back to the page title
+// (also for a device section this build does not have)
 export function sectionTitleOf(id: string | null): string {
   if (id === MA_SECTION_ID) return t("ma.section");
-  if (id === INFO_SECTION_ID) return t("info.section");
+  const deviceSection = openDeviceSection(id, deviceSectionFacts());
+  if (deviceSection === AUDIO_SECTION_ID) return t("audio.section");
+  if (deviceSection === INFO_SECTION_ID) return t("info.section");
   const section = settingsStore.schema?.sections.find((candidate) => candidate.id === id);
   return section ? sectionTitle(section.title, section.id) : t("settings.title");
 }

@@ -29,6 +29,7 @@
     sun: `<circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.5"/><path d="M12 19v2.5"/><path d="M2.5 12H5"/><path d="M19 12h2.5"/><path d="m5.2 5.2 1.8 1.8"/><path d="m17 17 1.8 1.8"/><path d="m18.8 5.2-1.8 1.8"/><path d="m7 17-1.8 1.8"/>`,
     ma: `<circle cx="12" cy="12" r="9.2"/><path fill="currentColor" stroke="none" d="M10.3 15.3V7.4l6-1.6v2.1l-4 1.1v6"/><circle cx="8.9" cy="15.6" r="1.9" fill="currentColor" stroke="none"/><circle cx="14.9" cy="13" r="1.9" fill="currentColor" stroke="none"/>`,
     alert: `<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>`,
+    speaker: `<rect width="16" height="20" x="4" y="2" rx="2"/><path d="M12 6h.01"/><circle cx="12" cy="14" r="4"/><path d="M12 14h.01"/>`,
     remote: `<path d="M8 2h8a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z"/><path d="M12 18h.01"/>`,
     upload: `<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>`,
     check: `<path d="M20 6 9 17l-5-5"/>`,

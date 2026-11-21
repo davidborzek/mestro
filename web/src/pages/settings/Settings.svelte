@@ -4,9 +4,8 @@
   import {
     caps,
     fieldValue,
-    INFO_SECTION_ID,
+    deviceSectionFacts,
     loadSettings,
-    MA_SECTION_ID,
     providerStatusText,
     sectionTitleOf,
     sectionTitle,
@@ -18,6 +17,16 @@
     visibleField,
   } from "../../lib/settings.svelte";
   import { maSummary } from "../../lib/maConnection";
+  import { currentOutput } from "../../lib/audio";
+  import { audioOutputs, refreshAudioOutputs } from "../../lib/audioOutputs.svelte";
+  import {
+    AUDIO_SECTION_ID,
+    availableDeviceSections,
+    INFO_SECTION_ID,
+    MA_SECTION_ID,
+    openDeviceSection,
+    type DeviceSectionId,
+  } from "../../lib/settingsSections";
   import { readPath, sectionSummary, sectionVisible } from "../../lib/settingsSchema";
   import { remoteState } from "../../lib/remoteState.svelte";
   import { device } from "../../lib/connection.svelte";
@@ -27,6 +36,7 @@
   import Icon, { type IconName } from "../../components/Icon.svelte";
   import Link from "../../components/Link.svelte";
   import FieldRow from "./controls/FieldRow.svelte";
+  import Audio from "./Audio.svelte";
   import Connection from "./Connection.svelte";
   import Info from "./Info.svelte";
 
@@ -44,6 +54,28 @@
   const selectedId = $derived(twoPane ? (route.section ?? sections[0]?.id ?? null) : route.section);
   const selected = $derived(sections.find((section) => section.id === selectedId) ?? null);
   const texts = $derived(valueTexts());
+
+  // the fixed device sections after the schema's, in list order;
+  // a route to one this build lacks is an unknown section
+  const deviceSection = $derived(openDeviceSection(route.section, deviceSectionFacts()));
+  const deviceRows = $derived(
+    availableDeviceSections(deviceSectionFacts()).map((id) => ({
+      id,
+      icon: DEVICE_SECTION_ICONS[id],
+      title: sectionTitleOf(id),
+      summary: deviceSummary(id),
+    })),
+  );
+
+  function deviceSummary(id: DeviceSectionId): string {
+    if (id === AUDIO_SECTION_ID) return currentOutput(audioOutputs.outputs)?.name ?? "";
+    return device.version;
+  }
+
+  // the Audio row's summary needs the output list before its page opens
+  $effect(() => {
+    if (device.audioOutput) refreshAudioOutputs().catch(() => {});
+  });
 
   const summary = (section: (typeof sections)[number]) =>
     sectionSummary(section, fieldValue, caps(), texts);
@@ -120,7 +152,19 @@
     graphic_eq: "vu",
   };
   const sectionIcon = (icon: string): IconName => ICONS[icon] ?? "settings";
+  const DEVICE_SECTION_ICONS: Record<DeviceSectionId, IconName> = {
+    audio: "speaker",
+    info: "remote",
+  };
 </script>
+
+{#snippet deviceBody(id: DeviceSectionId)}
+  {#if id === AUDIO_SECTION_ID}
+    <Audio />
+  {:else if id === INFO_SECTION_ID}
+    <Info />
+  {/if}
+{/snippet}
 
 <main class="settings" class:twopane={twoPane}>
   {#if !settingsStore.loaded}
@@ -137,9 +181,9 @@
     <section class="fixed" use:scrollable={"settings-fields"}>
       <Connection />
     </section>
-  {:else if !twoPane && route.section === INFO_SECTION_ID}
+  {:else if !twoPane && deviceSection}
     <section class="fixed" use:scrollable={"settings-fields"}>
-      <Info />
+      {@render deviceBody(deviceSection)}
     </section>
   {:else if !twoPane && selected}
     <!-- phone: the section detail, the top bar holds its title -->
@@ -186,19 +230,18 @@
           <span class="chev"><Icon name="chevronRight" size={18} /></span>
         </Link>
       {/each}
-      <Link
-        class="row{INFO_SECTION_ID === selectedId ? ' active' : ''}"
-        href={`/settings/${INFO_SECTION_ID}`}
-      >
-        <span class="icon"><Icon name="remote" size={22} /></span>
-        <span class="meta">
-          <span class="name">{t("info.section")}</span>
-          {#if device.version}
-            <span class="summary">{device.version}</span>
-          {/if}
-        </span>
-        <span class="chev"><Icon name="chevronRight" size={18} /></span>
-      </Link>
+      {#each deviceRows as row (row.id)}
+        <Link class="row{row.id === selectedId ? ' active' : ''}" href={`/settings/${row.id}`}>
+          <span class="icon"><Icon name={row.icon} size={22} /></span>
+          <span class="meta">
+            <span class="name">{row.title}</span>
+            {#if row.summary}
+              <span class="summary">{row.summary}</span>
+            {/if}
+          </span>
+          <span class="chev"><Icon name="chevronRight" size={18} /></span>
+        </Link>
+      {/each}
     </nav>
     {#if twoPane}
       {#if route.section === MA_SECTION_ID}
@@ -206,10 +249,10 @@
           <h2 class="pane-title">{sectionTitleOf(MA_SECTION_ID)}</h2>
           <Connection />
         </section>
-      {:else if route.section === INFO_SECTION_ID}
+      {:else if deviceSection}
         <section class="fixed" use:scrollable={"settings-fields"}>
-          <h2 class="pane-title">{sectionTitleOf(INFO_SECTION_ID)}</h2>
-          <Info />
+          <h2 class="pane-title">{sectionTitleOf(deviceSection)}</h2>
+          {@render deviceBody(deviceSection)}
         </section>
       {:else if selected}
         <section class="fields" use:scrollable={"settings-fields"}>
@@ -325,7 +368,7 @@
     border-color: color-mix(in srgb, var(--accent-live) 40%, transparent);
   }
 
-  /* ── the fixed sections (connection, info): stacked cards ── */
+  /* ── the fixed sections (connection, device): stacked cards ── */
   .fixed {
     display: flex;
     flex-direction: column;

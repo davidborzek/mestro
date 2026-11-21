@@ -2,51 +2,48 @@
   import { onMount } from "svelte";
   import { socket } from "../../lib/connection.svelte";
   import { t } from "../../lib/i18n.svelte";
-  import { loadOutputs, outputLabel, switchOutput, type AudioSend } from "../../lib/audio";
-  import type { AudioOutput } from "../../lib/protocol";
+  import { outputLabel, switchOutput, type AudioSend } from "../../lib/audio";
+  import { audioOutputs, refreshAudioOutputs } from "../../lib/audioOutputs.svelte";
   import Icon from "../../components/Icon.svelte";
   import Sheet from "../../components/Sheet.svelte";
 
-  // the audio card of the Info section: the ALSA playback devices
+  // the output block of the Audio section: the ALSA playback devices
   // the player offers, the one in use marked. Choosing one makes the
   // device restart squeezelite; a device that cannot start is rolled
   // back by the player and comes back here as the error text.
 
   const send: AudioSend = (request) => socket.send(request);
 
-  let outputs = $state<AudioOutput[]>([]);
-  let loaded = $state(false);
   let open = $state(false);
   let switching = $state(false);
   let error = $state("");
 
   onMount(() => {
-    loadOutputs(send)
-      .then((list) => (outputs = list))
-      .catch((cause: unknown) => (error = cause instanceof Error ? cause.message : String(cause)))
-      .finally(() => (loaded = true));
+    refreshAudioOutputs().catch(
+      (cause: unknown) => (error = cause instanceof Error ? cause.message : String(cause)),
+    );
   });
 
   async function pick(id: string) {
     open = false;
-    if (outputs.find((output) => output.current)?.id === id) return;
+    if (audioOutputs.outputs.find((output) => output.current)?.id === id) return;
     switching = true;
     error = "";
     const result = await switchOutput(send, id).catch((cause: unknown) => ({
-      outputs,
+      outputs: audioOutputs.outputs,
       error: cause instanceof Error ? cause.message : String(cause),
     }));
-    outputs = result.outputs;
+    audioOutputs.outputs = result.outputs;
     error = result.error;
     switching = false;
   }
 </script>
 
 <section class="card">
-  <h2>{t("audio.section")}</h2>
-  {#if !loaded}
+  <h2>{t("audio.outputTitle")}</h2>
+  {#if !audioOutputs.loaded}
     <p class="muted">{t("audio.loading")}</p>
-  {:else if outputs.length === 0}
+  {:else if audioOutputs.outputs.length === 0}
     <p class="muted">{t("audio.empty")}</p>
   {:else}
     <button class="select" disabled={switching} onclick={() => (open = true)}>
@@ -55,7 +52,7 @@
         {#if switching}
           <span class="dot pulse"></span> {t("audio.switching")}
         {:else}
-          {outputLabel(outputs, t("audio.unknown"))}
+          {outputLabel(audioOutputs.outputs, t("audio.unknown"))}
         {/if}
       </span>
       <Icon name="chevronDown" size={18} />
@@ -68,7 +65,7 @@
 
 <Sheet bind:open title={t("audio.output")}>
   <div class="options">
-    {#each outputs as output (output.id)}
+    {#each audioOutputs.outputs as output (output.id)}
       <button class="option" class:active={output.current} onclick={() => void pick(output.id)}>
         <span class="option-label">{output.name}</span>
         {#if output.current}

@@ -118,7 +118,8 @@ const strings = {
     "info.diagKeepalive": "Keepalive",
     "info.diagNoCommands": "Noch keine Befehle in dieser Sitzung.",
 
-    "audio.section": "Audioausgang",
+    "audio.section": "Audio",
+    "audio.outputTitle": "Audioausgang",
     "audio.output": "Ausgang",
     "audio.loading": "Ausgänge werden gesucht …",
     "audio.empty": "Keine Audioausgänge gefunden.",
@@ -331,7 +332,8 @@ const strings = {
     "info.diagKeepalive": "Keepalive",
     "info.diagNoCommands": "No commands in this session yet.",
 
-    "audio.section": "Audio output",
+    "audio.section": "Audio",
+    "audio.outputTitle": "Audio output",
     "audio.output": "Output",
     "audio.loading": "Looking for outputs …",
     "audio.empty": "No audio outputs found.",

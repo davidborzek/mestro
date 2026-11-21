@@ -294,7 +294,7 @@ player — the state frame reports the truth.
 
 ### Audio output (feature `audio-output`)
 
-The picker behind Settings → Info → Audio output. Paired only —
+The picker behind Settings → Audio → Audio output. Paired only —
 an unpaired hotspot client gets `pairing required`, like for every
 other device op. `hello` reports `capabilities.audio_output`: true
 only when the build has the feature **and** the squeezelite env file
