@@ -59,6 +59,11 @@ const MOCK_NETWORKS: WifiNetwork[] = [
   { ssid: "Alt-Router", signal: -84, secured: true },
 ];
 
+// the timezone picker: a short zoneinfo, the player runs in Berlin
+const MOCK_ZONES = ["America/New_York", "Asia/Tokyo", "Europe/Berlin", "Europe/London", "UTC"];
+let tzChosen = "";
+let tzCurrent = "Europe/Berlin";
+
 // the audio picker: three devices, the last one never starts
 const BROKEN_OUTPUT = "hw:CARD=DAC2";
 const MOCK_OUTPUTS = [
@@ -226,6 +231,7 @@ class MockSocket {
             wifi: true,
             factory_reset: true,
             audio_output: true,
+            timezone: true,
           },
         });
         return;
@@ -257,6 +263,30 @@ class MockSocket {
             // the 45 s budget
             fail ? 1500 : 6000,
           );
+        }
+        return;
+      }
+      case "timezone": {
+        if (request.action === "zones") {
+          respond(true, { zones: MOCK_ZONES, chosen: tzChosen, current: tzCurrent });
+        } else if (typeof request.zone === "string") {
+          const zone = request.zone;
+          if (!MOCK_ZONES.includes(zone)) {
+            respond(false, `unknown timezone ${zone}`);
+            return;
+          }
+          // adopt: only while nothing was ever chosen; set: always
+          const taken = request.action === "set" || tzChosen === "";
+          if (taken) tzChosen = zone;
+          // the mock keeps the page alive on adopt (the headless browser
+          // is rarely in Berlin); only a user choice restarts
+          const restarting = taken && request.action === "set" && zone !== tzCurrent;
+          respond(true, { zone, taken, restarting });
+          // the restart: the socket drops and reconnects
+          if (restarting) {
+            tzCurrent = zone;
+            setTimeout(() => instance?.close(), 800);
+          }
         }
         return;
       }

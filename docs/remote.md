@@ -150,7 +150,7 @@ keeps the regular behavior.
 | actor | can do |
 |---|---|
 | no PIN, no cookie | fetch the app shell and assets, nothing else (`401`) |
-| paired | read the effective config **redacted**, write/reset any setting, reset-all, restart, run MA probe/login/players, drive the transport (`ctl`, incl. `vu-select`) and volume, mirror the player views, upload a system image (`ota`), switch the audio output (`audio`) |
+| paired | read the effective config **redacted**, write/reset any setting, reset-all, restart, run MA probe/login/players, drive the transport (`ctl`, incl. `vu-select`) and volume, mirror the player views, upload a system image (`ota`), switch the audio output (`audio`), set the timezone (`timezone`, restarts the player) |
 | unpaired, from the setup hotspot (peer inside the hotspot subnet, hotspot confirmed up) | wifi ops only (`scan`/`join`/`status`) and `hello` — no settings, no player data, **no pushes**; the socket closes the moment AP mode ends (a successful join leaves it) |
 | on the wire | plaintext HTTP/WS on a trusted LAN — no TLS, treat the LAN as the trust boundary |
 
@@ -206,6 +206,9 @@ Requests carry an `id` (echoed) and a domain-split vocabulary:
 {"id": 12, "op": "player", "action": "volume", "value": 42}
 {"id": 13, "op": "audio", "action": "outputs"}
 {"id": 14, "op": "audio", "action": "set", "output": "hw:CARD=S3"}
+{"id": 15, "op": "timezone", "action": "zones"}
+{"id": 16, "op": "timezone", "action": "set", "zone": "Europe/Berlin"}
+{"id": 17, "op": "timezone", "action": "adopt", "zone": "Europe/Berlin"}
 ```
 
 `settings` `state` reports the merged config (defaults not
@@ -229,7 +232,7 @@ old wizard bundle):
   "name": "Wohnzimmer",    // the configured MA player name, else the hostname
   "remote_url": "…", "ota": true,
   "capabilities": {"ota": true, "display": true, "wifi": true, "factory_reset": true,
-                   "audio_output": true}
+                   "audio_output": true, "timezone": true}
 }}
 ```
 
@@ -321,6 +324,49 @@ fails), the previous file is restored byte for byte, squeezelite
 is restarted again and the error names the device that failed —
 a bad pick never leaves the player silent. The reply arrives after
 that watch (about 3.5 s).
+
+### Timezone (feature `timezone`)
+
+The picker behind Settings → Info → Time zone. Paired only (the
+pairing check comes first, on the hotspot too). `hello` reports
+`capabilities.timezone`: true only when the build has the feature
+**and** the zoneinfo database exists (`[system] zoneinfo-dir`);
+without it every op answers `timezone not available` and nothing
+is written.
+
+```jsonc
+// → {"id": 15, "op": "timezone", "action": "zones"}
+{"id": 15, "ok": true, "data": {
+  "zones": ["Africa/Abidjan", "…", "UTC"],  // TZif files under zoneinfo-dir, sorted
+  "chosen": "",                           // system.timezone, "" = never chosen
+  "current": "Europe/Berlin"              // the zone the player runs in, null = unknown
+}}
+// → {"id": 16, "op": "timezone", "action": "set", "zone": "Europe/London"}
+{"id": 16, "ok": true, "data": {"zone": "Europe/London", "taken": true, "restarting": true}}
+// → {"id": 17, "op": "timezone", "action": "adopt", "zone": "Asia/Tokyo"}  (a zone was chosen before)
+{"id": 17, "ok": true, "data": {"zone": "Asia/Tokyo", "taken": false, "restarting": false}}
+```
+
+- `set` is the user's choice and is always taken. `adopt` is the
+  web app's browser zone (`Intl.DateTimeFormat().resolvedOptions()
+  .timeZone`), sent once per page load after a paired handshake: it
+  is taken **only while `system.timezone` is empty**. Once a zone
+  is set — by the user or by the first adoption — a phone in another
+  timezone (travel) changes nothing (`taken: false`, nothing
+  written).
+- A zone must exist as a TZif file inside `zoneinfo-dir`: names
+  are `[A-Za-z0-9_+-]` segments (`../`, absolute paths, empty or
+  dot segments are refused), and the resolved path must stay inside
+  the directory (a symlink out of it is no zone). A rejected zone
+  answers an error and writes nothing.
+- A taken zone is stored as the `system.timezone` setting and
+  written as `TZ=<zone>` into `[system] env-file` — one line, every
+  other line, comment and CRLF kept (atomic write). If the running
+  zone differs, the reply says `restarting: true` and the player
+  **restarts** (the settings-restart exec, with `TZ` exported
+  first); the socket drops and the web app reconnects. The init
+  script sources the file on every start, so the zone also survives
+  reboots.
 
 ### Push frames (no `id`)
 

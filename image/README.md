@@ -32,6 +32,16 @@ system that runs entirely from RAM — piCorePlayer-style.
     it rewrites only the `OUTPUT=` line, keeps comments, other keys
     and CRLF, and reverts to the previous output when squeezelite
     does not start on the new one — feature `audio-output`)
+  - `mestro.env` — environment for mestro, sourced by `S50mestro`
+    (`RUST_LOG`, `SLINT_DRM_OUTPUT`, `MESTRO_REMOTE_PORT`, …) and
+    `TZ`, the timezone: the image bakes `/etc/localtime` =
+    Europe/Berlin, `TZ` overrides it. The web app's Settings → Info →
+    Time zone writes exactly that one line (every other line,
+    comment and CRLF stays) and restarts mestro to apply it —
+    feature `timezone`; the first paired browser's zone is adopted
+    once, later phones never change it. The legacy `/data/timezone`
+    file (read by `S02data` into `/etc/localtime`) still works
+    underneath; `TZ` wins
 - Squeezelite: the **upstream Buildroot package** with
   `BR2_PACKAGE_SQUEEZELITE_VISEXPORT` (the shm ring mestro's VU
   reads, src/vu/mod.rs) and **no resampler**: `hw:` output stays
@@ -212,7 +222,6 @@ power-save = false
 
 - settings UI: `[window] scale` picker (needs the app restart
   flow — SLINT_SCALE_FACTOR is read at backend init)
-- settings UI: timezone picker writing `/data/timezone`
 - kiosk polish: hide the clock until the first NTP sync (boots
   into 1970 for ~a minute on a fresh image)
 - USB-C gadget network as a rescue path

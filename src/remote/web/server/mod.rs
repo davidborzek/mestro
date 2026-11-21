@@ -27,6 +27,7 @@ mod ota;
 mod pair;
 mod player;
 pub(crate) mod settings;
+mod timezone;
 mod wifi;
 mod ws;
 
@@ -396,6 +397,7 @@ pub(crate) async fn dispatch(
                         "wifi": cfg!(feature = "wifi-setup"),
                         "factory_reset": cfg!(feature = "wifi-setup"),
                         "audio_output": audio::capable(info),
+                        "timezone": timezone::capable(&info.system),
                     },
                 }),
             ))
@@ -470,6 +472,7 @@ mod tests {
             mdns_gate: std::sync::Arc::default(),
             ap_net: ap_net(),
             audio: crate::config::Audio::default(),
+            system: crate::config::System::default(),
         }
     }
 
@@ -1581,5 +1584,47 @@ mod tests {
             std::fs::read_to_string(&info.audio.env_file).unwrap(),
             "# c\nOUTPUT=hw:CARD=S3\n"
         );
+    }
+
+    // ── the timezone ops: paired-only (they ride the UI bridge, the
+    // pairing check comes first), capability-gated ──
+
+    #[test]
+    fn timezone_ops_refuse_unpaired_callers_even_on_the_hotspot() {
+        let info = hotspot_info();
+        for op in [
+            r#"{"id":1,"op":"timezone","action":"zones"}"#,
+            r#"{"id":2,"op":"timezone","action":"set","zone":"Europe/Berlin"}"#,
+            r#"{"id":3,"op":"timezone","action":"adopt","zone":"Europe/Berlin"}"#,
+        ] {
+            for ingress in [Ingress::Ap, Ingress::Lan] {
+                let reply = dispatch_blocking(op, &info, ingress, false);
+                let value: serde_json::Value = serde_json::from_str(&reply).unwrap();
+                assert_eq!(value["ok"], false, "{op}: {reply}");
+                assert!(
+                    value["error"]
+                        .as_str()
+                        .unwrap()
+                        .contains("pairing required"),
+                    "{op}: {reply}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn hello_reports_the_timezone_capability_only_with_the_feature_and_a_zoneinfo() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut info = info();
+        info.system.zoneinfo_dir = dir.path().join("zoneinfo").display().to_string();
+        let hello = |info: &WebInfo| -> serde_json::Value {
+            let reply = dispatch_blocking(r#"{"id":1,"op":"hello"}"#, info, Ingress::Lan, true);
+            serde_json::from_str::<serde_json::Value>(&reply).unwrap()["data"]["capabilities"]
+                ["timezone"]
+                .clone()
+        };
+        assert_eq!(hello(&info), false, "no zoneinfo database");
+        std::fs::create_dir_all(dir.path().join("zoneinfo")).unwrap();
+        assert_eq!(hello(&info), cfg!(feature = "timezone"));
     }
 }

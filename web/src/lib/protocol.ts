@@ -56,6 +56,23 @@ export type AudioOutput = { id: string; name: string; current: boolean };
 
 export type AudioOutputsData = { outputs: AudioOutput[]; current: string | null };
 
+// the timezone picker (device feature `timezone`, paired only):
+// `set` is the user's choice, `adopt` offers the browser's zone —
+// taken only while no zone was ever chosen. A changed zone restarts
+// the player (`restarting`)
+export type TimezoneOp =
+  { action: "zones" } | { action: "set"; zone: string } | { action: "adopt"; zone: string };
+
+export type TimezoneZonesData = {
+  zones: string[];
+  // the zone the user chose ("" = automatic)
+  chosen: string;
+  // the zone the player runs in (null = unknown)
+  current: string | null;
+};
+
+export type TimezoneSetData = { zone: string; taken: boolean; restarting: boolean };
+
 export type Request =
   | { op: "hello" }
   | ({ op: "settings" } & SettingsOp)
@@ -63,7 +80,8 @@ export type Request =
   | { op: "ctl"; cmd: CtlCmd }
   | ({ op: "player" } & PlayerOp)
   | ({ op: "wifi" } & WifiOp)
-  | ({ op: "audio" } & AudioOp);
+  | ({ op: "audio" } & AudioOp)
+  | ({ op: "timezone" } & TimezoneOp);
 
 // the server's reply — Rust's `Envelope` is the request shape,
 // this one is the response (kept apart on purpose)
@@ -175,6 +193,7 @@ export type HelloData = {
     wifi?: boolean;
     factory_reset?: boolean;
     audio_output?: boolean;
+    timezone?: boolean;
   };
 };
 

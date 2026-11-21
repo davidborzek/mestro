@@ -64,6 +64,7 @@ set the device up again on purpose.
 | `[remote]` | the web app / web endpoint |
 | `[wifi]` | the setup hotspot's device paths (the player image) |
 | `[audio]` | the squeezelite env file the audio output picker edits (the player image) |
+| `[system]` | the timezone and the files it is applied through (the player image) |
 
 Deep dives:
 [standby clocks and backgrounds](standby.md) ·
@@ -183,6 +184,38 @@ from (`cards` plus `card<N>/pcm<D>p`).
 env-file = "/data/squeezelite.env"
 restart-command = "/etc/init.d/S60squeezelite restart"
 asound-dir = "/proc/asound"
+```
+
+### `[system]`
+
+The timezone picker (web app → Settings → Info; player images
+built with the `timezone` feature). `timezone` is an IANA zone
+name and a normal device setting: **empty means never chosen** —
+the first paired browser may still set it (see
+[remote.md](remote.md#timezone-feature-timezone)); once it holds a
+zone, only an explicit choice in the picker changes it. A desktop
+build has no picker and follows the OS timezone.
+
+The other keys are paths, config-file only, defaulting to the
+image: `env-file` is what the init script sources before it starts
+mestro (the picker writes `TZ=<zone>` there — one line, the rest
+of the file stays), `zoneinfo-dir` is the database a zone must
+exist in (path traversal and non-zones are refused), `localtime`
+is the system zone link read to learn the running zone when `TZ`
+is unset. The capability is on only while `zoneinfo-dir` exists.
+
+Applying a zone **restarts the player** (the same exec the
+settings restart uses, with the new `TZ` exported first): a live
+switch would need an `unsafe` `tzset`, and chrono caches the local
+offset, so a restart is the one reliable way. It takes a few
+seconds and the web app reconnects by itself.
+
+```toml
+[system]
+# timezone = "Europe/Berlin"  # written by the web app; empty = never chosen
+env-file = "/data/mestro.env"
+zoneinfo-dir = "/usr/share/zoneinfo"
+localtime = "/etc/localtime"
 ```
 
 ## Environment and command line

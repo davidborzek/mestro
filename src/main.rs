@@ -626,6 +626,7 @@ fn wire_remote(
         config.wifi.ap_net(),
         &config.music_assistant.player,
         config.audio.clone(),
+        config.system.clone(),
     );
     // the settings-preview thumbnails: rendered on this (UI)
     // thread from the compiled registries, on demand through the

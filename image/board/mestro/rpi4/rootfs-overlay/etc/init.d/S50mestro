@@ -28,8 +28,15 @@ start)
 	# /data/mestro.env overrides it
 	export MESTRO_REMOTE_PORT=80
 	# timezone comes from /etc/localtime (BR2_TARGET_LOCALTIME in
-	# the defconfig); TZ in /data/mestro.env overrides it
-	[ -f /data/mestro.env ] && . /data/mestro.env
+	# the defconfig); TZ in /data/mestro.env overrides it. The file is
+	# edited on Windows too (CRLF) and one line is rewritten by mestro
+	# (timezone picker): source a copy without the carriage returns,
+	# and export TZ — a plain `TZ=Europe/Berlin` line is not exported
+	if [ -f /data/mestro.env ]; then
+		tr -d '\r' </data/mestro.env >/tmp/mestro.env
+		. /tmp/mestro.env
+		[ -n "${TZ:-}" ] && export TZ
+	fi
 	# log to tmpfs (RAM, gone on reboot): the backlight writes and
 	# config problems land here — `tail /tmp/mestro.log` over SSH.
 	# The previous run's log is kept once as .old

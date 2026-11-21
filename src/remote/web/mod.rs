@@ -26,7 +26,9 @@ mod state;
 pub use mdns::MdnsGate;
 #[cfg(all(test, feature = "wifi-setup"))]
 pub(crate) use mdns::{fake_announcer::confirming_worker, GatePhase};
-pub use protocol::{AudioOp, Envelope, MaOp, PlayerAction, Request, Response, SettingsOp, WifiOp};
+pub use protocol::{
+    AudioOp, Envelope, MaOp, PlayerAction, Request, Response, SettingsOp, TimezoneOp, WifiOp,
+};
 pub use push::{Events, Push};
 
 use crate::locks;
@@ -92,6 +94,8 @@ pub struct WebInfo {
     pub ap_net: crate::config::ApNet,
     /// where the audio output picker finds squeezelite (`[audio]`)
     pub audio: crate::config::Audio,
+    /// the timezone picker's paths (`[system]`)
+    pub system: crate::config::System,
 }
 
 impl WebInfo {
@@ -188,6 +192,7 @@ pub fn info(
     ap_net: crate::config::ApNet,
     player_name: &str,
     audio: crate::config::Audio,
+    system: crate::config::System,
 ) -> (WebInfo, String) {
     tracing::info!(
         "web: start: enabled={} port={}",
@@ -215,6 +220,7 @@ pub fn info(
         mdns_gate: std::sync::Arc::default(),
         ap_net,
         audio,
+        system,
     };
     // the wizard URL carries the pairing PIN — the kiosk connection
     // page shows it too (restart-stable secret for a LAN device,
@@ -584,6 +590,7 @@ mod tests {
             mdns_gate: std::sync::Arc::default(),
             ap_net: ap_net([10, 42, 0, 1]),
             audio: crate::config::Audio::default(),
+            system: crate::config::System::default(),
         };
         if ap_up {
             info.ap_mode

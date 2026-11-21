@@ -7,6 +7,7 @@
   import type { WifiStatusData } from "../../lib/protocol";
   import Update from "../update/Update.svelte";
   import AudioOutput from "./AudioOutput.svelte";
+  import TimezonePicker from "./TimezonePicker.svelte";
   import Icon from "../../components/Icon.svelte";
   import Segmented from "../../components/Segmented.svelte";
   import ConfirmSheet from "../../components/ConfirmSheet.svelte";
@@ -94,6 +95,9 @@
       {t("wifi.change")}
       <Icon name="chevronRight" size={18} />
     </button>
+  {/if}
+  {#if device.timezone}
+    <TimezonePicker />
   {/if}
 </section>
 

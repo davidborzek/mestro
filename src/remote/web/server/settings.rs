@@ -143,6 +143,9 @@ pub(crate) fn handle_ui(
                     super::ctl::handle(id, &cmd, dispatch, ui.get_vu_view_count() as usize)
                 }
                 Request::Player { action } => super::player::handle(id, &action, player),
+                Request::Timezone { action } => {
+                    timezone_response(id, action, ui, settings, dispatch, info)
+                }
                 Request::Hello
                 | Request::Ma { .. }
                 | Request::Wifi { .. }
@@ -152,6 +155,44 @@ pub(crate) fn handle_ui(
     };
     serde_json::to_string(&response)
         .unwrap_or_else(|e| format!(r#"{{"id":0,"ok":false,"error":"{e}"}}"#))
+}
+
+/// the timezone ops: the decision is `timezone::run`, this carries
+/// it out on the UI thread — record the chosen zone as the
+/// `system.timezone` setting, then restart (the restart flushes the
+/// setting; the new `TZ` is exported just before the exec)
+fn timezone_response(
+    id: u64,
+    action: crate::remote::web::TimezoneOp,
+    ui: &Mestro,
+    settings: &Handle,
+    dispatch: &Dispatch,
+    info: &WebInfo,
+) -> Response {
+    let chosen = settings
+        .effective()
+        .map(|cfg| cfg.system.timezone)
+        .unwrap_or_default();
+    let tz_env = std::env::var("TZ").ok();
+    let outcome = super::timezone::run(id, action, &info.system, &chosen, tz_env.as_deref());
+    if let Some(zone) = outcome.record {
+        // restart.rs execs with the current environment and the init
+        // script's mestro.env is not read again — the new zone must
+        // already be in it, or the restart comes back in the old one
+        if outcome.restart {
+            std::env::set_var("TZ", &zone);
+        }
+        let key = "system.timezone".to_string();
+        let value = toml::Value::String(zone);
+        if let Err(e) = settings.set(&key, value.clone()) {
+            return Response::err(id, e);
+        }
+        dispatch(&Command::SetSetting { key, value });
+    }
+    if outcome.restart {
+        ui.invoke_restart_app();
+    }
+    outcome.response
 }
 
 /// the effective config state for the wizard/remote editor:
