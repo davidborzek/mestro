@@ -206,7 +206,7 @@ is the system zone link read to learn the running zone when `TZ`
 is unset. The capability is on only while `zoneinfo-dir` exists.
 
 Applying a zone **restarts the player** (the same exec the
-settings restart uses, with the new `TZ` exported first): a live
+settings restart uses, with the new `TZ` in the new process's environment): a live
 switch would need an `unsafe` `tzset`, and chrono caches the local
 offset, so a restart is the one reliable way. It takes a few
 seconds and the web app reconnects by itself.

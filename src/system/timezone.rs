@@ -159,6 +159,21 @@ pub fn apply(
     })
 }
 
+/// the zone the next restart must run in: recorded by the timezone
+/// op on the UI thread, handed to the exec by `restart.rs` — the
+/// environment of this process is never touched
+static PENDING_ZONE: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// ask the next restart to run in `zone`
+pub fn set_pending_zone(zone: &str) {
+    *crate::locks::lock(&PENDING_ZONE) = Some(zone.to_string());
+}
+
+/// the zone the restart in progress must carry (once)
+pub fn take_pending_zone() -> Option<String> {
+    crate::locks::lock(&PENDING_ZONE).take()
+}
+
 /// the capability: a zoneinfo database to validate against
 pub fn available(config: &System) -> bool {
     Path::new(&config.zoneinfo_dir).is_dir()
@@ -261,6 +276,15 @@ mod tests {
             .unwrap();
         assert_eq!(validate_zone(dir.path(), "Alias"), Ok(()));
         std::fs::remove_file(outside).unwrap();
+    }
+
+    #[test]
+    fn the_pending_zone_is_handed_over_once() {
+        assert_eq!(take_pending_zone(), None);
+        set_pending_zone("Europe/London");
+        set_pending_zone("Asia/Tokyo");
+        assert_eq!(take_pending_zone().as_deref(), Some("Asia/Tokyo"));
+        assert_eq!(take_pending_zone(), None);
     }
 
     #[test]

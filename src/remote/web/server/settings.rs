@@ -177,10 +177,11 @@ fn timezone_response(
     let outcome = super::timezone::run(id, action, &info.system, &chosen, tz_env.as_deref());
     if let Some(zone) = outcome.record {
         // restart.rs execs with the current environment and the init
-        // script's mestro.env is not read again — the new zone must
-        // already be in it, or the restart comes back in the old one
+        // script's mestro.env is not read again — the exec must carry
+        // the new zone, or the restart comes back in the old one
+        #[cfg(feature = "timezone")]
         if outcome.restart {
-            std::env::set_var("TZ", &zone);
+            crate::system::timezone::set_pending_zone(&zone);
         }
         let key = "system.timezone".to_string();
         let value = toml::Value::String(zone);

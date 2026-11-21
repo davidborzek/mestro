@@ -376,8 +376,8 @@ is written.
   written as `TZ=<zone>` into `[system] env-file` — one line, every
   other line, comment and CRLF kept (atomic write). If the running
   zone differs, the reply says `restarting: true` and the player
-  **restarts** (the settings-restart exec, with `TZ` exported
-  first); the socket drops and the web app reconnects. The init
+  **restarts** (the settings-restart exec, with `TZ` set in the new
+  process's environment); the socket drops and the web app reconnects. The init
   script sources the file on every start, so the zone also survives
   reboots.
 

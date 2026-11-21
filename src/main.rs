@@ -149,7 +149,11 @@ fn run_ui(
                 handle.stop_tracked();
             }
         }
-        restart::restart();
+        #[cfg(feature = "timezone")]
+        let timezone = mestro::system::timezone::take_pending_zone();
+        #[cfg(not(feature = "timezone"))]
+        let timezone = None::<String>;
+        restart::restart(timezone.as_deref());
     }
 }
 
