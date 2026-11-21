@@ -8,7 +8,9 @@
 //! wake fallback and the burn-in jitter. Skins compile once at
 //! startup; a broken skin logs and the digital face takes over.
 
+mod time;
 mod wake;
+pub use time::{hub_lines, ClockValues, BUILD_YEAR, PLACEHOLDER as CLOCK_PLACEHOLDER};
 pub use wake::StandbyWake;
 
 use crate::Mestro;
@@ -38,15 +40,6 @@ pub struct Skins {
     preview: BTreeMap<String, ComponentDefinition>,
     /// the live instance, for the per-minute pushes
     live: Rc<RefCell<Option<slint::Weak<ComponentInstance>>>>,
-}
-
-/// the values every skin receives
-#[derive(Clone, Default)]
-pub struct Tick {
-    pub hour: i32,
-    pub minute: i32,
-    pub time_label: String,
-    pub date_label: String,
 }
 
 impl Skins {
@@ -99,7 +92,7 @@ impl Skins {
 
     /// embed `name` (or clear with None — the built-in faces
     /// render again). Returns whether a skin is active.
-    pub fn activate(&self, ui: &Mestro, name: Option<&str>, tick: &Tick) -> bool {
+    pub fn activate(&self, ui: &Mestro, name: Option<&str>, tick: &ClockValues) -> bool {
         let Some(definition) = name.and_then(|n| self.compiled.get(n)).cloned() else {
             *self.live.borrow_mut() = None;
             ui.set_standby_skin_factory(ComponentFactory::default());
@@ -136,7 +129,7 @@ impl Skins {
     }
 
     /// minute tick + accent: cheap no-op without a live skin
-    pub fn push(&self, tick: &Tick) {
+    pub fn push(&self, tick: &ClockValues) {
         if let Some(instance) = self.live.borrow().as_ref().and_then(|w| w.upgrade()) {
             push_to(&instance, tick);
         }
@@ -263,7 +256,7 @@ export component MestroClockPreview inherits Window {{
 /// down, so faces with fixed lengths keep their proportions
 fn render_preview(
     definition: &ComponentDefinition,
-    pose: &Tick,
+    pose: &ClockValues,
     accent: slint::Color,
 ) -> Option<slint::SharedPixelBuffer<slint::Rgb8Pixel>> {
     use slint::platform::software_renderer::{MinimalSoftwareWindow, RepaintBufferType};
@@ -294,8 +287,9 @@ fn render_preview(
 
 /// the fixed preview pose (the watch-ad classic: hands apart,
 /// symmetric)
-fn gallery_pose() -> Tick {
-    Tick {
+fn gallery_pose() -> ClockValues {
+    ClockValues {
+        valid: true,
         hour: 10,
         minute: 10,
         time_label: "10:10".into(),
@@ -303,7 +297,8 @@ fn gallery_pose() -> Tick {
     }
 }
 
-fn push_to(instance: &ComponentInstance, tick: &Tick) {
+fn push_to(instance: &ComponentInstance, tick: &ClockValues) {
+    set(instance, "valid", Value::Bool(tick.valid));
     set(instance, "hour", Value::Number(tick.hour as f64));
     set(instance, "minute", Value::Number(tick.minute as f64));
     set(

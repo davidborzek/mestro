@@ -7,6 +7,8 @@ export component DigitalClock inherits VerticalLayout {
     in property <int> hour;
     in property <int> minute;
     in property <string> date;
+    // false: no trustworthy time yet — "--:--" instead of digits
+    in property <bool> valid: true;
 
     // passed in (no Theme import: the settings preview
     // compiles this file standalone at runtime)
@@ -26,7 +28,7 @@ export component DigitalClock inherits VerticalLayout {
         spacing: 6px;
 
         Text {
-            text: (root.hour < 10 ? "0" : "") + root.hour;
+            text: !root.valid ? "--" : (root.hour < 10 ? "0" : "") + root.hour;
             font-size: 96px;
             font-weight: 200;
             color: root.digits;
@@ -42,7 +44,7 @@ export component DigitalClock inherits VerticalLayout {
         }
 
         Text {
-            text: (root.minute < 10 ? "0" : "") + root.minute;
+            text: !root.valid ? "--" : (root.minute < 10 ? "0" : "") + root.minute;
             font-size: 96px;
             font-weight: 200;
             color: root.digits;
@@ -62,7 +64,7 @@ export component DigitalClock inherits VerticalLayout {
 
             Rectangle {
                 x: 0;
-                width: parent.width * root.minute / 60;
+                width: root.valid ? parent.width * root.minute / 60 : 0px;
                 height: parent.height;
                 border-radius: 1px;
                 background: root.lit;

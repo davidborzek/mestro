@@ -48,11 +48,23 @@ export component MyClock inherits Rectangle {
     in property <int>    hour;        // 0..23
     in property <int>    minute;      // 0..59
     in property <string> time-label;  // "21:42"
+    in property <bool>   valid;       // false until the system time is trustworthy
     in property <string> date-label;  // "MON 09 NOV"
     in property <color>  accent;      // theme accent (follows the cover palette)
     callback power-on();              // wake the player
 }
 ```
+
+`valid` is false while the system time cannot be trusted: the Pi has
+no RTC, so after a boot it reads an old date until NTP answers.
+"Trustworthy" means the year is at least the year this binary was
+built — no NTP coupling. Until then `hour`/`minute` are 0, `time-label`
+is `--:--` and `date-label` is empty; a skin that draws hands or
+digits itself should draw nothing (or a bare dial) while `valid` is
+false. A skin that only shows `time-label` needs nothing: it shows
+the placeholder. The built-in faces, the top bar clock and the home
+screen's greeting follow the same rule, and the next tick after
+the sync switches to the real time.
 
 Every member is optional — declare what you use. The last
 exported component in the file is the skin. Imports are not
