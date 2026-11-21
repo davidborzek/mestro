@@ -82,6 +82,7 @@ pub fn plan(config: &crate::config::Wifi, roots: &backend::Roots) -> Result<Plan
 /// stays dead (every op answers "manager gone")
 pub fn spawn(
     ap_mode: Arc<std::sync::atomic::AtomicBool>,
+    mdns_gate: Arc<crate::remote::web::MdnsGate>,
     ui: slint::Weak<crate::Mestro>,
     config: crate::config::Wifi,
     web_port: u16,
@@ -103,7 +104,9 @@ pub fn spawn(
                     return;
                 }
             };
-            runtime.block_on(manager::run(rx, ap_mode, ui, config, web_port, shutdown));
+            runtime.block_on(manager::run(
+                rx, ap_mode, mdns_gate, ui, config, web_port, shutdown,
+            ));
         });
     if let Err(e) = spawned {
         tracing::warn!("wifi: thread: {e}");

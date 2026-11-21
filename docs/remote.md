@@ -44,6 +44,40 @@ the QR code and the captive portal are reachable at
 `http://<ip>/` without a port. mestro omits `:80` from every URL
 it shows or advertises; any other port is spelled out.
 
+## mDNS announcement
+
+The player announces itself as a DNS-SD service, so clients (the
+Home Assistant integration) find it without knowing an address:
+
+```
+_mestro._tcp.local.    port = the web port ([remote] port)
+instance:              mestro-<id>
+TXT  id=<mac>          the stable player id (as in hello)
+     version=<app version>
+     protocol=1        the wire protocol revision (as in hello)
+     name=<label>      the MA player name, else the hostname
+```
+
+The announcement carries no secret: pairing still needs the PIN.
+It runs on the regular networks (wifi STA, ethernet; multicast
+UDP 5353) and announces **IPv4 addresses only** — the web endpoint
+listens on `0.0.0.0`, an IPv6 address would not be reachable. It
+is **stopped while the setup hotspot is in play** — the responder
+never sits on the hotspot interface, dnsmasq owns that network.
+The wifi manager asks the announcer to pause (a handshake, not the
+auth `ap_mode` flag) at the start of the hotspot transition and
+waits up to 3 s until the announcer confirms the daemon is shut
+down, then builds the hotspot; a stuck announcer never blocks the
+hotspot, the manager warns and goes on. The pause ends when the
+station network is back (a failed hotspot stays paused until then).
+Hotspot clients that are not paired see the same identity (`id`,
+`name`, version) through `hello` anyway, so nothing is hidden by
+the pause. Address changes (DHCP, link up/down) are followed
+automatically. If the responder cannot start (UDP 5353 held
+exclusively by another process), mestro logs a warning and retries
+every 30 s; the player stays reachable by address. `[remote] enabled = false` turns it off
+with the endpoint. Check with `avahi-browse -rt _mestro._tcp`.
+
 ## Auth model
 
 - A **pairing PIN** (8 chars, alphabet without `0/O/1/I`, from
@@ -116,7 +150,7 @@ keeps the regular behavior.
 | actor | can do |
 |---|---|
 | no PIN, no cookie | fetch the app shell and assets, nothing else (`401`) |
-| paired | read the effective config **redacted**, write/reset any setting, reset-all, restart, run MA probe/login/players, drive the transport (`ctl`) and volume, mirror the player views, upload a system image (`ota`) |
+| paired | read the effective config **redacted**, write/reset any setting, reset-all, restart, run MA probe/login/players, drive the transport (`ctl`, incl. `vu-select`) and volume, mirror the player views, upload a system image (`ota`) |
 | unpaired, from the setup hotspot (peer inside the hotspot subnet, hotspot confirmed up) | wifi ops only (`scan`/`join`/`status`) and `hello` — no settings, no player data, **no pushes**; the socket closes the moment AP mode ends (a successful join leaves it) |
 | on the wire | plaintext HTTP/WS on a trusted LAN — no TLS, treat the LAN as the trust boundary |
 
@@ -181,9 +215,33 @@ web settings page renders from: sections mirror the device's
 settings pages, fields carry the dotted key, label, kind and
 range.
 
-`hello` reports the app version, the pairing URL, and
-`capabilities: { ota: bool, display: bool }` (the flat `ota`
-field stays for the old wizard bundle).
+`hello` reports the app version, the pairing URL, the player
+identity and `capabilities` (the flat `ota` field stays for the
+old wizard bundle):
+
+```jsonc
+{"id": 1, "ok": true, "data": {
+  "app": "0.1.0 (abc1234)", "version": "0.1.0 (abc1234)",
+  "protocol": 1,           // wire revision, bumped only on a breaking change
+  "id": "a8724d0c4171",    // stable player id: a MAC, lowercase hex, no colons
+  "name": "Wohnzimmer",    // the configured MA player name, else the hostname
+  "remote_url": "…", "ota": true,
+  "capabilities": {"ota": true, "display": true, "wifi": true, "factory_reset": true}
+}}
+```
+
+`id` is the MAC of the first physical network interface (by
+name; one with a `device` entry in `/sys/class/net`, so no
+bridges, veth or tunnels). sysfs keeps the address while a link
+is down and the hotspot runs on the same radio, so the id
+survives restarts and interface up/down. A host without any
+physical interface (container, minimal VM) generates a random
+12-hex id once and keeps it in the state dir
+(`$XDG_STATE_HOME/mestro/device-id`, written atomically), so it is
+stable across restarts and two installs never share one. If the
+state dir is not writable the id derives from the hostname
+instead (stable, warned once).
+`id` and `name` are also in the mDNS record (below).
 
 Replies: `{"id": …, "ok": true, "data": …}` or
 `{"id": …, "ok": false, "error": …}`. Acks (e.g. `player`) reply
@@ -194,6 +252,18 @@ volume, navigation and standby (`play-pause`, `next-track`,
 `prev-track`, `home`, `now-playing`, `queue`, `vu`,
 `standby-toggle`, …). Settings commands are rejected; use the
 `settings` op.
+
+`vu-select:<index>` opens the VU view on the skin at that
+0-based index of `view.vu_skins` (the state frame lists the
+skins in cycle order, so `vu_skins[vu_index]` is the active
+one). An index outside the cycle, or one that is not a plain
+non-negative integer, is an error reply and changes nothing
+(`{"ok": false, "error": "vu-select: no skin at index 7"}`,
+respectively `unknown command`):
+
+```jsonc
+{"id": 13, "op": "ctl", "cmd": "vu-select:2"}
+```
 
 `player` carries the one transport value `ctl` cannot express:
 absolute volume. It maps onto the same source command the
@@ -212,7 +282,9 @@ player — the state frame reports the truth.
 ### Push frames (no `id`)
 
 Every **paired** socket receives `{"event":"state","data":…}` right
-after the upgrade (a snapshot) and on every change afterwards —
+after the upgrade (a snapshot, always the first frame: the hub
+publishes an initial one — `connected: false`, an empty player —
+before the listener accepts connections) and on every change afterwards —
 coalesced to at most one frame per 100 ms, except player view
 changes (np/queue/vu/standby/vu-index), which are published at
 once. Unpaired sockets (the hotspot's setup clients) receive no
@@ -237,7 +309,9 @@ settings state.
   "view": {
     "now_playing": false, "queue": false, "vu": false, "standby": true,
     "vu_index": 2,             // the active VU skin, 0-based
-    "vu_count": 10
+    "vu_count": 10,
+    "vu_skins": ["night", "cream", "round", "wall", "wall-light",
+                 "arc", "orbit", "modern", "spectrum", "bars"]  // cycle order = vu_index order
   },
   "display": {
     "supported": true,         // a backlight exists (capabilities.display)
@@ -249,9 +323,11 @@ settings state.
 `ma_url` derives from the configured `music-assistant.url`'s
 ws endpoint: `ws`→`http`, `wss`→`https`, the trailing `/ws`
 stripped. `vu_index`/`vu_count` mirror the player's
-`vu-view-index`/`vu-view-count`; VU skin switching rides `ctl`'s
-`cycle-forward`/`cycle-back` (they cycle the skin only while
-the VU view is up).
+`vu-view-index`/`vu-view-count`; `vu_skins` names the cycle's
+entries in the same order. VU skin switching rides `ctl`:
+`cycle-forward`/`cycle-back` (they cycle the skin only while the
+VU view is up) or `vu-select:<index>` (any time, opens the VU
+view).
 
 `GET /cover?v=<n>` serves the current cover as a JPEG (quality
 85, encoded once per artwork version, `private` cache — the

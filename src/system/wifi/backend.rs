@@ -486,6 +486,10 @@ pub(crate) mod fake {
         /// the association identity from it)
         pub status: String,
         pub mac: String,
+        /// the mDNS gate to sample on every `run`/`spawn`, and the
+        /// phase it showed each time
+        pub watch: Option<std::sync::Arc<crate::remote::web::MdnsGate>>,
+        pub watched: Vec<crate::remote::web::GatePhase>,
     }
 
     impl FakeBackend {
@@ -499,6 +503,12 @@ pub(crate) mod fake {
 
         pub fn log(&self) -> Vec<String> {
             self.log.clone()
+        }
+
+        fn sample_watch(&mut self) {
+            if let Some(gate) = &self.watch {
+                self.watched.push(gate.phase());
+            }
         }
     }
 
@@ -526,6 +536,7 @@ pub(crate) mod fake {
 
         fn run(&mut self, program: &str, args: &[&str]) -> Result<String, String> {
             self.log.push(format!("run {program} {}", args.join(" ")));
+            self.sample_watch();
             if program == "ip" && args.contains(&"show") && !args.contains(&"dev") {
                 return Ok(self.all_addrs.clone());
             }
@@ -538,6 +549,7 @@ pub(crate) mod fake {
         fn spawn(&mut self, name: &str, program: &str, args: &[&str]) -> Result<(), String> {
             self.log
                 .push(format!("spawn {name} {program} {}", args.join(" ")));
+            self.sample_watch();
             if self.spawn_fails {
                 Err(format!("spawn {program}: no radio"))
             } else {

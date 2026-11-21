@@ -45,6 +45,10 @@ pub enum Command {
     Queue,
     /// open the VU faceplate (on top of the now-playing layer)
     Vu,
+    /// open the VU faceplate on the cycle's skin at this index
+    /// (`vu-select:<index>`, 0-based, as in the state frame's
+    /// `view.vu_skins`)
+    VuSelect(usize),
     /// power the player off — the standby face
     StandbyOn,
     /// wake the player back up
@@ -82,6 +86,12 @@ impl Command {
         }
         if s == "vu" {
             return Some(Self::Vu);
+        }
+        if let Some(index) = s.strip_prefix("vu-select:") {
+            if index.is_empty() || !index.bytes().all(|b| b.is_ascii_digit()) {
+                return None;
+            }
+            return index.parse().ok().map(Self::VuSelect);
         }
         if s == "reset-all-settings" {
             return Some(Self::ResetAllSettings);
@@ -146,6 +156,7 @@ impl Command {
             Self::NowPlaying => "now-playing",
             Self::Queue => "queue",
             Self::Vu => "vu",
+            Self::VuSelect(_) => "vu-select",
             Self::StandbyOn => "standby-on",
             Self::StandbyOff => "standby-off",
             Self::StandbyToggle => "standby-toggle",
@@ -241,4 +252,37 @@ pub fn keymap(overrides: &BTreeMap<String, String>) -> BTreeMap<String, Command>
         map.insert(text, cmd);
     }
     map
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vu_select_parses_the_index() {
+        assert_eq!(Command::parse("vu-select:2"), Some(Command::VuSelect(2)));
+        assert_eq!(Command::parse("vu-select:0"), Some(Command::VuSelect(0)));
+        assert_eq!(Command::VuSelect(2).as_str(), "vu-select");
+    }
+
+    #[test]
+    fn vu_select_rejects_malformed_indices() {
+        for bad in [
+            "vu-select:",
+            "vu-select:x",
+            "vu-select:-1",
+            "vu-select:+1",
+            "vu-select: 1",
+            "vu-select:1.5",
+            "vu-select:99999999999999999999",
+            "vu-select",
+        ] {
+            assert_eq!(Command::parse(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn vu_select_is_a_control_command() {
+        assert!(!Command::VuSelect(1).is_settings());
+    }
 }

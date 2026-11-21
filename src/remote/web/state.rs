@@ -61,7 +61,7 @@ pub struct RemotePlayer {
 
 /// which kiosk surface is up (the PWA can mirror a view) plus
 /// the VU skin position (vu-view-index/-count)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RemoteView {
     pub now_playing: bool,
     pub queue: bool,
@@ -69,6 +69,8 @@ pub struct RemoteView {
     pub standby: bool,
     pub vu_index: i32,
     pub vu_count: i32,
+    /// the cycle's skin names in `vu_index` order
+    pub vu_skins: Vec<String>,
 }
 
 /// the backlight — a remote primitive when the device has one
@@ -117,7 +119,7 @@ pub fn from_player(
             cover: cover_url(art.version),
             accent: art.accent.clone(),
         },
-        view: ctx.view,
+        view: ctx.view.clone(),
         display: ctx.display,
     }
 }
@@ -224,6 +226,7 @@ mod tests {
                 standby: false,
                 vu_index: 2,
                 vu_count: 7,
+                vu_skins: vec!["night".into(), "cream".into(), "round".into()],
             },
             display: RemoteDisplay {
                 supported: true,
@@ -268,7 +271,8 @@ mod tests {
                         "vu": false,
                         "standby": false,
                         "vu_index": 2,
-                        "vu_count": 7
+                        "vu_count": 7,
+                        "vu_skins": ["night", "cream", "round"]
                     },
                     "display": { "supported": true, "brightness": 80 }
                 }

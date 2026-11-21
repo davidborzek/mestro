@@ -111,6 +111,8 @@ export component Mestro inherits Window {
     // the VU cycle: view count + active index (dots + rails)
     in property <int> vu-view-count: 0;
     in property <int> vu-view-index: 0;
+    // the cycle's skin names, in view-index order
+    in property <[string]> vu-view-names: [];
     // fires on every kiosk view flip (np/queue/vu/standby and
     // the VU skin position) — Rust pushes the new view to the
     // phones at once, no 250 ms poll wait

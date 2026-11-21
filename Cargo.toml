@@ -46,6 +46,7 @@ sha2 = "0.11"
 # in only where the kiosk needs them
 sha1 = { version = "0.11", optional = true }
 hmac = { version = "0.13", optional = true }
+mdns-sd = "0.22.0"
 
 [features]
 # default = dev/desktop: the winit backend under a compositor.

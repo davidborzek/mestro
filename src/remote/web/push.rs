@@ -261,6 +261,7 @@ impl Push {
                         standby: false,
                         vu_index: 0,
                         vu_count: 0,
+                        vu_skins: Vec::new(),
                     },
                     display: RemoteDisplay {
                         supported: false,
@@ -278,6 +279,22 @@ impl Push {
                 pending: true,
             })),
         }
+    }
+
+    /// the first frame, before the listener accepts a socket: the
+    /// view context sampled from the UI, the player still empty (a
+    /// minimal valid frame; the first PlayerUpdate follows normally)
+    pub fn publish_initial(&self, ui: &Mestro) {
+        let ctx = context_of(ui, &locks::read(&self.ma_cfg).ws_url);
+        self.inner.borrow_mut().ctx = ctx;
+        self.publish_snapshot();
+    }
+
+    /// publish the current frame now, change check and throttle
+    /// bypassed: it becomes the snapshot every fresh socket gets
+    pub(crate) fn publish_snapshot(&self) {
+        self.inner.borrow_mut().pending = true;
+        self.push_if_changed(true);
     }
 
     /// the update loop's player state (every PlayerUpdate)
@@ -410,6 +427,9 @@ fn context_of(ui: &Mestro, ws_url: &str) -> RemoteContext {
             standby: ui.get_standby_showing(),
             vu_index: ui.get_vu_view_index(),
             vu_count: ui.get_vu_view_count(),
+            vu_skins: slint::Model::iter(&ui.get_vu_view_names())
+                .map(|name| name.to_string())
+                .collect(),
         },
         display: RemoteDisplay {
             supported: ui.get_display_supported(),
@@ -469,6 +489,7 @@ mod tests {
                 standby: false,
                 vu_index: 1,
                 vu_count: 3,
+                vu_skins: vec!["night".into(), "cream".into(), "round".into()],
             },
             display: RemoteDisplay {
                 supported: true,
@@ -522,6 +543,10 @@ mod tests {
         assert!(frame.contains("\"vu_index\":1"), "{frame}");
         assert!(frame.contains("\"vu_count\":3"), "{frame}");
         assert!(
+            frame.contains("\"vu_skins\":[\"night\",\"cream\",\"round\"]"),
+            "{frame}"
+        );
+        assert!(
             frame.contains("\"display\":{\"supported\":true,\"brightness\":60}"),
             "{frame}"
         );
@@ -549,6 +574,25 @@ mod tests {
         // one waits for the window
         push.update(&playing("Other"));
         assert!(rx.try_recv().is_err(), "player changes stay throttled");
+    }
+
+    #[test]
+    fn the_initial_snapshot_is_a_minimal_valid_state_frame() {
+        let events = Events::new();
+        let push = Push::new(events.clone(), ma_cfg(), "wohnzimmer");
+        assert!(events.snapshot().is_none(), "nothing before the publish");
+        push.publish_snapshot();
+        let frame: serde_json::Value =
+            serde_json::from_str(&events.snapshot().expect("the snapshot exists")).unwrap();
+        assert_eq!(frame["event"], "state");
+        assert_eq!(frame["data"]["connected"], false);
+        assert_eq!(frame["data"]["player"]["name"], "wohnzimmer");
+        assert_eq!(frame["data"]["player"]["has_media"], false);
+        assert_eq!(frame["data"]["view"]["vu_skins"], serde_json::json!([]));
+        // the first real update still publishes (nothing is held back)
+        let mut rx = events.subscribe();
+        push.update(&playing("Track"));
+        assert!(next_frame(&mut rx).contains("\"title\":\"Track\""));
     }
 
     #[test]

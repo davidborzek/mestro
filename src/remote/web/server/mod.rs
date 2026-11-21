@@ -41,6 +41,10 @@ use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::accept_async;
 
+/// the wire protocol revision `hello` reports — bumped only on
+/// a breaking change (additive fields and ops keep it)
+pub(crate) const PROTOCOL_VERSION: u32 = 1;
+
 pub async fn serve(
     port: u16,
     info: WebInfo,
@@ -380,6 +384,9 @@ pub(crate) async fn dispatch(
                 json!({
                     "app": info.app_version,
                     "version": info.app_version,
+                    "protocol": PROTOCOL_VERSION,
+                    "id": info.id,
+                    "name": info.name,
                     "remote_url": remote_url,
                     "ota": cfg!(feature = "ota"),
                     "capabilities": {
@@ -447,8 +454,11 @@ mod tests {
             port: 8787,
             pin: String::new(),
             app_version: "0.1.0 (abc1234)".into(),
+            id: "a8724d0c4171".into(),
+            name: "wohnzimmer".into(),
             display_supported: true,
             ap_mode: std::sync::Arc::default(),
+            mdns_gate: std::sync::Arc::default(),
             ap_net: ap_net(),
         }
     }
@@ -574,6 +584,13 @@ mod tests {
             ));
         let reply: serde_json::Value = serde_json::from_str(&reply).unwrap();
         assert_eq!(reply["data"]["version"], "0.1.0 (abc1234)");
+        assert_eq!(reply["data"]["protocol"], 1);
+        let id = reply["data"]["id"].as_str().unwrap();
+        assert!(
+            id.len() == 12 && id.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')),
+            "{id}"
+        );
+        assert!(!reply["data"]["name"].as_str().unwrap().is_empty());
         assert_eq!(reply["data"]["ota"], cfg!(feature = "ota"));
         assert_eq!(reply["data"]["capabilities"]["ota"], cfg!(feature = "ota"));
         assert_eq!(reply["data"]["capabilities"]["display"], true);
@@ -820,6 +837,58 @@ mod tests {
                     second.contains("\"app\":\"0.1.0"),
                     "unexpected frame: {second}"
                 );
+            });
+    }
+
+    #[test]
+    fn a_socket_opened_right_after_startup_gets_a_state_frame_first() {
+        // startup order: the initial snapshot is published before the
+        // listener accepts — no player update has happened yet
+        let events = Events::new();
+        let ma_cfg = std::sync::Arc::new(std::sync::RwLock::new(crate::providers::ma::Config {
+            ws_url: String::new(),
+            token: String::new(),
+            player_name: "wohnzimmer".into(),
+        }));
+        crate::remote::web::Push::new(events.clone(), ma_cfg, "wohnzimmer").publish_snapshot();
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(async {
+                let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let addr = listener.local_addr().unwrap();
+                let pairing = Arc::new(Pairing::new(PIN));
+                tokio::spawn(async move {
+                    let (stream, peer) = listener.accept().await.unwrap();
+                    let _ = handle(
+                        stream,
+                        peer,
+                        info(),
+                        detached_bridge(),
+                        pairing,
+                        events,
+                        assets::TABLE,
+                        no_wifi(),
+                    )
+                    .await;
+                });
+                use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+                let mut request = format!("ws://{addr}/ws").into_client_request().unwrap();
+                request.headers_mut().insert(
+                    "cookie",
+                    format!("mestro_pair={}", auth::pair_token(PIN))
+                        .parse()
+                        .unwrap(),
+                );
+                let (mut ws, _) = tokio_tungstenite::connect_async(request).await.unwrap();
+                // a hello sent at once must not overtake the snapshot
+                ws.send("{\"id\":1,\"op\":\"hello\"}".into()).await.unwrap();
+                let first: serde_json::Value =
+                    serde_json::from_str(&ws.next().await.unwrap().unwrap().into_text().unwrap())
+                        .unwrap();
+                assert_eq!(first["event"], "state", "{first}");
+                assert_eq!(first["data"]["player"]["name"], "wohnzimmer");
             });
     }
 

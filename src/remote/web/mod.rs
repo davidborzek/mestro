@@ -16,11 +16,16 @@
 //! it once for the `mestro_pair` cookie (see the `pair` module),
 //! and either opens `/ws`, `/ota` and `/cover`.
 
+mod identity;
+mod mdns;
 mod protocol;
 pub mod push;
 mod server;
 mod state;
 
+pub use mdns::MdnsGate;
+#[cfg(all(test, feature = "wifi-setup"))]
+pub(crate) use mdns::{fake_announcer::confirming_worker, GatePhase};
 pub use protocol::{Envelope, MaOp, PlayerAction, Request, Response, SettingsOp, WifiOp};
 pub use push::{Events, Push};
 
@@ -60,6 +65,12 @@ pub struct WebInfo {
     pub port: u16,
     pub pin: String,
     pub app_version: String,
+    /// the stable player id (a hardware MAC, 12 lowercase hex
+    /// chars) — `hello` and the mDNS announcement carry it
+    pub id: String,
+    /// the player's label: the configured MA player name, else
+    /// the hostname
+    pub name: String,
     /// a backlight exists (hello capabilities + the remote's
     /// display row)
     pub display_supported: bool,
@@ -68,6 +79,12 @@ pub struct WebInfo {
     /// portal and relaxes the pairing gate on it (feature
     /// `wifi-setup`; a build without it never sets it)
     pub ap_mode: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// the wifi manager's pause handshake with the mDNS announcer:
+    /// the announcer is confirmed down before the hotspot is built
+    /// and resumes when the hotspot is gone. Separate from
+    /// `ap_mode`, the auth trust, which only opens once the
+    /// hotspot is confirmed up
+    pub mdns_gate: std::sync::Arc<MdnsGate>,
     /// the hotspot's subnet (`[wifi] ap-address`, ApNet) — the
     /// peer-side half of the AP trust boundary: a connection is
     /// hotspot-trusted when its peer address lies inside and the
@@ -167,6 +184,7 @@ pub fn info(
     app_version: &str,
     display_supported: bool,
     ap_net: crate::config::ApNet,
+    player_name: &str,
 ) -> (WebInfo, String) {
     tracing::info!(
         "web: start: enabled={} port={}",
@@ -178,12 +196,20 @@ pub fn info(
     } else {
         String::new()
     };
+    let hostname = identity::hostname();
     let info = WebInfo {
         port: remote.port,
         pin: pin.clone(),
         app_version: app_version.to_string(),
+        id: identity::device_id(
+            std::path::Path::new("/sys/class/net"),
+            &crate::settings::state_dir(),
+            &hostname,
+        ),
+        name: identity::label(player_name, &hostname),
         display_supported,
         ap_mode: std::sync::Arc::default(),
+        mdns_gate: std::sync::Arc::default(),
         ap_net,
     };
     // the wizard URL carries the pairing PIN — the kiosk connection
@@ -405,6 +431,7 @@ pub fn serve(
         return;
     }
     let port = remote.port;
+    mdns::spawn(info.clone());
     let spawned = std::thread::Builder::new()
         .name("mestro-web".into())
         .spawn(move || {
@@ -546,8 +573,11 @@ mod tests {
             port: 8787,
             pin: String::new(),
             app_version: "0.1.0".into(),
+            id: "a8724d0c4171".into(),
+            name: "wohnzimmer".into(),
             display_supported: true,
             ap_mode: std::sync::Arc::default(),
+            mdns_gate: std::sync::Arc::default(),
             ap_net: ap_net([10, 42, 0, 1]),
         };
         if ap_up {

@@ -624,6 +624,7 @@ fn wire_remote(
         &mestro::app_version(),
         ui.get_display_supported(),
         config.wifi.ap_net(),
+        &config.music_assistant.player,
     );
     // the settings-preview thumbnails: rendered on this (UI)
     // thread from the compiled registries, on demand through the
@@ -652,6 +653,7 @@ fn wire_remote(
         let shutdown = mestro::remote::web::WifiShutdown::default();
         let channel = mestro::system::wifi::spawn(
             web_info.ap_mode.clone(),
+            web_info.mdns_gate.clone(),
             ui.as_weak(),
             config.wifi.clone(),
             config.remote.port,
@@ -661,6 +663,9 @@ fn wire_remote(
     };
     #[cfg(not(feature = "wifi-setup"))]
     let (wifi, wifi_stop) = (mestro::remote::web::WifiChannel::unavailable(), None);
+    // the snapshot exists before the first socket can connect:
+    // every paired WS starts with a state frame
+    push.publish_initial(ui);
     mestro::remote::web::serve(
         &config.remote,
         web_info.clone(),

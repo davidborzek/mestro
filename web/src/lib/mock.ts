@@ -81,6 +81,18 @@ const state: RemoteState = {
     standby: params.get("state") === "off",
     vu_index: 3,
     vu_count: 10,
+    vu_skins: [
+      "night",
+      "cream",
+      "round",
+      "wall",
+      "wall-light",
+      "arc",
+      "orbit",
+      "modern",
+      "spectrum",
+      "bars",
+    ],
   },
   display: { supported: true, brightness: 65 },
 };
