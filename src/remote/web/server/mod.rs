@@ -16,6 +16,7 @@
 //! - [`assets`]/[`pair`]/[`http`]/[`ws`]/[`auth`]: transport plumbing
 
 mod assets;
+mod audio;
 mod auth;
 mod captive;
 mod ctl;
@@ -394,11 +395,19 @@ pub(crate) async fn dispatch(
                         "display": info.display_supported,
                         "wifi": cfg!(feature = "wifi-setup"),
                         "factory_reset": cfg!(feature = "wifi-setup"),
+                        "audio_output": audio::capable(info),
                     },
                 }),
             ))
         }
         Request::Wifi { action } => wifi::handle(id, action, info, wifi, ingress, paired).await,
+        // paired-only, like every device op; the work is blocking
+        Request::Audio { action } => {
+            if !paired {
+                return http::json(&Response::err(id, "pairing required"));
+            }
+            audio::handle(id, action, info).await
+        }
         Request::Ma { action } => {
             if !paired {
                 return http::json(&Response::err(id, "pairing required"));
@@ -460,6 +469,7 @@ mod tests {
             ap_mode: std::sync::Arc::default(),
             mdns_gate: std::sync::Arc::default(),
             ap_net: ap_net(),
+            audio: crate::config::Audio::default(),
         }
     }
 
@@ -1444,5 +1454,132 @@ mod tests {
                     .await;
                 assert!(out.unwrap_err().contains("busy"));
             });
+    }
+
+    // ── the audio ops: paired-only, capability-gated ──
+
+    fn dispatch_blocking(text: &str, info: &WebInfo, ingress: Ingress, paired: bool) -> String {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(dispatch(
+                text,
+                info,
+                &detached_bridge(),
+                &no_wifi(),
+                ingress,
+                paired,
+            ))
+    }
+
+    #[test]
+    fn audio_ops_refuse_unpaired_callers_even_on_the_hotspot() {
+        let info = hotspot_info();
+        for op in [
+            r#"{"id":1,"op":"audio","action":"outputs"}"#,
+            r#"{"id":2,"op":"audio","action":"set","output":"hw:CARD=S3"}"#,
+        ] {
+            for ingress in [Ingress::Ap, Ingress::Lan] {
+                let reply = dispatch_blocking(op, &info, ingress, false);
+                let value: serde_json::Value = serde_json::from_str(&reply).unwrap();
+                assert_eq!(value["ok"], false, "{op}: {reply}");
+                assert!(
+                    value["error"]
+                        .as_str()
+                        .unwrap()
+                        .contains("pairing required"),
+                    "{op}: {reply}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn hello_reports_the_audio_capability_only_with_the_feature_and_an_env_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut info = info();
+        info.audio.env_file = dir.path().join("squeezelite.env").display().to_string();
+        let hello = |info: &WebInfo| -> serde_json::Value {
+            let reply = dispatch_blocking(r#"{"id":1,"op":"hello"}"#, info, Ingress::Lan, true);
+            serde_json::from_str::<serde_json::Value>(&reply).unwrap()["data"]["capabilities"]
+                ["audio_output"]
+                .clone()
+        };
+        // no env file: no capability, whatever the build
+        assert_eq!(hello(&info), false);
+        std::fs::write(&info.audio.env_file, "OUTPUT=hw:CARD=DAC\n").unwrap();
+        assert_eq!(hello(&info), cfg!(feature = "audio-output"));
+    }
+
+    #[cfg(not(feature = "audio-output"))]
+    #[test]
+    fn audio_ops_answer_not_available_without_the_feature() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut info = info();
+        info.audio.env_file = dir.path().join("squeezelite.env").display().to_string();
+        std::fs::write(&info.audio.env_file, "OUTPUT=hw:CARD=DAC\n").unwrap();
+        let reply = dispatch_blocking(
+            r#"{"id":1,"op":"audio","action":"outputs"}"#,
+            &info,
+            Ingress::Lan,
+            true,
+        );
+        assert!(reply.contains("not available"), "{reply}");
+        // the file is never touched
+        let reply = dispatch_blocking(
+            r#"{"id":2,"op":"audio","action":"set","output":"hw:CARD=S3"}"#,
+            &info,
+            Ingress::Lan,
+            true,
+        );
+        assert!(reply.contains("not available"), "{reply}");
+        assert_eq!(
+            std::fs::read_to_string(&info.audio.env_file).unwrap(),
+            "OUTPUT=hw:CARD=DAC\n"
+        );
+    }
+
+    #[cfg(feature = "audio-output")]
+    #[test]
+    fn the_audio_ops_list_and_refuse_unknown_outputs_over_the_wire() {
+        let dir = tempfile::tempdir().unwrap();
+        let asound = dir.path().join("asound");
+        std::fs::create_dir_all(asound.join("card3/pcm0p")).unwrap();
+        std::fs::write(
+            asound.join("cards"),
+            " 3 [S3             ]: USB-Audio - Topping S3\n                      Topping S3\n",
+        )
+        .unwrap();
+        let mut info = info();
+        info.audio.asound_dir = asound.display().to_string();
+        info.audio.env_file = dir.path().join("squeezelite.env").display().to_string();
+        std::fs::write(&info.audio.env_file, "# c\nOUTPUT=hw:CARD=S3\n").unwrap();
+        let reply = dispatch_blocking(
+            r#"{"id":1,"op":"audio","action":"outputs"}"#,
+            &info,
+            Ingress::Lan,
+            true,
+        );
+        let value: serde_json::Value = serde_json::from_str(&reply).unwrap();
+        assert_eq!(
+            value["data"],
+            serde_json::json!({
+                "outputs": [{"id": "hw:CARD=S3", "name": "Topping S3", "current": true}],
+                "current": "hw:CARD=S3",
+            }),
+            "{reply}"
+        );
+        let reply = dispatch_blocking(
+            r#"{"id":2,"op":"audio","action":"set","output":"hw:CARD=Nope"}"#,
+            &info,
+            Ingress::Lan,
+            true,
+        );
+        assert!(reply.contains("unknown audio output"), "{reply}");
+        assert_eq!(
+            std::fs::read_to_string(&info.audio.env_file).unwrap(),
+            "# c\nOUTPUT=hw:CARD=S3\n"
+        );
     }
 }

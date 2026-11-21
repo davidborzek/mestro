@@ -118,6 +118,15 @@ const strings = {
     "info.diagKeepalive": "Keepalive",
     "info.diagNoCommands": "Noch keine Befehle in dieser Sitzung.",
 
+    "audio.section": "Audioausgang",
+    "audio.output": "Ausgang",
+    "audio.loading": "Ausgänge werden gesucht …",
+    "audio.empty": "Keine Audioausgänge gefunden.",
+    "audio.unknown": "Nicht in der Liste",
+    "audio.switching": "Wird umgeschaltet …",
+    "audio.hint":
+      "Der Player startet die Wiedergabe neu. Lässt sich der Ausgang nicht öffnen, bleibt der bisherige aktiv.",
+
     "wifi.setupTitle": "WLAN einrichten",
     "wifi.title": "WLAN",
     "wifi.change": "Netzwerk wechseln",
@@ -321,6 +330,15 @@ const strings = {
     "info.diagReconnects": "Reconnects",
     "info.diagKeepalive": "Keepalive",
     "info.diagNoCommands": "No commands in this session yet.",
+
+    "audio.section": "Audio output",
+    "audio.output": "Output",
+    "audio.loading": "Looking for outputs …",
+    "audio.empty": "No audio outputs found.",
+    "audio.unknown": "Not in the list",
+    "audio.switching": "Switching …",
+    "audio.hint":
+      "The player restarts its audio. If the output cannot be opened, the previous one stays active.",
 
     "wifi.setupTitle": "Set up Wi-Fi",
     "wifi.title": "Wi-Fi",

@@ -143,9 +143,10 @@ pub(crate) fn handle_ui(
                     super::ctl::handle(id, &cmd, dispatch, ui.get_vu_view_count() as usize)
                 }
                 Request::Player { action } => super::player::handle(id, &action, player),
-                Request::Hello | Request::Ma { .. } | Request::Wifi { .. } => {
-                    Response::err(id, "not a ui-bound request")
-                }
+                Request::Hello
+                | Request::Ma { .. }
+                | Request::Wifi { .. }
+                | Request::Audio { .. } => Response::err(id, "not a ui-bound request"),
             }
         }
     };

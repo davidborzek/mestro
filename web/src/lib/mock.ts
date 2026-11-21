@@ -59,6 +59,17 @@ const MOCK_NETWORKS: WifiNetwork[] = [
   { ssid: "Alt-Router", signal: -84, secured: true },
 ];
 
+// the audio picker: three devices, the last one never starts
+const BROKEN_OUTPUT = "hw:CARD=DAC2";
+const MOCK_OUTPUTS = [
+  { id: "hw:CARD=Headphones", name: "bcm2835 Headphones" },
+  { id: "hw:CARD=S3", name: "Topping S3" },
+  { id: BROKEN_OUTPUT, name: "Broken DAC (opens never)" },
+];
+let audioCurrent = "hw:CARD=Headphones";
+const mockOutputs = () =>
+  MOCK_OUTPUTS.map((output) => ({ ...output, current: output.id === audioCurrent }));
+
 const state: RemoteState = {
   connected: !MA_DOWN,
   ma_url: MA_URL,
@@ -209,7 +220,13 @@ class MockSocket {
           version: "0.1.0-mock",
           remote_url: "http://192.168.1.50:8787",
           ota: true,
-          capabilities: { ota: true, display: true, wifi: true, factory_reset: true },
+          capabilities: {
+            ota: true,
+            display: true,
+            wifi: true,
+            factory_reset: true,
+            audio_output: true,
+          },
         });
         return;
       case "wifi": {
@@ -240,6 +257,30 @@ class MockSocket {
             // the 45 s budget
             fail ? 1500 : 6000,
           );
+        }
+        return;
+      }
+      case "audio": {
+        if (request.action === "outputs") {
+          respond(true, {
+            outputs: mockOutputs(),
+            current: audioCurrent,
+          });
+        } else if (request.action === "set" && typeof request.output === "string") {
+          const output = request.output;
+          // BrokenDAC stands for a device squeezelite cannot open:
+          // the player rolls back and names it
+          setTimeout(() => {
+            if (output === BROKEN_OUTPUT) {
+              respond(
+                false,
+                `squeezelite could not start on ${output} (squeezelite stopped right after the start) — back on the previous output`,
+              );
+            } else {
+              audioCurrent = output;
+              respond(true, { output });
+            }
+          }, 1200);
         }
         return;
       }

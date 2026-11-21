@@ -47,13 +47,23 @@ export type PlayerOp = { action: "volume"; value: number };
 export type WifiOp =
   { action: "scan" } | { action: "join"; ssid: string; psk?: string } | { action: "status" };
 
+// the audio output picker (device feature `audio-output`, paired
+// only): `set` rewrites squeezelite's OUTPUT and restarts it; the
+// device restores the previous output when the new one fails
+export type AudioOp = { action: "outputs" } | { action: "set"; output: string };
+
+export type AudioOutput = { id: string; name: string; current: boolean };
+
+export type AudioOutputsData = { outputs: AudioOutput[]; current: string | null };
+
 export type Request =
   | { op: "hello" }
   | ({ op: "settings" } & SettingsOp)
   | ({ op: "ma" } & MaOp)
   | { op: "ctl"; cmd: CtlCmd }
   | ({ op: "player" } & PlayerOp)
-  | ({ op: "wifi" } & WifiOp);
+  | ({ op: "wifi" } & WifiOp)
+  | ({ op: "audio" } & AudioOp);
 
 // the server's reply — Rust's `Envelope` is the request shape,
 // this one is the response (kept apart on purpose)
@@ -159,7 +169,13 @@ export type HelloData = {
   ota: boolean;
   // newer servers report build capabilities here; `ota` is kept
   // for the pre-PWA backend and stays the fallback
-  capabilities?: { ota: boolean; display: boolean; wifi?: boolean; factory_reset?: boolean };
+  capabilities?: {
+    ota: boolean;
+    display: boolean;
+    wifi?: boolean;
+    factory_reset?: boolean;
+    audio_output?: boolean;
+  };
 };
 
 // the `wifi scan` payload: one entry per SSID (hidden networks

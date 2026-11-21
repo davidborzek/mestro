@@ -49,6 +49,25 @@ pub enum Request {
         #[serde(flatten)]
         action: WifiOp,
     },
+    /// the audio output picker (feature `audio-output`, paired
+    /// only): list the ALSA playback devices, switch squeezelite's
+    /// `OUTPUT`. Runs on the socket side (blocking pool)
+    Audio {
+        #[serde(flatten)]
+        action: AudioOp,
+    },
+}
+
+/// the `audio` op verbs (see [`Request::Audio`])
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(tag = "action", rename_all = "kebab-case")]
+pub enum AudioOp {
+    /// the playback devices and the one in use
+    Outputs,
+    /// switch to a device from the list (`hw:CARD=<id>`): rewrites
+    /// OUTPUT, restarts squeezelite and restores the previous
+    /// output when the new one does not start
+    Set { output: String },
 }
 
 /// the `player` op verbs (see [`Request::Player`])
@@ -408,6 +427,40 @@ mod tests {
             "id": 5, "op": "wifi", "action": "join", "ssid": ""
         }))
         .is_ok());
+    }
+
+    #[test]
+    fn audio_ops_parse_and_roundtrip() {
+        let outputs: Envelope =
+            serde_json::from_value(json!({ "id": 1, "op": "audio", "action": "outputs" })).unwrap();
+        assert_eq!(
+            outputs.request,
+            Request::Audio {
+                action: AudioOp::Outputs
+            }
+        );
+        let set: Envelope = serde_json::from_value(
+            json!({ "id": 2, "op": "audio", "action": "set", "output": "hw:CARD=S3" }),
+        )
+        .unwrap();
+        assert_eq!(
+            set.request,
+            Request::Audio {
+                action: AudioOp::Set {
+                    output: "hw:CARD=S3".into()
+                }
+            }
+        );
+        // a set without a device is no request
+        assert!(serde_json::from_value::<Envelope>(
+            json!({ "id": 3, "op": "audio", "action": "set" })
+        )
+        .is_err());
+        let text = serde_json::to_string(&set).unwrap();
+        assert_eq!(
+            serde_json::from_str::<Envelope>(&text).unwrap().request,
+            set.request
+        );
     }
 
     #[test]
