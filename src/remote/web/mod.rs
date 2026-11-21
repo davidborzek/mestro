@@ -17,6 +17,7 @@
 //! and either opens `/ws`, `/ota` and `/cover`.
 
 mod identity;
+mod mdns;
 mod protocol;
 pub mod push;
 mod server;
@@ -416,6 +417,7 @@ pub fn serve(
         return;
     }
     let port = remote.port;
+    mdns::spawn(info.clone());
     let spawned = std::thread::Builder::new()
         .name("mestro-web".into())
         .spawn(move || {
