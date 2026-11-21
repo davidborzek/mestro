@@ -131,6 +131,16 @@ start), a host on that network could pass as a hotspot client. It
 would get exactly what any phone in the open hotspot gets — the
 wifi ops — so this is accepted rather than firewalled.
 
+`scan` returns the **complete** list: right after boot the supplicant
+answers `SCAN_RESULTS` at once with the cache of an earlier, partial
+scan, so the manager attaches to the supplicant's event stream
+(`ATTACH`, before the scan starts), waits for
+`CTRL-EVENT-SCAN-RESULTS` (or `-SCAN-FAILED`) and only then reads
+the results; it detaches afterwards. Without an event stream it
+polls until the network count is unchanged over two consecutive
+polls. Both are bounded by the 13 s scan budget, after which the
+op returns what the supplicant has.
+
 The classic captive-portal probes go to port 80: on another
 `[remote] port`, only clients that honor DHCP option 114 open the
 setup page on their own.

@@ -230,7 +230,6 @@ to contain the crash it is about.
 - The panel's touch firmware can hang the display bus under heavy
   backlight traffic; mestro routes backlight writes through the
   firmware mailbox to avoid it.
-- The first network scan after boot can be incomplete.
 
 ## Follow-up backlog
 
