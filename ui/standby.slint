@@ -12,6 +12,7 @@ import { AnalogClock } from "standby/analog.slint";
 // so both axes cycle all offsets
 export component StandbyView inherits Rectangle {
     in property <string> clock-label;
+    in property <bool> clock-valid: true;
     in property <string> clock-date;
     in property <int> clock-minute;
     in property <int> clock-hour;
@@ -97,6 +98,7 @@ export component StandbyView inherits Rectangle {
         hour: root.clock-hour;
         minute: root.clock-minute;
         date: root.clock-date;
+        valid: root.clock-valid;
         accent: Theme.accent;
     }
 
@@ -105,6 +107,7 @@ export component StandbyView inherits Rectangle {
         y: (parent.height - self.height) / 2 + root.jitter-y;
         clock-hour: root.clock-hour;
         clock-minute: root.clock-minute;
+        valid: root.clock-valid;
         accent: Theme.accent;
     }
 }

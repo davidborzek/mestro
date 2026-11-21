@@ -2,7 +2,6 @@
 //! the now-playing overlay at startup, and the `--mock` player.
 //! Screenshotting a touch-only UI has no other way in.
 
-use chrono::Timelike;
 use mestro::ui::navigation::Navigation;
 use mestro::{player::state, Mestro, Page};
 use slint::{ComponentHandle, Timer, TimerMode};
@@ -41,11 +40,7 @@ pub fn apply_startup_env(ui: &Mestro, nav: &Navigation) {
 /// powered off). The returned timer must stay alive.
 pub fn mock_player(ui: &Mestro) -> Timer {
     ui.set_powered(std::env::var("MESTRO_STANDBY").is_err());
-    let now = chrono::Local::now();
-    ui.set_clock_label(now.format("%H:%M").to_string().into());
-    ui.set_clock_date(now.format("%a %d %b").to_string().to_uppercase().into());
-    ui.set_clock_minute(now.minute() as i32);
-    ui.set_clock_hour(now.hour() as i32);
+    super::clock::show(ui, &super::clock::tick_now());
     ui.set_track_title("Mock Track".into());
     ui.set_track_artist("Mestro Dev".into());
     ui.set_track_album("Skeleton".into());

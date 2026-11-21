@@ -236,7 +236,5 @@ to contain the crash it is about.
 
 - settings UI: `[window] scale` picker (needs the app restart
   flow — SLINT_SCALE_FACTOR is read at backend init)
-- kiosk polish: hide the clock until the first NTP sync (boots
-  into 1970 for ~a minute on a fresh image)
 - USB-C gadget network as a rescue path
 - release pipeline: versioned images + checksums as release assets

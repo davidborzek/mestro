@@ -209,6 +209,9 @@ export component Mestro inherits Window {
     in property <bool> backdrop-enabled;
     in property <bool> clock-analog;
     in property <string> clock-label;
+    // false while the system time is not trustworthy yet (no RTC, NTP
+    // not answered): the faces show "--:--" instead of a wrong time
+    in property <bool> clock-valid: true;
     // standby date line (digital face), e.g. "MON 09 NOV"
     in property <string> clock-date;
     // custom standby skin ([clock.skins]): Rust sets the factory
@@ -1139,6 +1142,7 @@ export component Mestro inherits Window {
         width: root.width;
         height: root.height;
         clock-label: root.clock-label;
+        clock-valid: root.clock-valid;
         clock-date: root.clock-date;
         clock-minute: root.clock-minute;
         clock-hour: root.clock-hour;

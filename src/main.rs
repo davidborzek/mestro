@@ -4,7 +4,6 @@ mod restart;
 use app::clock::StandbyClock;
 use app::dispatch::Dispatch;
 use app::theme::{self, PaletteCell};
-use chrono::Timelike;
 use clap::Parser;
 use mestro::display::Display;
 use mestro::library::Library;
@@ -749,26 +748,17 @@ fn start_ticker(ui: &Mestro, shared: &Shared, player: &str, clock: &Rc<StandbyCl
     let timer = Timer::default();
     let mut tick: u32 = 0;
     timer.start(TimerMode::Repeated, Duration::from_millis(500), move || {
-        let now = chrono::Local::now();
         if let Some(ui) = ui_weak.upgrade() {
             clock.tick(&ui);
             // hub greeting: time-of-day word + date · player — two
             // strings, change-tracking keeps it cheap
-            let greeting = match now.hour() {
-                5..=11 => "Good morning",
-                12..=17 => "Good afternoon",
-                18..=22 => "Good evening",
-                _ => "Good night",
-            };
-            ui.set_hub_greeting(greeting.into());
-            ui.set_hub_sub(
-                format!(
-                    "{} · {}",
-                    now.format("%A, %d. %B").to_string().to_uppercase(),
-                    hub_player
-                )
-                .into(),
+            let (greeting, sub) = mestro::standby::hub_lines(
+                chrono::Local::now().naive_local(),
+                mestro::standby::BUILD_YEAR,
+                &hub_player,
             );
+            ui.set_hub_greeting(greeting.into());
+            ui.set_hub_sub(sub.into());
         }
         let Some((pos, dur, loading)) = state::advance(&shared) else {
             return;
