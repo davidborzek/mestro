@@ -97,6 +97,14 @@ export type Reply = {
 // `settings` announces that some client changed device settings
 export type PushFrame = { event: "state"; data: RemoteState } | { event: "settings" };
 
+export type SourceCaps = {
+  play_pause: boolean;
+  seek: boolean;
+  next_previous: boolean;
+  shuffle: boolean;
+  repeat: boolean;
+};
+
 export type RemoteState = {
   connected: boolean;
   // MA web UI base URL ("" = unknown)
@@ -109,6 +117,8 @@ export type RemoteState = {
     has_media: boolean;
     // the external source playing ("AirPlay", ...), "" = the MA queue
     source: string;
+    // what the source can do; absent (older servers) or the queue = all
+    source_caps?: SourceCaps;
     volume: number;
     title: string;
     artist: string;

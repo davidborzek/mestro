@@ -7,11 +7,11 @@
 //! stale clock or a repeat of the last event.
 
 use super::parse::{ExternalMedia, PlayerSnapshot, PlayerSource};
-use crate::providers::{SourceEvent, TrackMeta};
+use crate::providers::{ExternalSource, SourceEvent, TrackMeta};
 
 /// what the last emitted External event said
 struct Shown {
-    source: String,
+    source: ExternalSource,
     track: Option<TrackMeta>,
     /// the MA clock reading that event was built from
     reading: (u64, u64),
@@ -62,7 +62,11 @@ impl ExternalTracker {
                 nothing
             };
         };
-        let Some(shown) = self.shown.as_ref().filter(|s| s.source == media.source) else {
+        let Some(shown) = self
+            .shown
+            .as_ref()
+            .filter(|s| s.source.name == media.source.name)
+        else {
             // a new source: whatever the queue showed is wiped first
             return self.emit(media, snapshot.playing, now_unix, None);
         };
@@ -71,7 +75,8 @@ impl ExternalTracker {
             (None, None) => true,
             _ => false,
         };
-        if unchanged && shown.reading == media.reading_key() {
+        // (a source whose caps or own state moved is a change too)
+        if unchanged && shown.reading == media.reading_key() && shown.source == media.source {
             return nothing;
         }
         // a placeholder in the middle of a playing source is MA
@@ -172,7 +177,7 @@ mod tests {
                 track,
                 elapsed_sec,
             }] => (
-                source.as_str(),
+                source.name.as_str(),
                 track.as_ref().map(|t| t.title.as_str()),
                 *elapsed_sec,
             ),
@@ -273,6 +278,22 @@ mod tests {
         // once the source goes idle the placeholder is the truth again
         let idle = step(&mut tracker, &placeholder(), false, 1795350900.0);
         assert_eq!(external(&idle).1, None);
+    }
+
+    #[test]
+    fn a_change_of_the_sources_caps_is_an_event() {
+        let mut tracker = ExternalTracker::default();
+        step(&mut tracker, &track(), true, 1795350806.0);
+        let mut richer = track();
+        richer["source_list"][1]["can_next_previous"] = true.into();
+        let changed = step(&mut tracker, &richer, true, 1795350807.0);
+        match changed.events.as_slice() {
+            [SourceEvent::External { source, .. }] => assert!(source.caps.next_previous),
+            other => panic!("expected one External event, got {other:?}"),
+        }
+        assert!(step(&mut tracker, &richer, true, 1795350808.0)
+            .events
+            .is_empty());
     }
 
     #[test]

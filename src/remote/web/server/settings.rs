@@ -145,6 +145,7 @@ pub(crate) fn handle_ui(
                     dispatch,
                     ui.get_vu_view_count() as usize,
                     ui.get_external_source().as_str(),
+                    &ui.get_transport_caps(),
                 ),
                 Request::Player { action } => super::player::handle(id, &action, player),
                 Request::Timezone { action } => {

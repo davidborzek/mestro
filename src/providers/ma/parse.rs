@@ -1,7 +1,7 @@
 //! Wire-format parsing: MA JSON frames -> typed structs. No raw
 //! JSON escapes this module's callers.
 
-use crate::providers::{MediaEntry, QueueItem, RepeatMode, TrackMeta};
+use crate::providers::{ExternalSource, MediaEntry, QueueItem, RepeatMode, SourceCaps, TrackMeta};
 use serde_json::Value;
 
 /// Per-player identity and transport for discovery/auto-pick.
@@ -35,9 +35,9 @@ pub(super) enum PlayerSource {
 
 /// current_media of a player running an external source
 pub(super) struct ExternalMedia {
-    /// display name of the source, MA's listed name without the
-    /// player suffix: "AirPlay Receiver", "Spotify Connect", ...
-    pub(super) source: String,
+    /// the source's listed name (without the player suffix:
+    /// "AirPlay Receiver", "Spotify Connect", ...) and what it can do
+    pub(super) source: ExternalSource,
     /// None = no metadata yet (absent, or MA's placeholder title)
     pub(super) track: Option<TrackMeta>,
     /// current_media.elapsed_time, as of `elapsed_updated`
@@ -318,6 +318,10 @@ fn display_source_name(listed: &str, player_name: &str) -> String {
         .to_string()
 }
 
+fn flag(entry: &Value, key: &str) -> bool {
+    entry.get(key).and_then(|b| b.as_bool()).unwrap_or(false)
+}
+
 /// MA's own rule (its frontend's `resolveExternalSource`): the
 /// player plays an external source when `active_source` is set, is
 /// not the player's own id (the queue) and is listed in
@@ -328,24 +332,25 @@ fn parse_source(v: &Value, img_base: &str) -> PlayerSource {
     if active_source.is_empty() || active_source == str_at(v, &["player_id"]) {
         return PlayerSource::Queue;
     }
-    let listed_name = v
+    let entry = v
         .get("source_list")
         .and_then(|list| list.as_array())
         .and_then(|list| {
             list.iter()
                 .find(|entry| entry.get("id").and_then(|id| id.as_str()) == Some(&active_source))
-        })
-        .map(|entry| str_at(entry, &["name"]))
-        .filter(|name| !name.is_empty());
-    let Some(listed_name) = listed_name else {
+        });
+    let Some((entry, listed_name)) = entry
+        .map(|entry| (entry, str_at(entry, &["name"])))
+        .filter(|(_, name)| !name.is_empty())
+    else {
         return PlayerSource::Queue;
     };
     let player_name = match str_at(v, &["display_name"]) {
         name if name.is_empty() => str_at(v, &["name"]),
         name => name,
     };
-    let source = display_source_name(&listed_name, &player_name);
-    let is_source_name = |text: &str| text == listed_name || text == source;
+    let name = display_source_name(&listed_name, &player_name);
+    let is_source_name = |text: &str| text == listed_name || text == name;
     let media = v.get("current_media").unwrap_or(&Value::Null);
     let title = str_at(media, &["title"]);
     let album = str_at(media, &["album"]);
@@ -372,7 +377,24 @@ fn parse_source(v: &Value, img_base: &str) -> PlayerSource {
         ..Default::default()
     });
     PlayerSource::External(ExternalMedia {
-        source,
+        source: ExternalSource {
+            name,
+            caps: SourceCaps {
+                // a flag the entry does not report is a no: unsure = refused
+                play_pause: flag(entry, "can_play_pause"),
+                seek: flag(entry, "can_seek"),
+                next_previous: flag(entry, "can_next_previous"),
+                shuffle: flag(entry, "can_shuffle"),
+                repeat: flag(entry, "can_repeat"),
+                passive: flag(entry, "passive"),
+            },
+            shuffle: flag(entry, "shuffle_enabled"),
+            repeat: entry
+                .get("repeat_mode")
+                .and_then(|m| m.as_str())
+                .map(RepeatMode::parse)
+                .unwrap_or_default(),
+        },
         track,
         elapsed_sec: media
             .get("elapsed_time")
@@ -684,7 +706,7 @@ mod tests {
     #[test]
     fn an_airplay_track_is_read_from_current_media() {
         let media = external(&airplay_track());
-        assert_eq!(media.source, "AirPlay Receiver");
+        assert_eq!(media.source.name, "AirPlay Receiver");
         let track = media.track.unwrap();
         assert_eq!(track.title, "Stand by Me");
         assert_eq!(track.artist, "Ben E. King");
@@ -746,7 +768,7 @@ mod tests {
         // no URI-scheme heuristics: MA's source list decides
         let mut v = airplay_track();
         switch_to(&mut v, "optical", "Optical (HiFi)");
-        assert_eq!(external(&v).source, "Optical");
+        assert_eq!(external(&v).source.name, "Optical");
     }
 
     #[test]
@@ -767,9 +789,74 @@ mod tests {
     }
 
     #[test]
+    fn the_airplay_entry_reports_nothing_it_can_do() {
+        // the capture: all can_* false, passive
+        for v in [placeholder(), airplay_track()] {
+            let source = external(&v).source;
+            assert_eq!(
+                source.caps,
+                SourceCaps {
+                    play_pause: false,
+                    seek: false,
+                    next_previous: false,
+                    shuffle: false,
+                    repeat: false,
+                    passive: true,
+                }
+            );
+            assert!(!source.shuffle);
+            assert_eq!(source.repeat, RepeatMode::Off);
+        }
+    }
+
+    #[test]
+    fn a_spotify_connect_like_entry_reports_its_own_caps_and_state() {
+        let mut v = airplay_track();
+        switch_to(
+            &mut v,
+            "spotify_connect://audio_source/x",
+            "Spotify Connect (HiFi)",
+        );
+        let entry = v["source_list"].as_array_mut().unwrap().last_mut().unwrap();
+        entry["can_next_previous"] = true.into();
+        entry["can_seek"] = true.into();
+        entry["can_shuffle"] = true.into();
+        entry["shuffle_enabled"] = true.into();
+        entry["repeat_mode"] = "all".into();
+        let source = external(&v).source;
+        assert_eq!(source.name, "Spotify Connect");
+        assert_eq!(
+            source.caps,
+            SourceCaps {
+                play_pause: true,
+                seek: true,
+                next_previous: true,
+                shuffle: true,
+                repeat: false,
+                passive: false,
+            }
+        );
+        assert!(source.shuffle);
+        assert_eq!(source.repeat, RepeatMode::All);
+    }
+
+    #[test]
+    fn caps_a_listed_source_does_not_report_are_off() {
+        // unsure = refused
+        let mut v = airplay_track();
+        v["source_list"][1] = serde_json::json!({
+            "id": "airplay_receiver://audio_source/02:00:00:00:00:01",
+            "name": "AirPlay Receiver (HiFi)",
+        });
+        let caps = external(&v).source.caps;
+        assert!(!caps.play_pause && !caps.seek && !caps.next_previous);
+        assert!(!caps.shuffle && !caps.repeat && !caps.passive);
+    }
+
+    #[test]
     fn the_airplay_placeholder_is_no_metadata_yet() {
         let media = external(&placeholder());
-        assert_eq!(media.source, "AirPlay Receiver");
+        assert_eq!(media.source.name, "AirPlay Receiver");
         assert!(media.track.is_none());
     }
 

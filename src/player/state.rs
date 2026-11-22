@@ -5,7 +5,7 @@
 
 use crate::locks;
 use crate::player::cover::{load_cover, make_blur, CoverData};
-use crate::providers::{QueueItem, RepeatMode, TrackMeta};
+use crate::providers::{ExternalSource, QueueItem, RepeatMode, SourceCaps, TrackMeta};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -44,10 +44,13 @@ pub struct PlayerState {
     pub repeat: RepeatMode,
     /// the player plays an external source (AirPlay, Spotify
     /// Connect, ...) — its display name. The queue is silent then:
-    /// title/artist/album/position come from the source itself and
-    /// everything queue-bound (next/prev/seek/shuffle/repeat, the
-    /// queue view) is off. None = the MA queue plays.
+    /// title/artist/album/position come from the source itself, the
+    /// queue view is off and the transport follows `source_caps`.
+    /// None = the MA queue plays.
     pub external: Option<String>,
+    /// what the playing source can do — the transport greys out the
+    /// rest. The queue (external None) can do everything.
+    pub source_caps: SourceCaps,
     /// the cover on screen is not the shown track's (no artwork, a
     /// failed fetch, or a source switch with the fetch still
     /// running): the UI paints its placeholder art instead
@@ -78,6 +81,7 @@ impl Default for PlayerState {
             shuffle: false,
             repeat: RepeatMode::default(),
             external: None,
+            source_caps: SourceCaps::default(),
             cover_missing: false,
         }
     }
@@ -248,6 +252,10 @@ pub fn apply_options(shared: &Shared, update_tx: &UpdateTx, shuffle: bool, repea
         let mut g = locks::lock(shared);
         match g.as_mut() {
             Some(live) => {
+                // an external source reports its own state
+                if live.state.external.is_some() {
+                    return;
+                }
                 live.state.shuffle = shuffle;
                 live.state.repeat = repeat;
                 live.at = Instant::now();
@@ -563,7 +571,7 @@ pub fn apply_external(
     shared: &Shared,
     update_tx: &UpdateTx,
     last_cover: &mut String,
-    source: &str,
+    source: &ExternalSource,
     track: Option<&TrackMeta>,
     elapsed_sec: Option<f64>,
     variant: crate::ui::palette::Variant,
@@ -571,13 +579,13 @@ pub fn apply_external(
     let (st, changed) = {
         let mut g = locks::lock(shared);
         let Some(live) = g.as_mut() else { return };
-        if live.state.external.as_deref() != Some(source) {
-            tracing::info!("source -> {source}");
+        if live.state.external.as_deref() != Some(source.name.as_str()) {
+            tracing::info!("source -> {}", source.name);
             if live.state.external.is_none() {
                 live.queue_title_before_external = Some(live.state.title.clone());
             }
             reset_media(&mut live.state);
-            live.state.external = Some(source.to_string());
+            live.state.external = Some(source.name.clone());
             live.loading_since = None;
             live.pending_seek = None;
             live.pending_pos = None;
@@ -585,6 +593,10 @@ pub fn apply_external(
             // the queue's cover on screen is not this source's
             live.state.cover_missing = true;
         }
+        // the source's own abilities and ordering state, as MA lists them
+        live.state.source_caps = source.caps;
+        live.state.shuffle = source.shuffle;
+        live.state.repeat = source.repeat;
         let mut changed = false;
         match track {
             None => {
@@ -625,7 +637,7 @@ pub fn apply_external(
         (live.state.clone(), changed)
     };
     if changed {
-        tracing::info!("track ({source}) -> {:?}", st.title);
+        tracing::info!("track ({}) -> {:?}", source.name, st.title);
     }
     let toast = changed.then(|| Toast::Track(format!("{} — {}", st.title, st.artist)));
     let _ = update_tx.send(PlayerUpdate {
@@ -661,6 +673,10 @@ pub fn apply_external_ended(shared: &Shared, update_tx: &UpdateTx, last_cover: &
         tracing::info!("source -> queue");
         reset_media(&mut live.state);
         live.state.external = None;
+        // the queue's own options arrive with the re-seed
+        live.state.source_caps = SourceCaps::default();
+        live.state.shuffle = false;
+        live.state.repeat = RepeatMode::Off;
         live.cover_wanted = String::new();
         // the external cover on screen is not the queue's
         live.state.cover_missing = true;
@@ -992,16 +1008,103 @@ mod external_tests {
         })
     }
 
+    fn airplay() -> ExternalSource {
+        ExternalSource {
+            name: "AirPlay".into(),
+            caps: SourceCaps {
+                play_pause: false,
+                seek: false,
+                next_previous: false,
+                shuffle: false,
+                repeat: false,
+                passive: true,
+            },
+            shuffle: false,
+            repeat: RepeatMode::Off,
+        }
+    }
+
     fn external(shared: &Shared, tx: &UpdateTx, t: Option<&TrackMeta>, elapsed: Option<f64>) {
         apply_external(
             shared,
             tx,
             &mut String::new(),
-            "AirPlay",
+            &airplay(),
             t,
             elapsed,
             VARIANT,
         );
+    }
+
+    #[test]
+    fn the_sources_caps_and_own_options_replace_the_queues_while_it_plays() {
+        let shared = queue_playing();
+        let (tx, _rx) = channel();
+        assert_eq!(snapshot(&shared).source_caps, SourceCaps::default());
+        let spotify = ExternalSource {
+            name: "Spotify Connect".into(),
+            caps: SourceCaps {
+                play_pause: true,
+                seek: true,
+                next_previous: true,
+                shuffle: true,
+                repeat: false,
+                passive: false,
+            },
+            shuffle: true,
+            repeat: RepeatMode::All,
+        };
+        apply_external(
+            &shared,
+            &tx,
+            &mut String::new(),
+            &spotify,
+            Some(&track("Song", "Band")),
+            Some(1.0),
+            VARIANT,
+        );
+        let state = snapshot(&shared);
+        assert_eq!(state.source_caps, spotify.caps);
+        assert!(state.shuffle);
+        assert_eq!(state.repeat, RepeatMode::All);
+        // a stray queue event does not say what the source does
+        apply_options(&shared, &tx, false, RepeatMode::Off);
+        let state = snapshot(&shared);
+        assert!(state.shuffle);
+        assert_eq!(state.repeat, RepeatMode::All);
+    }
+
+    #[test]
+    fn a_source_turning_a_capability_on_later_updates_the_state() {
+        let shared = queue_playing();
+        let (tx, _rx) = channel();
+        external(&shared, &tx, None, None);
+        assert!(!snapshot(&shared).source_caps.next_previous);
+        let mut richer = airplay();
+        richer.caps.next_previous = true;
+        apply_external(
+            &shared,
+            &tx,
+            &mut String::new(),
+            &richer,
+            None,
+            None,
+            VARIANT,
+        );
+        assert!(snapshot(&shared).source_caps.next_previous);
+    }
+
+    #[test]
+    fn the_queue_gets_all_its_abilities_back_when_the_source_ends() {
+        let shared = queue_playing();
+        let (tx, _rx) = channel();
+        external(&shared, &tx, None, None);
+        assert!(!snapshot(&shared).source_caps.play_pause);
+        apply_external_ended(&shared, &tx, &mut String::new());
+        let state = snapshot(&shared);
+        assert_eq!(state.source_caps, SourceCaps::default());
+        apply_options(&shared, &tx, true, RepeatMode::One);
+        assert!(snapshot(&shared).shuffle);
     }
 
     #[test]

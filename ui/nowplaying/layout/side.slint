@@ -1,5 +1,5 @@
 import { TransportRow } from "../transport.slint";
-import { RepeatMode } from "../../common.slint";
+import { RepeatMode, TransportCaps } from "../../common.slint";
 import { NpMetadata } from "../metadata.slint";
 
 // side arrangement: the metadata lines at the top of the info
@@ -31,6 +31,7 @@ export component SideLayout {
     in property <RepeatMode> repeat: RepeatMode.off;
     // the external source's name (AirPlay, ...), empty = the MA queue
     in property <string> external-source;
+    in property <TransportCaps> caps;
 
     callback toggle-play();
     callback next-track();
@@ -74,7 +75,7 @@ export component SideLayout {
             loading-opacity: root.loading-opacity;
             shuffle: root.shuffle;
             repeat: root.repeat;
-            queue-controls: root.external-source == "";
+            caps: root.caps;
             toggle-play => {
                 root.toggle-play();
             }

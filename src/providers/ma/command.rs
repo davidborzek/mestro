@@ -27,6 +27,19 @@ pub(super) fn command_for(
                 "volume_level": (*v).clamp(0, 100),
             }),
         ),
+        // an external source has no queue: seek/shuffle/repeat go to the player
+        SourceCommand::PlayerSeek(position) => (
+            "players/cmd/seek",
+            json!({ "player_id": player_id, "position": position }),
+        ),
+        SourceCommand::PlayerShuffle(enabled) => (
+            "players/cmd/shuffle",
+            json!({ "player_id": player_id, "shuffle_enabled": enabled }),
+        ),
+        SourceCommand::PlayerRepeat(mode) => (
+            "players/cmd/repeat",
+            json!({ "player_id": player_id, "repeat_mode": mode.wire() }),
+        ),
         SourceCommand::Seek(position) => (
             "player_queues/seek",
             json!({ "queue_id": queue_id, "position": position }),
@@ -128,6 +141,7 @@ pub(super) fn command_for(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::providers::RepeatMode;
     #[test]
     fn shuffled_play_replaces_queue_and_randomizes_the_first_track() {
         let (command, args) = command_for(
@@ -143,6 +157,54 @@ mod tests {
             json!({ "queue_id": "queue", "media": "library://album/1", "option": "replace", "shuffle": true })
         );
     }
+    #[test]
+    fn an_external_source_is_controlled_on_the_player_never_on_the_queue() {
+        let cases = [
+            (
+                SourceCommand::Play,
+                "players/cmd/play",
+                json!({ "player_id": "player" }),
+            ),
+            (
+                SourceCommand::Pause,
+                "players/cmd/pause",
+                json!({ "player_id": "player" }),
+            ),
+            (
+                SourceCommand::Next,
+                "players/cmd/next",
+                json!({ "player_id": "player" }),
+            ),
+            (
+                SourceCommand::Prev,
+                "players/cmd/previous",
+                json!({ "player_id": "player" }),
+            ),
+            (
+                SourceCommand::PlayerSeek(75),
+                "players/cmd/seek",
+                json!({ "player_id": "player", "position": 75 }),
+            ),
+            (
+                SourceCommand::PlayerShuffle(true),
+                "players/cmd/shuffle",
+                json!({ "player_id": "player", "shuffle_enabled": true }),
+            ),
+            (
+                SourceCommand::PlayerRepeat(RepeatMode::One),
+                "players/cmd/repeat",
+                json!({ "player_id": "player", "repeat_mode": "one" }),
+            ),
+        ];
+        for (cmd, command, args) in cases {
+            assert_eq!(
+                command_for(&cmd, "player", "queue"),
+                (command, args),
+                "{cmd:?}"
+            );
+        }
+    }
+
     #[test]
     fn seek_addresses_the_active_queue_in_seconds() {
         let (command, args) = command_for(&SourceCommand::Seek(75), "player", "queue");

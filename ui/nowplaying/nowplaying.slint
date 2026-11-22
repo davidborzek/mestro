@@ -1,4 +1,11 @@
-import { Theme, IconButton, Icons, Icon, RepeatMode } from "../common.slint";
+import {
+    Theme,
+    IconButton,
+    Icons,
+    Icon,
+    RepeatMode,
+    TransportCaps,
+} from "../common.slint";
 import { QualityItem } from "qualitybadge.slint";
 import { CoverArt } from "cover.slint";
 import { ProgressBar } from "progressbar.slint";
@@ -57,6 +64,8 @@ export component NowPlayingView {
     in property <bool> cover-missing: false;
     // the external source's name (AirPlay, ...), empty = the MA queue
     in property <string> external-source;
+    // what the playing source can do (greys out the transport)
+    in property <TransportCaps> transport-caps: { play-pause: true, next-previous: true, shuffle: true, repeat: true };
     in property <bool> playing;
     in property <bool> loading;
     in property <float> loading-opacity;
@@ -263,6 +272,7 @@ export component NowPlayingView {
                     shuffle: root.shuffle;
                     repeat: root.repeat;
                     external-source: root.external-source;
+                    caps: root.transport-caps;
                     toggle-play => {
                         root.toggle-play();
                     }
@@ -311,6 +321,7 @@ export component NowPlayingView {
                     // right 18 padding)
                     avail: root.width - 40px;
                     external-source: root.external-source;
+                    caps: root.transport-caps;
                     toggle-play => {
                         root.toggle-play();
                     }

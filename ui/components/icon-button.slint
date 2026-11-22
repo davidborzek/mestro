@@ -23,7 +23,7 @@ export component IconButton inherits Rectangle {
     // renders as a capsule, not a circle
     min-height: 44px;
     border-radius: root.round ? Math.min(self.width, self.height) / 2 : 8px;
-    background: !root.round ? transparent : ta.pressed ? Theme.accent.brighter(1.15) : Theme.accent;
+    background: !root.round ? transparent : !root.enabled ? Theme.bar : ta.pressed ? Theme.accent.brighter(1.15) : Theme.accent;
 
     ta := TouchArea {
         enabled: root.enabled;

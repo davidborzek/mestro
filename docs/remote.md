@@ -466,7 +466,11 @@ settings state.
     "powered": true, "playing": true, "loading": false,
     "has_media": true, "volume": 42,
     "source": "",            // "" = Music Assistant's queue, else the external
-                               // source playing: "AirPlay", "Spotify Connect", ...
+                               // source playing: "AirPlay Receiver", "Spotify Connect", ...
+    "source_caps": {           // what the source can do (all true on the queue)
+      "play_pause": true, "seek": true, "next_previous": true,
+      "shuffle": true, "repeat": true
+    },
     "title": "…", "artist": "…",
     "cover": "/cover?v=3",     // "" = none
     "accent": "#f3bd6e"        // from the cover palette, "" = default
@@ -488,13 +492,23 @@ settings state.
 `player.source` names an **external source** (AirPlay, Spotify
 Connect, ...) the player plays instead of Music Assistant's queue —
 `""` otherwise (additive; older servers omit it, treat a missing
-value as `""`). `title`/`artist` then describe what the source
-plays, and everything bound to the queue does not apply: there is no
-queue view, no next/previous, seek, shuffle or repeat. A `ctl`
+value as `""`). It is the source's name as Music Assistant lists it,
+without the player's ` (<name>)` suffix. `title`/`artist` then
+describe what the source plays; there is no queue view. A `ctl`
 `queue` while the source is set is answered with the error
 `queue is not available while <source> plays`; clients should offer
 no queue entry while `source` is non-empty. `now-playing` and `vu`
 keep working.
+
+`player.source_caps` says which controls the source takes — Music
+Assistant's own `can_play_pause`, `can_seek`, `can_next_previous`,
+`can_shuffle` and `can_repeat` of the active source (additive;
+absent or `source` empty = all true). An AirPlay receiver reports all
+of them `false`: a client greys those controls out. A `ctl`
+`play-pause`, `next-track` or `prev-track` the source does not take
+is answered with the error `<cmd> is not available while <source>
+plays`. What the source does take reaches Music Assistant as player
+commands (`players/cmd/…`), never as queue commands.
 
 `ma_url` derives from the configured `music-assistant.url`'s
 ws endpoint: `ws`→`http`, `wss`→`https`, the trailing `/ws`
