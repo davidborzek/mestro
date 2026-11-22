@@ -123,3 +123,51 @@ fn updates_while_powered_do_not_open_now_playing() {
 
     assert!(!ui.get_np_open());
 }
+
+/// an external source (AirPlay & co.) starting powers the player on
+/// like any remote start: standby hands over to now playing, which
+/// shows the source — and has no queue to open
+#[test]
+fn an_external_source_starting_opens_now_playing_without_a_queue() {
+    let ui = setup();
+    let nav = Navigation::new();
+    let wake = StandbyWake::new(true);
+
+    nav.go(&ui, Page::Library);
+    ui.set_powered(false);
+    wake.observe(&ui, &nav);
+
+    // MA powers the player on, then the source events land
+    ui.set_powered(true);
+    ui.set_external_source("AirPlay".into());
+    nav.set_queue_unavailable(&ui, true);
+    wake.observe(&ui, &nav);
+
+    assert!(ui.get_np_open(), "now playing opens for an external start");
+    ui.invoke_np_open_queue();
+    nav.np_open_queue(&ui);
+    assert!(!ui.get_queue_open(), "no queue while AirPlay plays");
+    nav.show_queue(&ui);
+    assert!(!ui.get_queue_open());
+
+    // back on the queue: the view is available again
+    nav.set_queue_unavailable(&ui, false);
+    nav.np_open_queue(&ui);
+    assert!(ui.get_queue_open());
+}
+
+/// the queue view open when the source turns external: back to now playing
+#[test]
+fn an_open_queue_view_falls_back_to_now_playing() {
+    let ui = setup();
+    let nav = Navigation::new();
+    ui.set_powered(true);
+    nav.open_np(&ui);
+    nav.np_open_queue(&ui);
+    assert!(ui.get_queue_open());
+
+    nav.set_queue_unavailable(&ui, true);
+
+    assert!(!ui.get_queue_open());
+    assert!(ui.get_np_open(), "now playing, not the page below");
+}

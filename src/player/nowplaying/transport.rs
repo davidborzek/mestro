@@ -40,6 +40,9 @@ pub fn wire(
         let update_tx = update_tx.clone();
         let cmd_tx = cmd_tx.clone();
         move || {
+            if !queue_allowed(&shared) {
+                return;
+            }
             state::mark_loading(&shared, &update_tx);
             let _ = cmd_tx.send(crate::providers::SourceCommand::Next);
         }
@@ -49,6 +52,9 @@ pub fn wire(
         let update_tx = update_tx.clone();
         let cmd_tx = cmd_tx.clone();
         move || {
+            if !queue_allowed(&shared) {
+                return;
+            }
             state::mark_loading(&shared, &update_tx);
             let _ = cmd_tx.send(crate::providers::SourceCommand::Prev);
         }
@@ -60,6 +66,9 @@ pub fn wire(
         let shared = shared.clone();
         let cmd_tx = cmd_tx.clone();
         move || {
+            if !queue_allowed(&shared) {
+                return;
+            }
             let on = locks::lock(&shared)
                 .as_ref()
                 .is_some_and(|l| l.state.shuffle);
@@ -70,6 +79,9 @@ pub fn wire(
         let shared = shared.clone();
         let cmd_tx = cmd_tx.clone();
         move || {
+            if !queue_allowed(&shared) {
+                return;
+            }
             let next = locks::lock(&shared)
                 .as_ref()
                 .map(|l| match l.state.repeat {
@@ -117,6 +129,12 @@ pub fn wire(
     });
 }
 
+fn queue_allowed(shared: &Shared) -> bool {
+    locks::lock(shared)
+        .as_ref()
+        .is_none_or(|l| queue_transport_allowed(&l.state))
+}
+
 pub fn seek_track_key(state: &state::PlayerState) -> String {
     let item_id = state
         .queue
@@ -129,8 +147,16 @@ pub fn seek_track_key(state: &state::PlayerState) -> String {
     )
 }
 
+/// next/prev/shuffle/repeat address MA's queue: with an external
+/// source playing there is none (the buttons grey out; the keyboard,
+/// ctl and web paths end up here too)
+pub(crate) fn queue_transport_allowed(state: &state::PlayerState) -> bool {
+    state.external.is_none()
+}
+
 fn seek_position(state: &state::PlayerState, fraction: f32, track_key: &str) -> Option<u64> {
     if !fraction.is_finite()
+        || state.external.is_some()
         || !state.has_media
         || !state.powered
         || state.loading
@@ -165,5 +191,22 @@ mod tests {
         state.loading = false;
         state.duration_ms = 0;
         assert_eq!(seek_position(&state, 0.5, &key), None);
+    }
+
+    #[test]
+    fn external_sources_have_no_seek_and_no_queue_transport() {
+        let mut state = state::PlayerState {
+            has_media: true,
+            powered: true,
+            duration_ms: 120_000,
+            title: "Track".into(),
+            ..Default::default()
+        };
+        let key = seek_track_key(&state);
+        assert_eq!(seek_position(&state, 0.5, &key), Some(60));
+        assert!(queue_transport_allowed(&state));
+        state.external = Some("AirPlay".into());
+        assert_eq!(seek_position(&state, 0.5, &key), None);
+        assert!(!queue_transport_allowed(&state));
     }
 }

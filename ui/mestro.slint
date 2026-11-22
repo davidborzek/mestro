@@ -206,6 +206,13 @@ export component Mestro inherits Window {
     in property <bool> lossless;
     in property <bool> powered;
     in property <bool> has-media;
+    // the shown track has no artwork of its own (external sources)
+    in property <bool> cover-missing: false;
+    // the external source playing on the player (AirPlay, ...),
+    // empty = the MA queue: queue-bound controls and the queue
+    // view are off while it is set
+    in property <string> external-source;
+    private property <bool> backdrop-visible: root.backdrop-enabled && root.has-media && !root.cover-missing;
     in property <bool> backdrop-enabled;
     in property <bool> clock-analog;
     in property <string> clock-label;
@@ -529,7 +536,7 @@ export component Mestro inherits Window {
         height: root.height;
         source: root.bg-cover;
         image-fit: ImageFit.cover;
-        visible: root.backdrop-enabled && root.has-media;
+        visible: root.backdrop-visible;
     }
 
     // the dim over the backdrop: the settings get a much darker
@@ -541,7 +548,7 @@ export component Mestro inherits Window {
         width: root.width;
         height: root.height;
         background: root.page == Page.settings ? #14120feb : #14120fc0;
-        visible: root.backdrop-enabled && root.has-media;
+        visible: root.backdrop-visible;
     }
 
     // root layout: the app content zone takes everything left
@@ -863,14 +870,14 @@ export component Mestro inherits Window {
                     height: 100%;
                     source: root.bg-cover;
                     image-fit: ImageFit.cover;
-                    visible: root.backdrop-enabled && root.has-media;
+                    visible: root.backdrop-visible;
                 }
 
                 Rectangle {
                     width: 100%;
                     height: 100%;
                     background: #14120fc0;
-                    visible: root.backdrop-enabled && root.has-media;
+                    visible: root.backdrop-visible;
                 }
 
                 NowPlayingView {
@@ -904,6 +911,8 @@ export component Mestro inherits Window {
                     np-bands: root.np-bands;
                     np-quality-items: root.np-quality-items;
                     has-media: root.has-media;
+                    cover-missing: root.cover-missing;
+                    external-source: root.external-source;
                     playing: root.playing;
                     loading: root.loading;
                     loading-opacity: root.loading-opacity;
@@ -964,14 +973,14 @@ export component Mestro inherits Window {
                     height: 100%;
                     source: root.bg-cover;
                     image-fit: ImageFit.cover;
-                    visible: root.backdrop-enabled && root.has-media;
+                    visible: root.backdrop-visible;
                 }
 
                 Rectangle {
                     width: 100%;
                     height: 100%;
                     background: #14120fc0;
-                    visible: root.backdrop-enabled && root.has-media;
+                    visible: root.backdrop-visible;
                 }
 
                 QueuePage {

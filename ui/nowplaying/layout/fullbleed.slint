@@ -38,6 +38,8 @@ export component FullbleedLayout {
     in property <float> loading-opacity: 0;
     in property <bool> shuffle: false;
     in property <RepeatMode> repeat: RepeatMode.off;
+    // the external source's name (AirPlay, ...), empty = the MA queue
+    in property <string> external-source;
     // the cluster's available width, passed from the caller:
     // reading own width for the wrap decision is a binding loop
     // (the cluster layout feeds the very width it would measure)
@@ -80,6 +82,7 @@ export component FullbleedLayout {
             artist: root.artist;
             album: root.album;
             has-media: root.has-media;
+            via: root.external-source;
             text-align: 0;
             title-size: root.title-size;
             title-weight: root.title-weight;
@@ -113,6 +116,7 @@ export component FullbleedLayout {
                 artist: root.artist;
                 album: root.album;
                 has-media: root.has-media;
+                via: root.external-source;
                 text-align: 0;
                 title-size: root.title-size;
                 title-weight: root.title-weight;
@@ -137,6 +141,7 @@ export component FullbleedLayout {
                     loading-opacity: root.loading-opacity;
                     shuffle: root.shuffle;
                     repeat: root.repeat;
+                    queue-controls: root.external-source == "";
                     toggle-play => {
                         root.toggle-play();
                     }
@@ -173,6 +178,7 @@ export component FullbleedLayout {
             artist: root.artist;
             album: root.album;
             has-media: root.has-media;
+            via: root.external-source;
             text-align: 0;
             title-size: root.title-size;
             title-weight: root.title-weight;
@@ -200,6 +206,7 @@ export component FullbleedLayout {
                         loading-opacity: root.loading-opacity;
                         shuffle: root.shuffle;
                         repeat: root.repeat;
+                        queue-controls: root.external-source == "";
                         toggle-play => {
                             root.toggle-play();
                         }

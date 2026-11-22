@@ -20,12 +20,14 @@ import { ActionSheet, MenuAction, SheetAction } from "../library/sheet.slint";
 // visual gap between glyphs is the cell minus the glyph
 component TopGlyph inherits Rectangle {
     in property <Icon> icon;
+    in property <bool> enabled: true;
     callback clicked();
 
     width: 46px;
     min-height: 44px;
 
     ta := TouchArea {
+        enabled: root.enabled;
         mouse-cursor: pointer;
         clicked => {
             root.clicked();
@@ -37,7 +39,7 @@ component TopGlyph inherits Rectangle {
         font-family: Theme.icon-font;
         font-size: 25px;
         font-weight: 200;
-        color: ta.pressed ? Theme.accent : Theme.text;
+        color: !root.enabled ? Theme.text-mute : ta.pressed ? Theme.accent : Theme.text;
         horizontal-alignment: center;
         vertical-alignment: center;
     }
@@ -50,6 +52,11 @@ export component NowPlayingView {
     in property <string> album;
     in property <bool> lossless;
     in property <bool> has-media;
+    // the shown track has no artwork of its own: placeholder art
+    // instead of the cover that was up before
+    in property <bool> cover-missing: false;
+    // the external source's name (AirPlay, ...), empty = the MA queue
+    in property <string> external-source;
     in property <bool> playing;
     in property <bool> loading;
     in property <float> loading-opacity;
@@ -110,7 +117,7 @@ export component NowPlayingView {
     // fullbleed: the sharp cover behind EVERYTHING (no blur, no
     // darkening of the art itself — the scrims below only guard
     // the icon row and the metadata cluster)
-    if root.np-layout == 1 && root.has-media: Image {
+    if root.np-layout == 1 && root.has-media && !root.cover-missing: Image {
         x: 0;
         y: 0;
         width: root.width;
@@ -174,6 +181,7 @@ export component NowPlayingView {
 
                 TopGlyph {
                     icon: Icon.queue-music; // queue view
+                    enabled: root.external-source == "";
                     clicked => {
                         root.open-queue();
                     }
@@ -205,7 +213,7 @@ export component NowPlayingView {
             // a dim note placeholder
             if root.np-layout == 0: CoverArt {
                 source: root.cover;
-                empty: !root.has-media;
+                empty: !root.has-media || root.cover-missing;
                 width: parent.height - 12px;
             }
 
@@ -254,6 +262,7 @@ export component NowPlayingView {
                     loading-opacity: root.loading-opacity;
                     shuffle: root.shuffle;
                     repeat: root.repeat;
+                    external-source: root.external-source;
                     toggle-play => {
                         root.toggle-play();
                     }
@@ -301,6 +310,7 @@ export component NowPlayingView {
                     // the info column's content width (left 22 +
                     // right 18 padding)
                     avail: root.width - 40px;
+                    external-source: root.external-source;
                     toggle-play => {
                         root.toggle-play();
                     }

@@ -534,6 +534,8 @@ fn standby_hook(
         if update.cover.is_some() {
             clock.cover_changed();
         }
+        // an external source has no queue: the view closes, the button dies
+        nav.set_queue_unavailable(ui, update.state.external.is_some());
         wake.observe(ui, &nav);
     }
 }

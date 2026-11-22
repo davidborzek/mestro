@@ -179,8 +179,12 @@ pub fn apply(
     ui.set_codec(s.codec.clone().into());
     ui.set_powered(s.powered);
     ui.set_has_media(s.has_media);
+    ui.set_cover_missing(s.cover_missing);
+    ui.set_external_source(s.external.clone().unwrap_or_default().into());
     ui.set_duration_seconds((s.duration_ms / 1000).min(i32::MAX as u64) as i32);
-    ui.set_can_seek(s.has_media && s.powered && !s.loading && s.duration_ms >= 1000);
+    ui.set_can_seek(
+        s.external.is_none() && s.has_media && s.powered && !s.loading && s.duration_ms >= 1000,
+    );
     ui.set_seek_track_key(transport::seek_track_key(s).into());
     // queue view: the playing track plus upcoming entries — the
     // played history below the current sort_index is dropped.
