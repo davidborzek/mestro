@@ -1,10 +1,37 @@
 //! Cover loading: fetch + blurred backdrop derivation.
 
+use std::sync::Arc;
+
 #[derive(Clone)]
 pub struct CoverData {
     pub rgba: Vec<u8>,
     pub width: u32,
     pub height: u32,
+}
+
+/// Where a cover URL becomes pixels, and what picks the palette from
+/// them: the state machine asks, the fetcher answers later on its own
+/// thread (production: HTTP; tests: a recording stub).
+pub struct CoverSource {
+    pub fetcher: Arc<dyn CoverFetcher>,
+    pub variant: crate::ui::palette::Variant,
+}
+
+/// the fetch result — None when the download or decode failed
+pub type CoverLanded = Box<dyn FnOnce(Option<CoverData>) + Send>;
+
+pub trait CoverFetcher: Send + Sync {
+    /// fetch `url` off the calling thread and hand the result to `landed`
+    fn fetch(&self, url: String, landed: CoverLanded);
+}
+
+/// the production fetcher: a blocking HTTP GET on the runtime's blocking pool
+pub struct HttpCovers;
+
+impl CoverFetcher for HttpCovers {
+    fn fetch(&self, url: String, landed: CoverLanded) {
+        tokio::task::spawn_blocking(move || landed(load_cover(&url)));
+    }
 }
 
 pub fn load_cover(url: &str) -> Option<CoverData> {

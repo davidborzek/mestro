@@ -20,6 +20,7 @@ use crate::config::ThemeVariant;
 use crate::library;
 use crate::library::search::Search;
 use crate::locks;
+use crate::player::cover::{CoverSource, HttpCovers};
 use crate::player::state::{self, Shared, UpdateTx};
 use crate::Mestro;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -140,6 +141,10 @@ pub fn spawn<P, F>(
             };
             let core = async {
                 let mut last_cover = String::new();
+                let covers = CoverSource {
+                    fetcher: Arc::new(HttpCovers),
+                    variant: theme_variant.raw(),
+                };
                 while let Some(ev) = evt_rx.recv().await {
                     // the first event proves auth + subscription —
                     // drop the banner before applying it
@@ -170,7 +175,7 @@ pub fn spawn<P, F>(
                             &mut last_cover,
                             &track,
                             elapsed_sec,
-                            theme_variant.raw().clone(),
+                            &covers,
                             Instant::now(),
                         ),
                         SourceEvent::QueueSeed { track, elapsed_sec } => state::apply_queue_seed(
@@ -179,7 +184,7 @@ pub fn spawn<P, F>(
                             &mut last_cover,
                             &track,
                             elapsed_sec,
-                            theme_variant.raw().clone(),
+                            &covers,
                             Instant::now(),
                         ),
                         SourceEvent::External {
@@ -193,7 +198,7 @@ pub fn spawn<P, F>(
                             &source,
                             track.as_ref(),
                             elapsed_sec,
-                            theme_variant.raw().clone(),
+                            &covers,
                             Instant::now(),
                         ),
                         SourceEvent::ExternalEnded => state::apply_external_ended(

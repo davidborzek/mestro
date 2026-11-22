@@ -4,7 +4,7 @@
 //! resolved Transport/Track/Position events.
 
 use crate::locks;
-use crate::player::cover::{load_cover, make_blur, CoverData};
+use crate::player::cover::{make_blur, CoverData, CoverSource};
 use crate::providers::{ExternalSource, QueueItem, RepeatMode, SourceCaps, TrackMeta};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -402,7 +402,7 @@ pub fn apply_track(
     last_cover: &mut String,
     track: &TrackMeta,
     elapsed_sec: f64,
-    variant: crate::ui::palette::Variant,
+    covers: &CoverSource,
     now: Instant,
 ) {
     apply_queue_track(
@@ -411,7 +411,7 @@ pub fn apply_track(
         last_cover,
         track,
         elapsed_sec,
-        variant,
+        covers,
         false,
         now,
     );
@@ -428,7 +428,7 @@ pub fn apply_queue_seed(
     last_cover: &mut String,
     track: &TrackMeta,
     elapsed_sec: f64,
-    variant: crate::ui::palette::Variant,
+    covers: &CoverSource,
     now: Instant,
 ) {
     apply_queue_track(
@@ -437,7 +437,7 @@ pub fn apply_queue_seed(
         last_cover,
         track,
         elapsed_sec,
-        variant,
+        covers,
         true,
         now,
     );
@@ -450,7 +450,7 @@ fn apply_queue_track(
     last_cover: &mut String,
     track: &TrackMeta,
     elapsed_sec: f64,
-    variant: crate::ui::palette::Variant,
+    covers: &CoverSource,
     authoritative: bool,
     now: Instant,
 ) {
@@ -571,7 +571,7 @@ fn apply_queue_track(
         last_cover,
         &track.image_url,
         false,
-        variant,
+        covers,
     );
 }
 
@@ -591,7 +591,7 @@ pub fn apply_external(
     source: &ExternalSource,
     track: Option<&TrackMeta>,
     elapsed_sec: Option<f64>,
-    variant: crate::ui::palette::Variant,
+    covers: &CoverSource,
     now: Instant,
 ) {
     let (st, changed) = {
@@ -673,7 +673,7 @@ pub fn apply_external(
             last_cover,
             &track.image_url,
             true,
-            variant,
+            covers,
         );
     }
 }
@@ -731,54 +731,59 @@ fn fetch_cover(
     last_cover: &mut String,
     image_url: &str,
     external: bool,
-    variant: crate::ui::palette::Variant,
+    covers: &CoverSource,
 ) {
     if !image_url.is_empty() && image_url != *last_cover {
         *last_cover = image_url.to_string();
         let cover_tx = update_tx.clone();
         let url = image_url.to_string();
         let shared = shared.clone();
-        tokio::task::spawn_blocking(move || {
-            let mut cover = load_cover(&url);
-            if let Some(c) = &mut cover {
-                crate::player::cover::cap_size(c, 900);
-            }
-            tracing::debug!(
-                "cover fetch {:?} -> {}",
-                url,
-                cover
-                    .as_ref()
-                    .map(|c| format!("{}x{}", c.width, c.height))
-                    .unwrap_or_else(|| "FAIL".into())
-            );
-            let bg = make_blur(&cover);
-            // read the state at SEND time, not spawn time: a slow cover
-            // fetch must not resurrect a stale loading flag in the UI
-            // (and a result that lands after the source mode flipped
-            // belongs to the other mode: dropped)
-            if let Some(st) = land_cover(&shared, &url, external, cover.is_some()) {
-                let palette = cover
-                    .as_ref()
-                    .and_then(|c| crate::ui::palette::from_cover(c, variant));
-                if let Some(p) = palette {
-                    let hex = |c: [u8; 3]| format!("#{:02x}{:02x}{:02x}", c[0], c[1], c[2]);
-                    tracing::info!(
-                        "palette: accent {} + tertiary {} + danger {}",
-                        hex(p.accent),
-                        hex(p.tertiary),
-                        hex(p.danger)
-                    );
+        let variant = covers.variant.clone();
+        let landing_url = url.clone();
+        covers.fetcher.fetch(
+            url,
+            Box::new(move |mut cover| {
+                let url = landing_url;
+                if let Some(c) = &mut cover {
+                    crate::player::cover::cap_size(c, 900);
                 }
-                let _ = cover_tx.send(PlayerUpdate {
-                    state: st,
-                    cover,
-                    bg,
-                    palette,
-                    toast: None,
-                    osd_volume: None,
-                });
-            }
-        });
+                tracing::debug!(
+                    "cover fetch {:?} -> {}",
+                    url,
+                    cover
+                        .as_ref()
+                        .map(|c| format!("{}x{}", c.width, c.height))
+                        .unwrap_or_else(|| "FAIL".into())
+                );
+                let bg = make_blur(&cover);
+                // read the state at SEND time, not spawn time: a slow cover
+                // fetch must not resurrect a stale loading flag in the UI
+                // (and a result that lands after the source mode flipped
+                // belongs to the other mode: dropped)
+                if let Some(st) = land_cover(&shared, &url, external, cover.is_some()) {
+                    let palette = cover
+                        .as_ref()
+                        .and_then(|c| crate::ui::palette::from_cover(c, variant));
+                    if let Some(p) = palette {
+                        let hex = |c: [u8; 3]| format!("#{:02x}{:02x}{:02x}", c[0], c[1], c[2]);
+                        tracing::info!(
+                            "palette: accent {} + tertiary {} + danger {}",
+                            hex(p.accent),
+                            hex(p.tertiary),
+                            hex(p.danger)
+                        );
+                    }
+                    let _ = cover_tx.send(PlayerUpdate {
+                        state: st,
+                        cover,
+                        bg,
+                        palette,
+                        toast: None,
+                        osd_volume: None,
+                    });
+                }
+            }),
+        );
     }
 }
 
@@ -928,6 +933,14 @@ pub fn advance(shared: &Shared, now: Instant) -> Option<(u64, u64, bool)> {
 #[cfg(test)]
 mod seek_tests {
     use super::*;
+    use crate::player::cover::HttpCovers;
+
+    fn covers() -> CoverSource {
+        CoverSource {
+            fetcher: Arc::new(HttpCovers),
+            variant: crate::ui::palette::Variant::TonalSpot,
+        }
+    }
     fn live() -> Live {
         let mut live = Live::new(
             PlayerState {
@@ -985,7 +998,7 @@ mod seek_tests {
                 ..Default::default()
             },
             0.0,
-            crate::ui::palette::Variant::TonalSpot,
+            &covers(),
             Instant::now(),
         );
         let guard = locks::lock(&shared);
@@ -998,8 +1011,14 @@ mod seek_tests {
 #[cfg(test)]
 mod external_tests {
     use super::*;
+    use crate::player::cover::HttpCovers;
 
-    const VARIANT: crate::ui::palette::Variant = crate::ui::palette::Variant::TonalSpot;
+    fn covers() -> CoverSource {
+        CoverSource {
+            fetcher: Arc::new(HttpCovers),
+            variant: crate::ui::palette::Variant::TonalSpot,
+        }
+    }
 
     fn shared_with(state: PlayerState) -> Shared {
         let mut live = Live::new(state, Instant::now());
@@ -1064,7 +1083,7 @@ mod external_tests {
             &airplay(),
             t,
             elapsed,
-            VARIANT,
+            &covers(),
             Instant::now(),
         );
     }
@@ -1094,7 +1113,7 @@ mod external_tests {
             &spotify,
             Some(&track("Song", "Band")),
             Some(1.0),
-            VARIANT,
+            &covers(),
             Instant::now(),
         );
         let state = snapshot(&shared);
@@ -1123,7 +1142,7 @@ mod external_tests {
             &richer,
             None,
             None,
-            VARIANT,
+            &covers(),
             Instant::now(),
         );
         assert!(snapshot(&shared).source_caps.next_previous);
@@ -1212,7 +1231,7 @@ mod external_tests {
             &mut String::new(),
             &track("Teardrop", "Massive Attack"),
             3.0,
-            VARIANT,
+            &covers(),
             Instant::now(),
         );
         apply_position(&shared, &tx, 3.0, Instant::now());
@@ -1289,7 +1308,7 @@ mod external_tests {
             &mut String::new(),
             &track("Teardrop", "Massive Attack"),
             59.0,
-            VARIANT,
+            &covers(),
             Instant::now(),
         );
         apply_position(&shared, &tx, 59.0, Instant::now());
@@ -1320,7 +1339,7 @@ mod external_tests {
             &mut cover,
             &track("B", "X"),
             0.0,
-            VARIANT,
+            &covers(),
             Instant::now(),
         );
         external(&shared, &tx, Some(&track("Stand by Me", "Ben")), Some(1.0));
@@ -1331,7 +1350,7 @@ mod external_tests {
             &mut cover,
             &track("B", "X"),
             5.0,
-            VARIANT,
+            &covers(),
             Instant::now(),
         );
         assert_eq!(snapshot(&shared).title, "B");
@@ -1342,7 +1361,7 @@ mod external_tests {
             &mut cover,
             &track("A", "X"),
             5.5,
-            VARIANT,
+            &covers(),
             Instant::now(),
         );
         assert_eq!(snapshot(&shared).title, "B");
@@ -1353,7 +1372,7 @@ mod external_tests {
             &mut cover,
             &track("C", "X"),
             0.0,
-            VARIANT,
+            &covers(),
             Instant::now(),
         );
         assert_eq!(snapshot(&shared).title, "C");
@@ -1378,7 +1397,7 @@ mod external_tests {
             &mut cover,
             &track("Earlier", "X"),
             9.0,
-            VARIANT,
+            &covers(),
             Instant::now(),
         );
         let state = snapshot(&shared);
@@ -1442,7 +1461,7 @@ mod external_tests {
             &mut cover,
             &track("New", "A"),
             0.0,
-            VARIANT,
+            &covers(),
             Instant::now(),
         );
         // ~1.5 s later the queue replays the previous item
@@ -1452,7 +1471,7 @@ mod external_tests {
             &mut cover,
             &track("Old", "A"),
             9.0,
-            VARIANT,
+            &covers(),
             Instant::now(),
         );
         let state = snapshot(&shared);
