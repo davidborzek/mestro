@@ -6,7 +6,8 @@
 //! MA reports.
 
 use crate::locks;
-use crate::player::state::{self, Shared, UpdateTx};
+use crate::player::shell::{Shared, UpdateTx};
+use crate::player::state;
 use crate::providers::{RepeatMode, SourceCommand};
 use crate::Mestro;
 

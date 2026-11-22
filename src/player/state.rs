@@ -5,8 +5,8 @@
 
 use crate::locks;
 use crate::player::cover::{make_blur, CoverData, CoverSource};
+use crate::player::shell::{Shared, UpdateTx};
 use crate::providers::{ExternalSource, QueueItem, RepeatMode, SourceCaps, TrackMeta};
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// Full UI snapshot — the only struct the UI renders from.
@@ -170,10 +170,6 @@ impl Live {
         }
     }
 }
-
-pub type Shared = Arc<Mutex<Option<Live>>>;
-
-pub type UpdateTx = tokio::sync::mpsc::UnboundedSender<PlayerUpdate>;
 
 /// Transport events → playing/volume only. Track identity is owned
 /// by Track events; a transport event must never touch it.
@@ -905,6 +901,7 @@ pub fn advance(shared: &Shared, now: Instant) -> Option<(u64, u64, bool)> {
 mod seek_tests {
     use super::*;
     use crate::player::cover::HttpCovers;
+    use std::sync::{Arc, Mutex};
 
     fn covers() -> CoverSource {
         CoverSource {
@@ -982,6 +979,7 @@ mod seek_tests {
 mod external_tests {
     use super::*;
     use crate::player::cover::HttpCovers;
+    use std::sync::{Arc, Mutex};
 
     fn covers() -> CoverSource {
         CoverSource {

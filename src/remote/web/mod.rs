@@ -49,7 +49,7 @@ use crate::providers::SourceCommand;
 /// wires up
 #[derive(Clone)]
 pub struct PlayerCtx {
-    pub shared: crate::player::state::Shared,
+    pub shared: crate::player::shell::Shared,
     pub cmd_tx: tokio::sync::mpsc::UnboundedSender<SourceCommand>,
 }
 

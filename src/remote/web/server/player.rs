@@ -83,7 +83,7 @@ mod tests {
     fn a_dead_command_channel_answers_player_gone() {
         let (tx, dead) = tokio::sync::mpsc::unbounded_channel();
         drop(dead);
-        let shared: crate::player::state::Shared = Arc::new(Mutex::new(Some(Live::new(
+        let shared: crate::player::shell::Shared = Arc::new(Mutex::new(Some(Live::new(
             PlayerState {
                 has_media: true,
                 duration_ms: 60_000,
