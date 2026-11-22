@@ -20,6 +20,13 @@ const SETTLE_STEP: Duration = Duration::from_secs(1);
 /// DAC is not in `/proc/asound` yet when mestro starts
 const SETTLE_POLLS: u32 = 10;
 
+/// one wait step while squeezelite is not up yet
+const START_STEP: Duration = Duration::from_millis(500);
+/// a startup run waits this many steps at most (40 s) for squeezelite:
+/// its init script starts after mestro and waits for the network itself,
+/// up to 30 s
+const START_POLLS: u32 = 80;
+
 /// what the file starts with
 const HEADER: &str =
     "# written by mestro from its audio settings — do not edit (Settings → Audio)\n";
@@ -247,7 +254,7 @@ fn apply(
     inputs: &Inputs,
     trigger: Trigger,
     runner: &mut dyn Squeezelite,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     let env = compose(derived, inputs);
     let text = render(&env)?;
     let existing = std::fs::read_to_string(paths.env_file).ok();
@@ -256,7 +263,7 @@ fn apply(
         None => env == Env::default(),
     };
     if unchanged && trigger == Trigger::Background {
-        return Ok(());
+        return Ok(false);
     }
     if !unchanged {
         tracing::info!("squeezelite: {env:?}");
@@ -266,8 +273,49 @@ fn apply(
     // one that is starting right now may still miss it
     if trigger == Trigger::Switch || runner.running() {
         runner.restart().map_err(|e| format!("restart: {e}"))?;
+        return Ok(true);
     }
-    Ok(())
+    Ok(false)
+}
+
+/// wait until squeezelite runs, for at most [`START_POLLS`] steps;
+/// false when it never did
+fn wait_for_start(runner: &mut dyn Squeezelite) -> bool {
+    for poll in 0..=START_POLLS {
+        if runner.running() {
+            return true;
+        }
+        if poll < START_POLLS {
+            runner.sleep(START_STEP);
+        }
+    }
+    false
+}
+
+/// the value after `flag` in `arguments`, empty when the flag is absent
+fn flag_value<'a>(arguments: &'a [String], flag: &str) -> &'a str {
+    arguments
+        .iter()
+        .position(|argument| argument == flag)
+        .and_then(|at| arguments.get(at + 1))
+        .map_or("", String::as_str)
+}
+
+/// restart squeezelite once if it runs with other `-o`/`-s`/`-n` than
+/// the env's (`EXTRA` is not compared); true when it restarted
+fn restart_if_arguments_differ(env: &Env, runner: &mut dyn Squeezelite) -> Result<bool, String> {
+    let Some(arguments) = runner.arguments() else {
+        return Ok(false);
+    };
+    let matches = [("-o", &env.output), ("-s", &env.server), ("-n", &env.name)]
+        .iter()
+        .all(|(flag, value)| flag_value(&arguments, flag) == value.as_str());
+    if matches {
+        return Ok(false);
+    }
+    tracing::info!("squeezelite started without mestro's settings, restarting");
+    runner.restart().map_err(|e| format!("restart: {e}"))?;
+    Ok(true)
 }
 
 /// a run in its turn: the startup run (`startup_suffix`) derives
@@ -288,13 +336,35 @@ fn run(
     }
     // the slot before the turn, like the switch (which holds the slot
     // when it asks for its run)
-    let _slot = (trigger == Trigger::Background).then(|| SwitchSlot::wait(paths.env_file));
-    let _turn = crate::locks::lock(&RUNS);
-    let Some(derived) = crate::locks::lock(&DERIVED).clone() else {
+    let restarted = {
+        let _slot = (trigger == Trigger::Background).then(|| SwitchSlot::wait(paths.env_file));
+        let _turn = crate::locks::lock(&RUNS);
+        let Some(derived) = crate::locks::lock(&DERIVED).clone() else {
+            return Ok(());
+        };
+        let inputs = crate::locks::lock(&INPUTS).clone().unwrap_or_default();
+        apply(paths, &derived, &inputs, trigger, runner)
+    }?;
+    if startup_suffix.is_some() && !restarted {
+        confirm_startup(paths, runner)?;
+    }
+    Ok(())
+}
+
+/// the startup run's last step when it did not restart squeezelite
+/// itself: one that the init script started before the file existed
+/// runs on its own defaults, and `apply` saw it too early. Waits for
+/// it without any lock, then compares with the newest settings in the
+/// run's turn
+fn confirm_startup(paths: &Paths, runner: &mut dyn Squeezelite) -> Result<(), String> {
+    if !wait_for_start(runner) {
         return Ok(());
-    };
+    }
+    let _slot = SwitchSlot::wait(paths.env_file);
+    let _turn = crate::locks::lock(&RUNS);
+    let derived = crate::locks::lock(&DERIVED).clone().unwrap_or_default();
     let inputs = crate::locks::lock(&INPUTS).clone().unwrap_or_default();
-    apply(paths, &derived, &inputs, trigger, runner)
+    restart_if_arguments_differ(&compose(&derived, &inputs), runner).map(|_| ())
 }
 
 fn device_paths() -> Paths<'static> {
@@ -373,6 +443,9 @@ pub fn output_setting() -> String {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    /// the tests that run with the global INPUTS, DERIVED and RUNS go one at a time
+    static GLOBAL_STATE_TESTS: Mutex<()> = Mutex::new(());
 
     const USB_DAC: &str = " 3 [S3             ]: USB-Audio - Topping S3\n\
                       Topping Topping S3 at usb-0000:01:00.0-1.2, high speed\n";
@@ -454,7 +527,12 @@ mod tests {
         restarts: u32,
         restart_fails: bool,
         alive: bool,
+        /// the arguments the running squeezelite was started with
+        args: Vec<String>,
+        /// squeezelite comes up at this start poll (never when none)
+        starts_at_poll: Option<u32>,
         settle_polls: u32,
+        start_polls: u32,
         on_settle_poll: Box<dyn FnMut(u32)>,
     }
 
@@ -464,7 +542,10 @@ mod tests {
                 restarts: 0,
                 restart_fails: false,
                 alive: true,
+                args: Vec::new(),
+                starts_at_poll: None,
                 settle_polls: 0,
+                start_polls: 0,
                 on_settle_poll: Box::new(|_| {}),
             }
         }
@@ -482,10 +563,20 @@ mod tests {
         fn running(&mut self) -> bool {
             self.alive
         }
+        fn arguments(&mut self) -> Option<Vec<String>> {
+            self.alive.then(|| self.args.clone())
+        }
         fn sleep(&mut self, duration: Duration) {
-            assert_eq!(duration, SETTLE_STEP);
-            self.settle_polls += 1;
-            (self.on_settle_poll)(self.settle_polls);
+            if duration == START_STEP {
+                self.start_polls += 1;
+                if self.starts_at_poll == Some(self.start_polls) {
+                    self.alive = true;
+                }
+            } else {
+                assert_eq!(duration, SETTLE_STEP);
+                self.settle_polls += 1;
+                (self.on_settle_poll)(self.settle_polls);
+            }
         }
     }
 
@@ -764,6 +855,112 @@ mod tests {
         assert!(err.contains("restart"), "{err}");
     }
 
+    fn argv(args: &[&str]) -> Vec<String> {
+        args.iter().map(ToString::to_string).collect()
+    }
+
+    fn s3_env() -> Env {
+        Env {
+            output: "hw:CARD=S3".into(),
+            name: "HiFi".into(),
+            server: "192.168.3.13".into(),
+            extra: String::new(),
+        }
+    }
+
+    #[test]
+    fn a_squeezelite_started_without_the_settings_is_restarted_once() {
+        let mut fake = Fake::new();
+        fake.args = argv(&["-v"]);
+        assert!(restart_if_arguments_differ(&s3_env(), &mut fake).unwrap());
+        assert_eq!(fake.restarts, 1);
+    }
+
+    #[test]
+    fn a_squeezelite_started_with_the_settings_is_left_alone() {
+        let mut fake = Fake::new();
+        fake.args = argv(&["-v", "-o", "hw:CARD=S3", "-s", "192.168.3.13", "-n", "HiFi"]);
+        assert!(!restart_if_arguments_differ(&s3_env(), &mut fake).unwrap());
+        assert_eq!(fake.restarts, 0);
+    }
+
+    #[test]
+    fn each_of_output_server_and_name_is_compared() {
+        for wrong in [
+            ["-o", "hw:CARD=Other", "-s", "192.168.3.13", "-n", "HiFi"],
+            ["-o", "hw:CARD=S3", "-s", "10.0.0.5", "-n", "HiFi"],
+            ["-o", "hw:CARD=S3", "-s", "192.168.3.13", "-n", "Kitchen"],
+        ] {
+            let mut fake = Fake::new();
+            fake.args = argv(&wrong);
+            assert!(restart_if_arguments_differ(&s3_env(), &mut fake).unwrap());
+        }
+        // a flag the file leaves empty must be absent
+        let mut fake = Fake::new();
+        fake.args = argv(&["-o", "hw:CARD=S3", "-n", "HiFi"]);
+        let no_server = Env {
+            server: String::new(),
+            ..s3_env()
+        };
+        assert!(!restart_if_arguments_differ(&no_server, &mut fake).unwrap());
+        fake.args = argv(&["-o", "hw:CARD=S3", "-s", "x", "-n", "HiFi"]);
+        assert!(restart_if_arguments_differ(&no_server, &mut fake).unwrap());
+    }
+
+    #[test]
+    fn extra_flags_are_not_compared() {
+        let mut fake = Fake::new();
+        fake.args = argv(&[
+            "-v",
+            "-o",
+            "hw:CARD=S3",
+            "-s",
+            "192.168.3.13",
+            "-n",
+            "HiFi",
+            "-r",
+            "44100",
+        ]);
+        let env = Env {
+            extra: "-a 80:4".into(),
+            ..s3_env()
+        };
+        assert!(!restart_if_arguments_differ(&env, &mut fake).unwrap());
+        // and with nothing set, the bare `-v` start is the right one
+        fake.args = argv(&["-v", "-a", "80"]);
+        assert!(!restart_if_arguments_differ(&Env::default(), &mut fake).unwrap());
+        assert_eq!(fake.restarts, 0);
+    }
+
+    #[test]
+    fn no_running_squeezelite_is_not_restarted_for_its_arguments() {
+        let mut fake = Fake::new();
+        fake.alive = false;
+        assert!(!restart_if_arguments_differ(&s3_env(), &mut fake).unwrap());
+        assert_eq!(fake.restarts, 0);
+    }
+
+    #[test]
+    fn the_start_wait_ends_as_soon_as_squeezelite_runs() {
+        let mut fake = Fake::new();
+        fake.alive = false;
+        fake.starts_at_poll = Some(7);
+        assert!(wait_for_start(&mut fake));
+        assert_eq!(fake.start_polls, 7);
+        let mut running = Fake::new();
+        assert!(wait_for_start(&mut running));
+        assert_eq!(running.start_polls, 0, "nothing to wait for");
+    }
+
+    #[test]
+    fn the_start_wait_is_bounded_when_squeezelite_never_runs() {
+        let mut fake = Fake::new();
+        fake.alive = false;
+        assert!(!wait_for_start(&mut fake));
+        assert_eq!(fake.start_polls, START_POLLS);
+        assert!(START_STEP * START_POLLS >= Duration::from_secs(40));
+    }
+
     #[test]
     fn the_name_is_mestro_and_the_suffix_none_without_one() {
         assert_eq!(default_name("6BEC"), "mestro-6BEC");
@@ -851,7 +1048,7 @@ mod tests {
 
     #[test]
     fn the_newest_settings_win_on_sequential_runs() {
-        // the only test that touches INPUTS, DERIVED and RUNS
+        let _serial = crate::locks::lock(&GLOBAL_STATE_TESTS);
         let fx = usb_fixture();
         let mut fake = Fake::new();
         set_inputs(&Audio::default(), "");
@@ -881,5 +1078,47 @@ mod tests {
         // a switch run follows the settings too
         run(&fx.paths(), None, Trigger::Switch, &mut fake).unwrap();
         assert_eq!(fake.restarts, 3);
+    }
+
+    /// a startup run on a fresh install: the file is written while
+    /// squeezelite is not up yet (it comes up at start poll `up_at`
+    /// with `args`); the restarts it takes
+    fn first_boot_restarts(up_at: Option<u32>, args: &[&str]) -> u32 {
+        let fx = usb_fixture();
+        let mut fake = Fake::new();
+        fake.alive = false;
+        fake.starts_at_poll = up_at;
+        fake.args = argv(args);
+        set_inputs(
+            &Audio {
+                name: "HiFi".into(),
+                extra: "-a 80".into(),
+                ..Audio::default()
+            },
+            "http://192.168.3.13:8095",
+        );
+        run(&fx.paths(), Some("6BEC"), Trigger::Background, &mut fake).unwrap();
+        assert_eq!(
+            fx.text(),
+            file("hw:CARD=S3", "HiFi", "192.168.3.13", "'-a 80'")
+        );
+        assert!(fake.start_polls <= START_POLLS);
+        fake.restarts
+    }
+
+    #[test]
+    fn a_squeezelite_that_started_before_the_file_is_restarted_once() {
+        let _serial = crate::locks::lock(&GLOBAL_STATE_TESTS);
+        assert_eq!(first_boot_restarts(Some(3), &["-v"]), 1);
+        let matching = ["-v", "-o", "hw:CARD=S3", "-s", "192.168.3.13", "-n", "HiFi"];
+        assert_eq!(first_boot_restarts(Some(3), &matching), 0);
+        let mut other_extra = matching.to_vec();
+        other_extra.extend(["-r", "44100"]);
+        assert_eq!(first_boot_restarts(Some(3), &other_extra), 0);
+        assert_eq!(
+            first_boot_restarts(None, &["-v"]),
+            0,
+            "never up: no restart"
+        );
     }
 }
