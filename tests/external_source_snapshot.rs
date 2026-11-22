@@ -148,9 +148,14 @@ fn now_playing_while_airplay_plays() {
         .save(dir.join("np-external-no-cover.png"))
         .unwrap();
 
-    // the source is known but nothing plays yet
+    // the source is known but nothing plays yet: the progress tick
+    // (main.rs) clears the bar once no duration is known
     ui.set_has_media(false);
     ui.set_cover_missing(false);
+    ui.set_duration_seconds(0);
+    ui.set_progress(0.0);
+    ui.set_pos_label("".into());
+    ui.set_dur_label("".into());
     render(&window)
         .save(dir.join("np-external-waiting.png"))
         .unwrap();

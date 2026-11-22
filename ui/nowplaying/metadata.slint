@@ -109,7 +109,8 @@ export component NpMetadata {
         if root.has-media && root.show-album && root.via != "": Text {
             text: @tr("via {}", root.via);
             font-size: 12px;
-            color: Theme.text-mute;
+            // dim, not mute: it must stay readable on the fullbleed backdrop
+            color: Theme.text-dim;
             horizontal-alignment: root.text-align == 1 ? TextHorizontalAlignment.center : root.text-align == 2 ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
         }
         if root.has-media && root.show-vu && (root.inline-vu == 1 || root.inline-vu == 2): Rectangle {
