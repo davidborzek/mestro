@@ -34,6 +34,10 @@ pub struct Config {
     pub ws_url: String,
     pub token: String,
     pub player_name: String,
+    /// MA's player_id of this device's own squeezelite (its MAC,
+    /// lowercase with colons); None without a physical interface —
+    /// a desktop without a squeezelite simply never matches
+    pub own_player_id: Option<String>,
 }
 
 impl Config {
@@ -50,6 +54,7 @@ impl Config {
                 ma.token.clone()
             },
             player_name: ma.player.clone(),
+            own_player_id: crate::remote::web::own_player_id(),
         }
     }
 }

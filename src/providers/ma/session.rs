@@ -37,7 +37,7 @@ pub(super) async fn run_session(
 
     let mut msg_id: u64 = 0;
     let mut matched_id: Option<String> = None;
-    let mut players: HashMap<String, (String, bool, bool, bool)> = HashMap::new();
+    let mut players = Players::new();
     let mut active_queue_req: Option<u64> = None;
     let mut matched_queue: Option<String> = None;
     // pending player_queues/items request + the index it must ship
@@ -213,7 +213,35 @@ pub(super) async fn run_session(
                     match ev {
                         MaEvent::Player(p) => {
                             remember_player(&mut players, &p);
-                            try_pick(&mut matched_id, &players, &cfg.player_name);
+                            let pick = try_pick(&mut matched_id, &players, &cfg.player_name, cfg.own_player_id.as_deref());
+                            if pick == Pick::Switched {
+                                // the old player's queue, source and pending
+                                // requests are void: wipe the display, then
+                                // seed it from the new player like a first pick
+                                matched_queue = None;
+                                items_req = None;
+                                current_index = usize::MAX;
+                                shuffle_play.cancel();
+                                external = ExternalTracker::default();
+                                forget_shown_player(events);
+                                if let Some(pid) = matched_id.as_deref() {
+                                    sink.send(Message::Text(command_frame(
+                                        msg_id,
+                                        "player_queues/get_active_queue",
+                                        json!({ "player_id": pid }),
+                                    ).into()))
+                                    .await?;
+                                    active_queue_req = Some(msg_id);
+                                    msg_id += 1;
+                                }
+                                // the new player's transport and source: the
+                                // players/all reply emits them for the match
+                                sink.send(Message::Text(
+                                    command_frame(msg_id, "players/all", json!({})).into(),
+                                ))
+                                .await?;
+                                msg_id += 1;
+                            }
                             let relevant = matched_id.as_deref() == Some(p.player_id.as_str());
                             if relevant {
                                 let _ = events.send(SourceEvent::Transport {
@@ -459,7 +487,18 @@ pub(super) async fn run_session(
                             });
                         }
                     }
-                    try_pick(&mut matched_id, &players, &cfg.player_name);
+                    let pick = try_pick(&mut matched_id, &players, &cfg.player_name, cfg.own_player_id.as_deref());
+                    if pick == Pick::Switched {
+                        // wipe the old player; the block below emits the new
+                        // one's state and the queue request after this follows
+                        matched_queue = None;
+                        active_queue_req = None;
+                        items_req = None;
+                        current_index = usize::MAX;
+                        shuffle_play.cancel();
+                        external = ExternalTracker::default();
+                        forget_shown_player(events);
+                    }
                     // initial fetch: the pick above happened only now, so
                     // the loop skipped the matched player — emit it once
                     if let Some(id) = matched_id.clone() {
@@ -506,43 +545,319 @@ fn unix_now() -> f64 {
         .map_or(0.0, |d| d.as_secs_f64())
 }
 
-fn remember_player(players: &mut HashMap<String, (String, bool, bool, bool)>, p: &PlayerSnapshot) {
+fn remember_player(players: &mut Players, p: &PlayerSnapshot) {
     players.insert(
         p.player_id.clone(),
         (p.name.clone(), p.playing, p.available, p.has_media),
     );
 }
 
-/// pick the display's player: exact name match, else playing, else
-/// has media and available, else available — deterministic by id
+/// the old player's media must not stay on screen after a switch: an
+/// ended external source and an empty queue wipe it; the new player's
+/// own events and queue seed fill the display again
+fn forget_shown_player(events: &tokio::sync::mpsc::UnboundedSender<SourceEvent>) {
+    let _ = events.send(SourceEvent::ExternalEnded);
+    let _ = events.send(SourceEvent::Queue {
+        items: Vec::new(),
+        current_index: usize::MAX,
+    });
+}
+
+type Players = HashMap<String, (String, bool, bool, bool)>;
+
+/// what a pick pass did to the matched player
+#[derive(Debug, PartialEq)]
+enum Pick {
+    Kept,
+    First,
+    Switched,
+}
+
+/// ranks up to here (configured name, own squeezelite) are worth
+/// leaving a fallback for
+const PREFERRED_RANK: u8 = 1;
+
+/// pick the display's player, best first: the configured name (exact),
+/// the device's own squeezelite, playing, has media and available,
+/// available, the rest — deterministic by id.
+/// The first pick takes the best one; afterwards only a preferred
+/// player (configured name, own squeezelite) that has appeared and
+/// outranks the current match replaces it — never down, never between
+/// equal ranks (no flicker between fallbacks)
 fn try_pick(
     matched_id: &mut Option<String>,
-    players: &HashMap<String, (String, bool, bool, bool)>,
+    players: &Players,
     want: &str,
-) {
-    if matched_id.is_some() || players.is_empty() {
-        return;
-    }
-    let rank = |name: &str, playing: bool, avail: bool, media: bool| -> u8 {
+    own: Option<&str>,
+) -> Pick {
+    let rank_of = |id: &String, (name, playing, avail, media): &(String, bool, bool, bool)| {
         if !want.is_empty() && name == want {
             0
-        } else if playing {
-            1
-        } else if media && avail {
+        } else if own == Some(id.as_str()) {
+            PREFERRED_RANK
+        } else if *playing {
             2
-        } else if avail {
+        } else if *media && *avail {
             3
-        } else {
+        } else if *avail {
             4
+        } else {
+            5
         }
     };
-    let pick = players
+    let best = players
         .iter()
-        .min_by_key(|(id, (name, playing, avail, media))| {
-            (rank(name, *playing, *avail, *media), (*id).clone())
+        .min_by_key(|(id, entry)| (rank_of(id, entry), (*id).clone()));
+    let Some((best_id, best_entry)) = best else {
+        return Pick::Kept;
+    };
+    let best_rank = rank_of(best_id, best_entry);
+    let outcome = match matched_id.as_ref() {
+        None => Pick::First,
+        Some(current) => {
+            let current_rank = players
+                .get(current)
+                .map_or(u8::MAX, |entry| rank_of(current, entry));
+            if best_rank <= PREFERRED_RANK && best_rank < current_rank {
+                Pick::Switched
+            } else {
+                return Pick::Kept;
+            }
+        }
+    };
+    let name = &best_entry.0;
+    match outcome {
+        Pick::Switched => tracing::info!("switching to player {name:?} ({best_id})"),
+        _ => tracing::info!("showing player {name:?} ({best_id})"),
+    }
+    *matched_id = Some(best_id.clone());
+    outcome
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const OWN: &str = "d8:3a:dd:bc:6b:ec";
+
+    /// (id, name, playing, available, has_media)
+    fn players(entries: &[(&str, &str, bool, bool, bool)]) -> Players {
+        entries
+            .iter()
+            .map(|&(id, name, playing, avail, media)| {
+                (id.to_string(), (name.to_string(), playing, avail, media))
+            })
+            .collect()
+    }
+
+    fn idle(id: &str, name: &str) -> (String, (String, bool, bool, bool)) {
+        (id.to_string(), (name.to_string(), false, true, false))
+    }
+
+    fn pick_once(players: &Players, want: &str, own: Option<&str>) -> Option<String> {
+        let mut matched = None;
+        try_pick(&mut matched, players, want, own);
+        matched
+    }
+
+    #[test]
+    fn the_own_player_wins_over_a_playing_fallback() {
+        let all = players(&[
+            ("aa:web", "Web (Firefox on Linux)", true, true, true),
+            (OWN, "HiFi", false, true, false),
+        ]);
+        assert_eq!(pick_once(&all, "", Some(OWN)).as_deref(), Some(OWN));
+    }
+
+    #[test]
+    fn a_fallback_is_replaced_when_the_own_player_appears() {
+        let mut all = players(&[("aa:web", "Web (Firefox on Linux)", true, true, true)]);
+        let mut matched = None;
+        assert_eq!(try_pick(&mut matched, &all, "", Some(OWN)), Pick::First);
+        assert_eq!(matched.as_deref(), Some("aa:web"));
+        all.extend([idle(OWN, "HiFi")]);
+        assert_eq!(try_pick(&mut matched, &all, "", Some(OWN)), Pick::Switched);
+        assert_eq!(matched.as_deref(), Some(OWN));
+        // settled: nothing moves on the next pass
+        assert_eq!(try_pick(&mut matched, &all, "", Some(OWN)), Pick::Kept);
+    }
+
+    #[test]
+    fn the_configured_name_wins_over_the_own_player() {
+        let all = players(&[
+            (OWN, "HiFi", false, true, false),
+            ("bb:kitchen", "Kitchen", false, true, false),
+        ]);
+        assert_eq!(
+            pick_once(&all, "Kitchen", Some(OWN)).as_deref(),
+            Some("bb:kitchen")
+        );
+    }
+
+    #[test]
+    fn the_configured_name_replaces_the_own_player_when_it_appears() {
+        let mut all = players(&[(OWN, "HiFi", false, true, false)]);
+        let mut matched = None;
+        try_pick(&mut matched, &all, "Kitchen", Some(OWN));
+        assert_eq!(matched.as_deref(), Some(OWN));
+        all.extend([idle("bb:kitchen", "Kitchen")]);
+        assert_eq!(
+            try_pick(&mut matched, &all, "Kitchen", Some(OWN)),
+            Pick::Switched
+        );
+        assert_eq!(matched.as_deref(), Some("bb:kitchen"));
+    }
+
+    #[test]
+    fn the_configured_name_is_never_left_for_the_own_player() {
+        let all = players(&[
+            (OWN, "HiFi", true, true, true),
+            ("bb:kitchen", "Kitchen", false, false, false),
+        ]);
+        let mut matched = Some("bb:kitchen".to_string());
+        assert_eq!(
+            try_pick(&mut matched, &all, "Kitchen", Some(OWN)),
+            Pick::Kept
+        );
+        assert_eq!(matched.as_deref(), Some("bb:kitchen"));
+    }
+
+    #[test]
+    fn without_an_own_id_the_auto_rank_decides_as_before() {
+        let all = players(&[
+            ("aa:idle", "Idle", false, true, false),
+            ("bb:media", "Media", false, true, true),
+            ("cc:playing", "Playing", true, true, true),
+        ]);
+        assert_eq!(pick_once(&all, "", None).as_deref(), Some("cc:playing"));
+        let all = players(&[
+            ("aa:idle", "Idle", false, true, false),
+            ("bb:media", "Media", false, true, true),
+        ]);
+        assert_eq!(pick_once(&all, "", None).as_deref(), Some("bb:media"));
+        let all = players(&[
+            ("bb:gone", "Gone", false, false, false),
+            ("aa:idle", "Idle", false, true, false),
+        ]);
+        assert_eq!(pick_once(&all, "", None).as_deref(), Some("aa:idle"));
+    }
+
+    #[test]
+    fn an_own_id_that_is_not_listed_falls_back_to_the_auto_rank() {
+        let all = players(&[("aa:web", "Web", false, true, false)]);
+        assert_eq!(pick_once(&all, "", Some(OWN)).as_deref(), Some("aa:web"));
+    }
+
+    #[test]
+    fn fallbacks_never_replace_each_other() {
+        let mut all = players(&[("zz:idle", "Idle", false, true, false)]);
+        let mut matched = None;
+        try_pick(&mut matched, &all, "", Some(OWN));
+        // a better-ranked fallback shows up, and a "playing" one too
+        all.extend([
+            (
+                "aa:playing".to_string(),
+                ("Playing".to_string(), true, true, true),
+            ),
+            idle("bb:idle", "Other"),
+        ]);
+        assert_eq!(try_pick(&mut matched, &all, "", Some(OWN)), Pick::Kept);
+        assert_eq!(matched.as_deref(), Some("zz:idle"));
+    }
+
+    fn player_json(id: &str, name: &str) -> Value {
+        json!({
+            "player_id": id,
+            "name": name,
+            "playback_state": "idle",
+            "available": true,
+            "current_media": null,
+        })
+    }
+
+    /// the next command frame of the session: (command, args)
+    async fn next_command<S>(ws: &mut S) -> (String, Value)
+    where
+        S: futures_util::Stream<Item = Result<Message, tokio_tungstenite::tungstenite::Error>>
+            + Unpin,
+    {
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(5), ws.next())
+            .await
+            .expect("the session sent nothing")
+            .expect("socket closed")
+            .expect("socket error");
+        let v: Value = serde_json::from_str(frame.to_text().unwrap()).unwrap();
+        (
+            v["command"].as_str().unwrap().to_string(),
+            v["args"].clone(),
+        )
+    }
+
+    #[tokio::test]
+    async fn the_own_player_appearing_late_takes_over_and_the_old_state_is_wiped() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let cfg = Config {
+            ws_url: format!("ws://{}/ws", listener.local_addr().unwrap()),
+            token: String::new(),
+            player_name: String::new(),
+            own_player_id: Some(OWN.to_string()),
+        };
+        let (events_tx, mut events_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (cmd_tx, mut cmd_rx) = tokio::sync::mpsc::unbounded_channel();
+        let session = tokio::spawn(async move {
+            let _ = run_session(&cfg, &mut cmd_rx, &events_tx).await;
         });
-    if let Some((id, (name, _, _, _))) = pick {
-        tracing::info!("showing player {name:?} ({id})");
-        *matched_id = Some(id.clone());
+
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut ws = tokio_tungstenite::accept_async(stream).await.unwrap();
+        assert_eq!(next_command(&mut ws).await.0, "auth");
+        assert_eq!(next_command(&mut ws).await.0, "players/all");
+        let send = |value: Value| Message::Text(value.to_string().into());
+        ws.send(send(
+            json!({"message_id": "0", "result": {"authenticated": true}}),
+        ))
+        .await
+        .unwrap();
+        // MA is still restarting squeezelite: only the web player is listed
+        ws.send(send(json!({
+            "message_id": "1",
+            "result": [player_json("aa:web", "Web (Firefox on Linux)")],
+        })))
+        .await
+        .unwrap();
+        let (command, args) = next_command(&mut ws).await;
+        assert_eq!(command, "player_queues/get_active_queue");
+        assert_eq!(args["player_id"], "aa:web");
+
+        // squeezelite is back
+        ws.send(send(json!({
+            "event": "player_updated",
+            "object_id": OWN,
+            "data": player_json(OWN, "HiFi"),
+        })))
+        .await
+        .unwrap();
+        let (command, args) = next_command(&mut ws).await;
+        assert_eq!(command, "player_queues/get_active_queue");
+        assert_eq!(args["player_id"], OWN);
+
+        // the old player's queue is gone from the display
+        drop(cmd_tx);
+        session.await.unwrap();
+        let mut seen = Vec::new();
+        while let Ok(event) = events_rx.try_recv() {
+            seen.push(event);
+        }
+        assert!(
+            seen.iter().any(|e| matches!(
+                e,
+                SourceEvent::Queue { items, .. } if items.is_empty()
+            )),
+            "an empty queue must wipe the old player's list"
+        );
+        assert!(
+            seen.iter().any(|e| matches!(e, SourceEvent::ExternalEnded)),
+            "an external source of the old player must not linger"
+        );
     }
 }

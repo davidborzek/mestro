@@ -456,6 +456,7 @@ mod tests {
             ws_url: "ws://ma.local:8095/ws".into(),
             token: String::new(),
             player_name: "wohnzimmer".into(),
+            own_player_id: None,
         }))
     }
 

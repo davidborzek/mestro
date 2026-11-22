@@ -34,6 +34,12 @@ pub use protocol::{
 };
 pub use push::{Events, Push};
 
+/// MA's player id of this device's own squeezelite (see
+/// [`identity::own_player_id`])
+pub fn own_player_id() -> Option<String> {
+    identity::own_player_id(std::path::Path::new("/sys/class/net"))
+}
+
 use crate::locks;
 use crate::providers::SourceCommand;
 
