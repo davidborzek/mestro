@@ -1,0 +1,131 @@
+{
+ "data": {
+  "active_group": null,
+  "active_output_protocol": "native",
+  "active_sound_mode": null,
+  "active_source": "02:00:00:00:00:01",
+  "active_source_audio": null,
+  "available": true,
+  "can_group_with": [],
+  "current_media": {
+   "album": "Mezzanine",
+   "album_artist": null,
+   "artist": "Massive Attack",
+   "custom_data": null,
+   "duration": 330,
+   "elapsed_time": 6,
+   "elapsed_time_last_updated": 1795292094.2204278,
+   "image_url": "http://ma.local:8095/imageproxy/ec89d0bb6c070cd3c70771407accf858ac0ec5a1fc27fd326ec95601c60d86b2?size=512&fmt=jpg",
+   "media_type": "track",
+   "palette": null,
+   "queue_item_id": "320b7c87f5024136b223b0e21309d9fb",
+   "source_id": "02:00:00:00:00:01",
+   "stream_duration": null,
+   "title": "Teardrop",
+   "uri": "library://track/10729"
+  },
+  "device_info": {
+   "identifiers": {
+    "ip_address": "192.0.2.10",
+    "mac_address": "02:00:00:00:00:01"
+   },
+   "ip_address": "192.0.2.10",
+   "mac_address": "02:00:00:00:00:01",
+   "manufacturer": "squeezeplay",
+   "manufacturer_id": null,
+   "model": "SqueezeLite",
+   "model_id": null,
+   "software_version": null
+  },
+  "display_name": "HiFi",
+  "elapsed_time": 59.112,
+  "elapsed_time_last_updated": 1795350874.18179,
+  "enabled": true,
+  "expose_to_ha": true,
+  "extra_attributes": {},
+  "extra_data": {},
+  "group_childs": [],
+  "group_members": [],
+  "group_volume": 0,
+  "group_volume_muted": false,
+  "has_setup_flow": false,
+  "hide_in_ui": false,
+  "hide_player_in_ui": [
+   "when_unavailable",
+   "when_synced",
+   "when_group_active"
+  ],
+  "icon": "speaker",
+  "mute_control": "media_player.wohnzimmer_verstarker",
+  "name": "HiFi",
+  "needs_setup": false,
+  "options": [],
+  "output_protocols": [
+   {
+    "available": true,
+    "derived_from": null,
+    "is_native": true,
+    "name": "Squeezelite",
+    "output_protocol_id": "native",
+    "priority": 0,
+    "protocol_domain": "squeezelite"
+   }
+  ],
+  "playback_state": "idle",
+  "player_id": "02:00:00:00:00:01",
+  "power_control": "native",
+  "powered": true,
+  "private": false,
+  "provider": "squeezelite",
+  "setup_reason": null,
+  "sleep_timer_expires_at": null,
+  "sound_mode_list": [],
+  "source_list": [
+   {
+    "account_id": null,
+    "can_next_previous": true,
+    "can_play_pause": true,
+    "can_repeat": false,
+    "can_seek": true,
+    "can_shuffle": false,
+    "id": "02:00:00:00:00:01",
+    "name": "Music Assistant Queue",
+    "passive": false,
+    "repeat_mode": null,
+    "shuffle_enabled": null
+   },
+   {
+    "account_id": null,
+    "can_next_previous": false,
+    "can_play_pause": false,
+    "can_repeat": false,
+    "can_seek": false,
+    "can_shuffle": false,
+    "id": "airplay_receiver://audio_source/02:00:00:00:00:01",
+    "name": "AirPlay Receiver (HiFi)",
+    "passive": true,
+    "repeat_mode": null,
+    "shuffle_enabled": null
+   }
+  ],
+  "state": "idle",
+  "static_group_members": [],
+  "supported_features": [
+   "set_members",
+   "multi_device_dsp",
+   "play_media",
+   "volume_mute",
+   "pause",
+   "enqueue",
+   "gapless_playback",
+   "power"
+  ],
+  "synced_to": null,
+  "type": "player",
+  "volume_control": "none",
+  "volume_level": null,
+  "volume_muted": false
+ },
+ "event": "player_updated",
+ "object_id": "02:00:00:00:00:01"
+}

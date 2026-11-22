@@ -3,6 +3,7 @@
 //! to the display's player.
 
 use super::command::{command_for, command_frame};
+use super::external::ExternalTracker;
 use super::parse::{
     http_base_from_ws, parse_active_queue, parse_event, parse_media_entry, parse_player,
     parse_queue_item, MaEvent, PlayerSnapshot,
@@ -50,6 +51,8 @@ pub(super) async fn run_session(
     // artist's own image as a late SubjectImage event
     let mut artist_get_req: Option<(u64, String)> = None;
     let mut shuffle_play = super::shuffle::ShufflePlay::default();
+    // the display player's external source (AirPlay & co.) — see external.rs
+    let mut external = ExternalTracker::default();
 
     // first message must be auth (with a message_id — see module docs)
     sink.send(Message::Text(
@@ -218,6 +221,26 @@ pub(super) async fn run_session(
                                     volume: p.volume,
                                     powered: p.powered,
                                 });
+                                let step = external.observe(&p, unix_now());
+                                for event in step.events {
+                                    let _ = events.send(event);
+                                }
+                                // back on the queue: its current item
+                                // and list were not pushed while the
+                                // source played — ask again, the reply
+                                // re-seeds the display at once
+                                if step.back_on_queue {
+                                    if let Some(pid) = matched_id.as_deref() {
+                                        sink.send(Message::Text(command_frame(
+                                            msg_id,
+                                            "player_queues/get_active_queue",
+                                            json!({ "player_id": pid }),
+                                        ).into()))
+                                        .await?;
+                                        active_queue_req = Some(msg_id);
+                                        msg_id += 1;
+                                    }
+                                }
                             }
                         }
                         MaEvent::QueueTime { queue_id, elapsed_sec } => {
@@ -424,7 +447,7 @@ pub(super) async fn run_session(
                 // reply to players/all: discovery + transport snapshot
                 if let Some(result) = v.get("result").and_then(|r| r.as_array()) {
                     let snaps: Vec<PlayerSnapshot> =
-                        result.iter().filter_map(parse_player).collect();
+                        result.iter().filter_map(|p| parse_player(p, &img_base)).collect();
                     for p in &snaps {
                         remember_player(&mut players, p);
                         let relevant = matched_id.as_deref() == Some(p.player_id.as_str());
@@ -446,6 +469,9 @@ pub(super) async fn run_session(
                                 volume: p.volume,
                                 powered: p.powered,
                             });
+                            for event in external.observe(p, unix_now()).events {
+                                let _ = events.send(event);
+                            }
                         }
                     }
                 }
@@ -471,6 +497,13 @@ pub(super) async fn run_session(
             }
         }
     }
+}
+
+/// wall-clock unix seconds: MA stamps its external clock readings with it
+fn unix_now() -> f64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0.0, |d| d.as_secs_f64())
 }
 
 fn remember_player(players: &mut HashMap<String, (String, bool, bool, bool)>, p: &PlayerSnapshot) {

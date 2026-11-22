@@ -165,6 +165,22 @@ pub fn spawn<P, F>(
                             elapsed_sec,
                             theme_variant.raw().clone(),
                         ),
+                        SourceEvent::External {
+                            source,
+                            track,
+                            elapsed_sec,
+                        } => state::apply_external(
+                            &shared,
+                            &update_tx,
+                            &mut last_cover,
+                            &source,
+                            track.as_ref(),
+                            elapsed_sec,
+                            theme_variant.raw().clone(),
+                        ),
+                        SourceEvent::ExternalEnded => {
+                            state::apply_external_ended(&shared, &update_tx, &mut last_cover)
+                        }
                         SourceEvent::Position(secs) => {
                             state::apply_position(&shared, &update_tx, secs)
                         }

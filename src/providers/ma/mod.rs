@@ -5,6 +5,8 @@
 //!   message_id, push-event dispatch, player/queue matching
 //! - [`auth`]: one-shot REST (probe/login/players) for the setup
 //!   wizard — no session, just the HTTP surface
+//! - [`external`]: external sources (AirPlay, ...): the player's own
+//!   metadata while the queue is silent
 //! - [`parse`]: wire-format parsing — everything downstream
 //!   consumes typed structs; no raw JSON escapes this module
 //! - [`command`]: the outbound vocabulary (SourceCommand -> frames)
@@ -20,6 +22,7 @@
 
 pub mod auth;
 mod command;
+mod external;
 mod parse;
 mod session;
 mod shuffle;
