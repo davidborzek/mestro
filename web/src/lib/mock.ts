@@ -84,6 +84,8 @@ const state: RemoteState = {
     playing: params.get("state") === null,
     loading: false,
     has_media: params.get("state") !== "nothing",
+    // /?mock&source=AirPlay shows the external-source remote
+    source: params.get("source") ?? "",
     volume: 42,
     title: params.has("long") ? LONG_TITLE : "Nights",
     artist: params.has("long") ? LONG_ARTIST : "Frank Ocean",
@@ -378,9 +380,13 @@ class MockSocket {
         if (cmd === "play-pause") state.player.playing = !state.player.playing;
         else if (cmd === "now-playing")
           state.view = { ...state.view, now_playing: true, queue: false, vu: false };
-        else if (cmd === "queue")
+        else if (cmd === "queue") {
+          if (state.player.source) {
+            respond(false, `queue is not available while ${state.player.source} plays`);
+            return;
+          }
           state.view = { ...state.view, now_playing: false, queue: true, vu: false };
-        else if (cmd === "vu")
+        } else if (cmd === "vu")
           state.view = { ...state.view, now_playing: false, queue: false, vu: true };
         else if (cmd === "standby-toggle") {
           state.player.powered = !state.player.powered;

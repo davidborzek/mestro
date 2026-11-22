@@ -465,6 +465,8 @@ settings state.
     "name": "wohnzimmer",      // configured/auto-picked player
     "powered": true, "playing": true, "loading": false,
     "has_media": true, "volume": 42,
+    "source": "",            // "" = Music Assistant's queue, else the external
+                               // source playing: "AirPlay", "Spotify Connect", ...
     "title": "…", "artist": "…",
     "cover": "/cover?v=3",     // "" = none
     "accent": "#f3bd6e"        // from the cover palette, "" = default
@@ -482,6 +484,17 @@ settings state.
   }
 }
 ```
+
+`player.source` names an **external source** (AirPlay, Spotify
+Connect, ...) the player plays instead of Music Assistant's queue —
+`""` otherwise (additive; older servers omit it, treat a missing
+value as `""`). `title`/`artist` then describe what the source
+plays, and everything bound to the queue does not apply: there is no
+queue view, no next/previous, seek, shuffle or repeat. A `ctl`
+`queue` while the source is set is answered with the error
+`queue is not available while <source> plays`; clients should offer
+no queue entry while `source` is non-empty. `now-playing` and `vu`
+keep working.
 
 `ma_url` derives from the configured `music-assistant.url`'s
 ws endpoint: `ws`→`http`, `wss`→`https`, the trailing `/ws`

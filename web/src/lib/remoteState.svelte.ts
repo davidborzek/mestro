@@ -14,6 +14,7 @@ const emptyState: RemoteState = {
     playing: false,
     loading: false,
     has_media: false,
+    source: "",
     volume: 0,
     title: "",
     artist: "",

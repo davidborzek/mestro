@@ -5,6 +5,7 @@
   import { optimistic } from "../../lib/optimistic.svelte";
   import { ctl, player as sendPlayer, setSetting } from "../../lib/commands";
   import { t } from "../../lib/i18n.svelte";
+  import { tileAvailable } from "../../lib/remoteTiles";
   import type { CtlCmd } from "../../lib/protocol";
   import Icon, { type IconName } from "../../components/Icon.svelte";
   import IconButton from "../../components/IconButton.svelte";
@@ -41,6 +42,8 @@
     { cmd: "queue", view: "queue", icon: "queue", label: t("remote.tileQueue") },
     { cmd: "vu", view: "vu", icon: "vu", label: t("remote.tileVu") },
   ]);
+
+  const sourceName = $derived(player.source);
 
   const tileActive = (tile: Tile) => Boolean(optimistic.pick(tile.cmd, view[tile.view]));
 
@@ -107,8 +110,15 @@
           {#if player.has_media}
             <h1 class="title">{player.title}</h1>
             <p class="artist">{player.artist}</p>
+            {#if sourceName}
+              <p class="via">{t("remote.viaSource", { source: sourceName })}</p>
+            {/if}
           {:else}
-            <p class="title none">{t("remote.nothingPlaying")}</p>
+            <p class="title none">
+              {sourceName
+                ? t("remote.waitingForSource", { source: sourceName })
+                : t("remote.nothingPlaying")}
+            </p>
           {/if}
         </div>
         {#if player.has_media}
@@ -141,7 +151,7 @@
         <button
           class="tile"
           class:active={tileActive(tile)}
-          disabled={kioskControls}
+          disabled={kioskControls || !tileAvailable(tile.cmd, sourceName)}
           aria-pressed={tileActive(tile)}
           onclick={() => tapTile(tile)}
         >
@@ -278,6 +288,11 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .via {
+    font-size: 12px;
+    color: var(--mute);
+    line-height: 1.2;
   }
   .title.none {
     color: var(--dim);

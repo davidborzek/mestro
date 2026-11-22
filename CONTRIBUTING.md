@@ -130,6 +130,18 @@ WebSocket API elsewhere:
   seconds late. The state machine (`src/player/state.rs`) guards all of
   this — providers only emit resolved events, guards never live in
   a provider
+- an external source (AirPlay receiver, Spotify Connect, ...) shows
+  up as the player's `active_source` being a URI
+  (`airplay_receiver://audio_source/<id>`) instead of the queue id.
+  The queue then sends NOTHING and `current_media` (flat fields:
+  title, artist, album, image_url, duration, elapsed_time with
+  `elapsed_time_last_updated`) is the only metadata. It starts as a
+  placeholder (`AirPlay Receiver (HiFi)`, then `AirPlay | HiFi |
+  Music Assistant`, no image); the title moves seconds before the
+  elapsed clock on a skip; `image_url` is MA's public hostname with
+  `size=0`. `current_media` is read ONLY while the source is external
+  (`src/providers/ma/external.rs`); on the queue it lags and stays
+  ignored. Fixtures: `tests/fixtures/ma/`
 - queue lists must be fetched via `player_queues/items`;
   `queue_updated` carries only an item *count*, and a cleared queue
   arrives *without* `current_item`
