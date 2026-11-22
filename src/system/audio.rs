@@ -167,6 +167,9 @@ pub trait Squeezelite {
     fn restart(&mut self) -> Result<(), String>;
     /// is a squeezelite process alive right now
     fn running(&mut self) -> bool;
+    /// the arguments (without the program) the running squeezelite was
+    /// started with, none when it is not running
+    fn arguments(&mut self) -> Option<Vec<String>>;
     fn sleep(&mut self, duration: Duration);
 }
 
@@ -331,13 +334,17 @@ impl Squeezelite for SqueezeliteService {
         process_running(Path::new("/proc"), "squeezelite")
     }
 
+    fn arguments(&mut self) -> Option<Vec<String>> {
+        process_arguments(Path::new("/proc"), "squeezelite")
+    }
+
     fn sleep(&mut self, duration: Duration) {
         std::thread::sleep(duration);
     }
 }
 
-/// is there a process whose `comm` is `name` under `proc_dir`
-fn process_running(proc_dir: &Path, name: &str) -> bool {
+/// the `/proc/<pid>` directory of a process whose `comm` is `name`
+fn find_process(proc_dir: &Path, name: &str) -> Option<PathBuf> {
     std::fs::read_dir(proc_dir)
         .into_iter()
         .flatten()
@@ -349,9 +356,29 @@ fn process_running(proc_dir: &Path, name: &str) -> bool {
                 .bytes()
                 .all(|b| b.is_ascii_digit())
         })
-        .any(|entry| {
+        .find(|entry| {
             std::fs::read_to_string(entry.path().join("comm")).is_ok_and(|comm| comm.trim() == name)
         })
+        .map(|entry| entry.path())
+}
+
+/// is there a process whose `comm` is `name` under `proc_dir`
+fn process_running(proc_dir: &Path, name: &str) -> bool {
+    find_process(proc_dir, name).is_some()
+}
+
+/// the command-line arguments (without the program) of a process whose
+/// `comm` is `name` under `proc_dir`; none when there is none
+fn process_arguments(proc_dir: &Path, name: &str) -> Option<Vec<String>> {
+    let cmdline = std::fs::read(find_process(proc_dir, name)?.join("cmdline")).ok()?;
+    Some(
+        cmdline
+            .split(|&b| b == 0)
+            .skip(1)
+            .filter(|arg| !arg.is_empty())
+            .map(|arg| String::from_utf8_lossy(arg).into_owned())
+            .collect(),
+    )
 }
 
 #[cfg(test)]
@@ -587,6 +614,9 @@ mod tests {
         fn running(&mut self) -> bool {
             !self.broken.contains(&self.setting.lock().unwrap().as_str())
         }
+        fn arguments(&mut self) -> Option<Vec<String>> {
+            self.running().then(Vec::new)
+        }
         fn sleep(&mut self, duration: Duration) {
             self.slept += duration;
         }
@@ -783,6 +813,9 @@ mod tests {
         fn running(&mut self) -> bool {
             true
         }
+        fn arguments(&mut self) -> Option<Vec<String>> {
+            Some(Vec::new())
+        }
         fn sleep(&mut self, _duration: Duration) {}
     }
 
@@ -883,6 +916,35 @@ mod tests {
             !process_running(proc.path(), "squeezelite"),
             "non-numeric entries are no processes"
         );
+    }
+
+    #[test]
+    fn the_process_arguments_are_the_cmdline_without_the_program() {
+        let proc = tempfile::tempdir().unwrap();
+        for (pid, comm, cmdline) in [
+            (
+                "101",
+                "squeezelite\n",
+                &b"/usr/bin/squeezelite\0-v\0-o\0hw:CARD=S3\0-n\0Hi Fi\0"[..],
+            ),
+            ("102", "mestro\n", &b"/usr/bin/mestro\0--kiosk\0"[..]),
+        ] {
+            std::fs::create_dir_all(proc.path().join(pid)).unwrap();
+            std::fs::write(proc.path().join(pid).join("comm"), comm).unwrap();
+            std::fs::write(proc.path().join(pid).join("cmdline"), cmdline).unwrap();
+        }
+        assert_eq!(
+            process_arguments(proc.path(), "squeezelite").unwrap(),
+            ["-v", "-o", "hw:CARD=S3", "-n", "Hi Fi"]
+        );
+        std::fs::write(proc.path().join("101/cmdline"), b"/usr/bin/squeezelite\0").unwrap();
+        assert_eq!(
+            process_arguments(proc.path(), "squeezelite").unwrap(),
+            Vec::<String>::new()
+        );
+        assert_eq!(process_arguments(proc.path(), "nothing"), None);
+        std::fs::remove_dir_all(proc.path().join("101")).unwrap();
+        assert_eq!(process_arguments(proc.path(), "squeezelite"), None);
     }
 
     #[test]
