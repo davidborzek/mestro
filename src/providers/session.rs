@@ -63,6 +63,89 @@ fn set_connected(ui_weak: &slint::Weak<Mestro>, connected: bool) {
     });
 }
 
+/// The player half of the core loop: what a provider event does to the
+/// shared state and the update channel. Library and search events are
+/// not the player's — `apply` hands them back to the caller.
+pub struct PlayerFeed {
+    shared: Shared,
+    update_tx: UpdateTx,
+    last_cover: String,
+    covers: CoverSource,
+}
+
+impl PlayerFeed {
+    pub fn new(shared: Shared, update_tx: UpdateTx, covers: CoverSource) -> Self {
+        Self {
+            shared,
+            update_tx,
+            last_cover: String::new(),
+            covers,
+        }
+    }
+
+    /// apply one event at `now`; None when the player consumed it
+    pub fn apply(&mut self, ev: SourceEvent, now: Instant) -> Option<SourceEvent> {
+        let shared = &self.shared;
+        let update_tx = &self.update_tx;
+        let last_cover = &mut self.last_cover;
+        let covers = &self.covers;
+        match ev {
+            SourceEvent::Transport {
+                playing,
+                volume,
+                powered,
+            } => state::apply_transport(shared, update_tx, playing, volume, powered, now),
+            SourceEvent::Track { track, elapsed_sec } => state::apply_track(
+                shared,
+                update_tx,
+                last_cover,
+                &track,
+                elapsed_sec,
+                covers,
+                now,
+            ),
+            SourceEvent::QueueSeed { track, elapsed_sec } => state::apply_queue_seed(
+                shared,
+                update_tx,
+                last_cover,
+                &track,
+                elapsed_sec,
+                covers,
+                now,
+            ),
+            SourceEvent::External {
+                source,
+                track,
+                elapsed_sec,
+            } => state::apply_external(
+                shared,
+                update_tx,
+                last_cover,
+                &source,
+                track.as_ref(),
+                elapsed_sec,
+                covers,
+                now,
+            ),
+            SourceEvent::ExternalEnded => {
+                state::apply_external_ended(shared, update_tx, last_cover, now)
+            }
+            SourceEvent::Position(secs) => state::apply_position(shared, update_tx, secs, now),
+            SourceEvent::Queue {
+                items,
+                current_index,
+            } => state::apply_queue(shared, update_tx, last_cover, items, current_index, now),
+            SourceEvent::Options { shuffle, repeat } => {
+                state::apply_options(shared, update_tx, shuffle, repeat, now)
+            }
+            other @ (SourceEvent::Browse { .. }
+            | SourceEvent::SubjectImage { .. }
+            | SourceEvent::Search { .. }) => return Some(other),
+        }
+        None
+    }
+}
+
 /// spawn the provider thread: connection retry loop + core
 /// event dispatch (state machine, library routing, search
 /// results). Consumes the command receiver — the session owns
@@ -140,11 +223,14 @@ pub fn spawn<P, F>(
                 }
             };
             let core = async {
-                let mut last_cover = String::new();
-                let covers = CoverSource {
-                    fetcher: Arc::new(HttpCovers),
-                    variant: theme_variant.raw(),
-                };
+                let mut feed = PlayerFeed::new(
+                    shared,
+                    update_tx,
+                    CoverSource {
+                        fetcher: Arc::new(HttpCovers),
+                        variant: theme_variant.raw(),
+                    },
+                );
                 while let Some(ev) = evt_rx.recv().await {
                     // the first event proves auth + subscription —
                     // drop the banner before applying it
@@ -156,85 +242,19 @@ pub fn spawn<P, F>(
                     }
                     locks::lock(&gate).on_connected(Instant::now());
                     locks::lock(&startup).connected();
-                    match ev {
-                        SourceEvent::Transport {
-                            playing,
-                            volume,
-                            powered,
-                        } => state::apply_transport(
-                            &shared,
-                            &update_tx,
-                            playing,
-                            volume,
-                            powered,
-                            Instant::now(),
-                        ),
-                        SourceEvent::Track { track, elapsed_sec } => state::apply_track(
-                            &shared,
-                            &update_tx,
-                            &mut last_cover,
-                            &track,
-                            elapsed_sec,
-                            &covers,
-                            Instant::now(),
-                        ),
-                        SourceEvent::QueueSeed { track, elapsed_sec } => state::apply_queue_seed(
-                            &shared,
-                            &update_tx,
-                            &mut last_cover,
-                            &track,
-                            elapsed_sec,
-                            &covers,
-                            Instant::now(),
-                        ),
-                        SourceEvent::External {
-                            source,
-                            track,
-                            elapsed_sec,
-                        } => state::apply_external(
-                            &shared,
-                            &update_tx,
-                            &mut last_cover,
-                            &source,
-                            track.as_ref(),
-                            elapsed_sec,
-                            &covers,
-                            Instant::now(),
-                        ),
-                        SourceEvent::ExternalEnded => state::apply_external_ended(
-                            &shared,
-                            &update_tx,
-                            &mut last_cover,
-                            Instant::now(),
-                        ),
-                        SourceEvent::Position(secs) => {
-                            state::apply_position(&shared, &update_tx, secs, Instant::now())
-                        }
-                        SourceEvent::Queue {
-                            items,
-                            current_index,
-                        } => state::apply_queue(
-                            &shared,
-                            &update_tx,
-                            &mut last_cover,
-                            items,
-                            current_index,
-                            Instant::now(),
-                        ),
-                        SourceEvent::Options { shuffle, repeat } => state::apply_options(
-                            &shared,
-                            &update_tx,
-                            shuffle,
-                            repeat,
-                            Instant::now(),
-                        ),
+                    match feed.apply(ev, Instant::now()) {
+                        None => {}
                         // library events route through the lib module
-                        ev @ (SourceEvent::Browse { .. } | SourceEvent::SubjectImage { .. }) => {
+                        Some(
+                            ev @ (SourceEvent::Browse { .. } | SourceEvent::SubjectImage { .. }),
+                        ) => {
                             library::route(&lib_feed, ev);
                         }
-                        SourceEvent::Search { key, entries } => {
+                        Some(SourceEvent::Search { key, entries }) => {
                             Search::apply_results(&ui_weak, &key, entries);
                         }
+                        // `apply` hands back only the library and search events
+                        Some(_) => {}
                     }
                 }
             };
