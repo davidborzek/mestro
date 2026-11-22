@@ -5,6 +5,7 @@
 //! contract. Everything is unit-tested without sockets or a UI.
 
 use crate::player::state::PlayerState;
+use crate::providers::SourceCaps;
 use serde::{Deserialize, Serialize};
 
 /// the push frame: `{"event":"state","data":…}` — no id, clients
@@ -41,6 +42,34 @@ pub struct RemoteState {
     pub display: RemoteDisplay,
 }
 
+/// `player.source_caps`: the controls the source takes
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemoteSourceCaps {
+    pub play_pause: bool,
+    pub seek: bool,
+    pub next_previous: bool,
+    pub shuffle: bool,
+    pub repeat: bool,
+}
+
+impl Default for RemoteSourceCaps {
+    fn default() -> Self {
+        SourceCaps::default().into()
+    }
+}
+
+impl From<SourceCaps> for RemoteSourceCaps {
+    fn from(caps: SourceCaps) -> Self {
+        Self {
+            play_pause: caps.play_pause,
+            seek: caps.seek,
+            next_previous: caps.next_previous,
+            shuffle: caps.shuffle,
+            repeat: caps.repeat,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RemotePlayer {
     /// the configured/auto-picked player name
@@ -54,6 +83,10 @@ pub struct RemotePlayer {
     /// `queue` ctl) and next/prev/seek do not apply
     #[serde(default)]
     pub source: String,
+    /// what the playing source can do; the queue (source "") can
+    /// do everything. Absent = everything
+    #[serde(default)]
+    pub source_caps: RemoteSourceCaps,
     /// 0..100
     pub volume: i32,
     pub title: String,
@@ -119,6 +152,7 @@ pub fn from_player(
             loading: state.loading,
             has_media: state.has_media,
             source: state.external.clone().unwrap_or_default(),
+            source_caps: state.source_caps.into(),
             volume: state.volume.clamp(0, 100),
             title: state.title.clone(),
             artist: state.artist.clone(),
@@ -275,6 +309,13 @@ mod tests {
                         "loading": false,
                         "has_media": true,
                         "source": "",
+                        "source_caps": {
+                            "play_pause": true,
+                            "seek": true,
+                            "next_previous": true,
+                            "shuffle": true,
+                            "repeat": true
+                        },
                         "volume": 42,
                         "title": "Track",
                         "artist": "Artist",
@@ -306,8 +347,36 @@ mod tests {
         // an older frame without the field still reads
         let mut old = value.clone();
         old["player"].as_object_mut().unwrap().remove("source");
+        old["player"].as_object_mut().unwrap().remove("source_caps");
         let parsed: RemoteState = serde_json::from_value(old).unwrap();
         assert_eq!(parsed.player.source, "");
+        assert_eq!(parsed.player.source_caps, RemoteSourceCaps::default());
+    }
+
+    #[test]
+    fn the_sources_caps_are_in_the_player() {
+        let mut state = sample();
+        state.external = Some("AirPlay Receiver".into());
+        state.source_caps = SourceCaps {
+            play_pause: false,
+            seek: false,
+            next_previous: true,
+            shuffle: false,
+            repeat: false,
+            passive: true,
+        };
+        let out = from_player(&state, "p", &ctx(), &art());
+        let value = serde_json::to_value(&out).unwrap();
+        assert_eq!(
+            value["player"]["source_caps"],
+            json!({
+                "play_pause": false,
+                "seek": false,
+                "next_previous": true,
+                "shuffle": false,
+                "repeat": false
+            })
+        );
     }
 
     #[test]

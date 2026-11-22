@@ -5,7 +5,7 @@
   import { optimistic } from "../../lib/optimistic.svelte";
   import { ctl, player as sendPlayer, setSetting } from "../../lib/commands";
   import { t } from "../../lib/i18n.svelte";
-  import { tileAvailable } from "../../lib/remoteTiles";
+  import { playPauseAvailable, tileAvailable } from "../../lib/remoteTiles";
   import type { CtlCmd } from "../../lib/protocol";
   import Icon, { type IconName } from "../../components/Icon.svelte";
   import IconButton from "../../components/IconButton.svelte";
@@ -44,6 +44,7 @@
   ]);
 
   const sourceName = $derived(player.source);
+  const canPlayPause = $derived(playPauseAvailable(player.source_caps));
 
   const tileActive = (tile: Tile) => Boolean(optimistic.pick(tile.cmd, view[tile.view]));
 
@@ -124,7 +125,7 @@
         {#if player.has_media}
           <button
             class="play"
-            disabled={playback}
+            disabled={playback || !canPlayPause}
             aria-label={player.playing ? t("remote.pause") : t("remote.play")}
             onclick={() => ctl("play-pause")}
           >

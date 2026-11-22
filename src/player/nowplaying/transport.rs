@@ -7,6 +7,7 @@
 
 use crate::locks;
 use crate::player::state::{self, Shared, UpdateTx};
+use crate::providers::{RepeatMode, SourceCommand};
 use crate::Mestro;
 
 /// all transport callbacks (np overlay + queue header). Needs
@@ -22,75 +23,39 @@ pub fn wire(
         let shared = shared.clone();
         let update_tx = update_tx.clone();
         let cmd_tx = cmd_tx.clone();
-        move || {
-            let playing = locks::lock(&shared)
-                .as_ref()
-                .is_some_and(|l| l.state.playing);
-            let cmd = if playing {
-                crate::providers::SourceCommand::Pause
-            } else {
-                state::mark_loading(&shared, &update_tx);
-                crate::providers::SourceCommand::Play
-            };
-            let _ = cmd_tx.send(cmd);
-        }
+        move || send_transport(&shared, &update_tx, &cmd_tx, Action::PlayPause)
     });
     ui.on_next_track({
         let shared = shared.clone();
         let update_tx = update_tx.clone();
         let cmd_tx = cmd_tx.clone();
-        move || {
-            if !queue_allowed(&shared) {
-                return;
-            }
-            state::mark_loading(&shared, &update_tx);
-            let _ = cmd_tx.send(crate::providers::SourceCommand::Next);
-        }
+        move || send_transport(&shared, &update_tx, &cmd_tx, Action::Next)
     });
     ui.on_prev_track({
         let shared = shared.clone();
         let update_tx = update_tx.clone();
         let cmd_tx = cmd_tx.clone();
-        move || {
-            if !queue_allowed(&shared) {
-                return;
-            }
-            state::mark_loading(&shared, &update_tx);
-            let _ = cmd_tx.send(crate::providers::SourceCommand::Prev);
-        }
+        move || send_transport(&shared, &update_tx, &cmd_tx, Action::Prev)
     });
-    // queue-level playback options: shuffle toggles, repeat
-    // cycles off → all → one → off (the queue event confirms
-    // with the new state — the UI only renders what MA reports)
+    // playback options: shuffle toggles, repeat cycles
+    // off → all → one → off (the event confirms with the new
+    // state — the UI only renders what MA reports)
     ui.on_shuffle_toggle({
         let shared = shared.clone();
         let cmd_tx = cmd_tx.clone();
         move || {
-            if !queue_allowed(&shared) {
-                return;
+            if let Some(cmd) = route(&shared, Action::Shuffle) {
+                let _ = cmd_tx.send(cmd);
             }
-            let on = locks::lock(&shared)
-                .as_ref()
-                .is_some_and(|l| l.state.shuffle);
-            let _ = cmd_tx.send(crate::providers::SourceCommand::Shuffle(!on));
         }
     });
     ui.on_repeat_cycle({
         let shared = shared.clone();
         let cmd_tx = cmd_tx.clone();
         move || {
-            if !queue_allowed(&shared) {
-                return;
+            if let Some(cmd) = route(&shared, Action::Repeat) {
+                let _ = cmd_tx.send(cmd);
             }
-            let next = locks::lock(&shared)
-                .as_ref()
-                .map(|l| match l.state.repeat {
-                    crate::providers::RepeatMode::Off => crate::providers::RepeatMode::All,
-                    crate::providers::RepeatMode::All => crate::providers::RepeatMode::One,
-                    crate::providers::RepeatMode::One => crate::providers::RepeatMode::Off,
-                })
-                .unwrap_or(crate::providers::RepeatMode::All);
-            let _ = cmd_tx.send(crate::providers::SourceCommand::Repeat(next));
         }
     });
     ui.on_seek({
@@ -102,10 +67,11 @@ pub fn wire(
             let Some(seconds) = seek_position(&live.state, fraction, track_key.as_str()) else {
                 return;
             };
-            if cmd_tx
-                .send(crate::providers::SourceCommand::Seek(seconds))
-                .is_ok()
-            {
+            let Some(cmd) = command(&live.state, Action::Seek(seconds)) else {
+                return;
+            };
+            let queue = live.state.external.is_none();
+            if cmd_tx.send(cmd).is_ok() && queue {
                 live.pending_seek = Some((std::time::Instant::now(), seconds * 1000));
                 live.pending_pos = None;
             }
@@ -129,10 +95,96 @@ pub fn wire(
     });
 }
 
-fn queue_allowed(shared: &Shared) -> bool {
-    locks::lock(shared)
+/// what the transport can ask for
+#[derive(Debug, Clone, Copy)]
+enum Action {
+    PlayPause,
+    Next,
+    Prev,
+    Seek(u64),
+    Shuffle,
+    Repeat,
+}
+
+/// the command for an action, or None when the playing source cannot
+/// do it. On the queue everything is possible and goes to the queue
+/// (next/previous and play/pause are player commands MA resolves
+/// itself); an external source has no queue, so seek, shuffle and
+/// repeat go to the player — and only what its caps allow
+fn command(state: &state::PlayerState, action: Action) -> Option<SourceCommand> {
+    let caps = state.source_caps;
+    let external = state.external.is_some();
+    match action {
+        Action::PlayPause => caps.play_pause.then_some(if state.playing {
+            SourceCommand::Pause
+        } else {
+            SourceCommand::Play
+        }),
+        Action::Next => caps.next_previous.then_some(SourceCommand::Next),
+        Action::Prev => caps.next_previous.then_some(SourceCommand::Prev),
+        Action::Seek(seconds) => caps.seek.then_some(if external {
+            SourceCommand::PlayerSeek(seconds)
+        } else {
+            SourceCommand::Seek(seconds)
+        }),
+        Action::Shuffle => caps.shuffle.then_some(if external {
+            SourceCommand::PlayerShuffle(!state.shuffle)
+        } else {
+            SourceCommand::Shuffle(!state.shuffle)
+        }),
+        Action::Repeat => caps.repeat.then(|| {
+            let next = match state.repeat {
+                RepeatMode::Off => RepeatMode::All,
+                RepeatMode::All => RepeatMode::One,
+                RepeatMode::One => RepeatMode::Off,
+            };
+            if external {
+                SourceCommand::PlayerRepeat(next)
+            } else {
+                SourceCommand::Repeat(next)
+            }
+        }),
+    }
+}
+
+/// `command` on the shared state; a refusal is logged (the buttons
+/// are greyed, so it only comes from the keyboard, ctl or the web)
+fn route(shared: &Shared, action: Action) -> Option<SourceCommand> {
+    let guard = locks::lock(shared);
+    let state = guard
         .as_ref()
-        .is_none_or(|l| queue_transport_allowed(&l.state))
+        .map(|live| live.state.clone())
+        .unwrap_or_default();
+    let cmd = command(&state, action);
+    if cmd.is_none() {
+        tracing::info!(
+            "{action:?} refused: {} cannot do it",
+            state.external.as_deref().unwrap_or("the queue")
+        );
+    }
+    cmd
+}
+
+/// play/pause, next, previous: refused or sent; on the queue the
+/// buttons show the optimistic loading dots until MA confirms (an
+/// external source may keep "playing" through a skip — nothing would
+/// clear them there)
+fn send_transport(
+    shared: &Shared,
+    update_tx: &UpdateTx,
+    cmd_tx: &crate::ui::navigation::CmdTx,
+    action: Action,
+) {
+    let Some(cmd) = route(shared, action) else {
+        return;
+    };
+    let on_queue = locks::lock(shared)
+        .as_ref()
+        .is_none_or(|live| live.state.external.is_none());
+    if on_queue && cmd != SourceCommand::Pause {
+        state::mark_loading(shared, update_tx);
+    }
+    let _ = cmd_tx.send(cmd);
 }
 
 pub fn seek_track_key(state: &state::PlayerState) -> String {
@@ -147,16 +199,9 @@ pub fn seek_track_key(state: &state::PlayerState) -> String {
     )
 }
 
-/// next/prev/shuffle/repeat address MA's queue: with an external
-/// source playing there is none (the buttons grey out; the keyboard,
-/// ctl and web paths end up here too)
-pub(crate) fn queue_transport_allowed(state: &state::PlayerState) -> bool {
-    state.external.is_none()
-}
-
 fn seek_position(state: &state::PlayerState, fraction: f32, track_key: &str) -> Option<u64> {
     if !fraction.is_finite()
-        || state.external.is_some()
+        || !state.source_caps.seek
         || !state.has_media
         || !state.powered
         || state.loading
@@ -172,6 +217,7 @@ fn seek_position(state: &state::PlayerState, fraction: f32, track_key: &str) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::providers::SourceCaps;
     #[test]
     fn seek_clamps_fraction_and_rejects_unknown_media_or_stale_identity() {
         let mut state = state::PlayerState {
@@ -193,20 +239,126 @@ mod tests {
         assert_eq!(seek_position(&state, 0.5, &key), None);
     }
 
-    #[test]
-    fn external_sources_have_no_seek_and_no_queue_transport() {
-        let mut state = state::PlayerState {
+    fn external(caps: SourceCaps) -> state::PlayerState {
+        state::PlayerState {
             has_media: true,
             powered: true,
             duration_ms: 120_000,
             title: "Track".into(),
+            external: Some("Spotify Connect".into()),
+            source_caps: caps,
             ..Default::default()
-        };
+        }
+    }
+
+    fn nothing() -> SourceCaps {
+        SourceCaps {
+            play_pause: false,
+            seek: false,
+            next_previous: false,
+            shuffle: false,
+            repeat: false,
+            passive: true,
+        }
+    }
+
+    #[test]
+    fn the_queue_can_do_everything_and_addresses_the_queue() {
+        let mut state = state::PlayerState::default();
+        assert_eq!(
+            command(&state, Action::PlayPause),
+            Some(SourceCommand::Play)
+        );
+        state.playing = true;
+        assert_eq!(
+            command(&state, Action::PlayPause),
+            Some(SourceCommand::Pause)
+        );
+        assert_eq!(command(&state, Action::Next), Some(SourceCommand::Next));
+        assert_eq!(command(&state, Action::Prev), Some(SourceCommand::Prev));
+        assert_eq!(
+            command(&state, Action::Seek(9)),
+            Some(SourceCommand::Seek(9))
+        );
+        assert_eq!(
+            command(&state, Action::Shuffle),
+            Some(SourceCommand::Shuffle(true))
+        );
+        assert_eq!(
+            command(&state, Action::Repeat),
+            Some(SourceCommand::Repeat(RepeatMode::All))
+        );
+    }
+
+    #[test]
+    fn an_airplay_like_source_refuses_every_control_play_pause_included() {
+        let state = external(nothing());
+        for action in [
+            Action::PlayPause,
+            Action::Next,
+            Action::Prev,
+            Action::Seek(5),
+            Action::Shuffle,
+            Action::Repeat,
+        ] {
+            assert_eq!(command(&state, action), None, "{action:?}");
+        }
+        let key = seek_track_key(&state);
+        assert_eq!(seek_position(&state, 0.5, &key), None);
+    }
+
+    #[test]
+    fn a_spotify_connect_like_source_gets_exactly_its_controls_as_player_commands() {
+        let mut state = external(SourceCaps {
+            play_pause: true,
+            seek: true,
+            next_previous: true,
+            shuffle: false,
+            repeat: false,
+            passive: false,
+        });
+        assert_eq!(
+            command(&state, Action::PlayPause),
+            Some(SourceCommand::Play)
+        );
+        state.playing = true;
+        assert_eq!(
+            command(&state, Action::PlayPause),
+            Some(SourceCommand::Pause)
+        );
+        assert_eq!(command(&state, Action::Next), Some(SourceCommand::Next));
+        assert_eq!(command(&state, Action::Prev), Some(SourceCommand::Prev));
         let key = seek_track_key(&state);
         assert_eq!(seek_position(&state, 0.5, &key), Some(60));
-        assert!(queue_transport_allowed(&state));
-        state.external = Some("AirPlay".into());
-        assert_eq!(seek_position(&state, 0.5, &key), None);
-        assert!(!queue_transport_allowed(&state));
+        assert_eq!(
+            command(&state, Action::Seek(60)),
+            Some(SourceCommand::PlayerSeek(60))
+        );
+        // not offered: refused
+        assert_eq!(command(&state, Action::Shuffle), None);
+        assert_eq!(command(&state, Action::Repeat), None);
+    }
+
+    #[test]
+    fn shuffle_and_repeat_of_an_external_source_go_to_the_player() {
+        let mut state = external(SourceCaps {
+            shuffle: true,
+            repeat: true,
+            ..nothing()
+        });
+        assert_eq!(
+            command(&state, Action::Shuffle),
+            Some(SourceCommand::PlayerShuffle(true))
+        );
+        state.shuffle = true;
+        state.repeat = RepeatMode::One;
+        assert_eq!(
+            command(&state, Action::Shuffle),
+            Some(SourceCommand::PlayerShuffle(false))
+        );
+        assert_eq!(
+            command(&state, Action::Repeat),
+            Some(SourceCommand::PlayerRepeat(RepeatMode::Off))
+        );
     }
 }

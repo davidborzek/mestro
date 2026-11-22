@@ -128,6 +128,45 @@ impl RepeatMode {
     }
 }
 
+/// What the source playing on the player can do, as MA's source list
+/// reports it. The queue can do everything (the default); an
+/// external source only what it says — AirPlay says nothing at all.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SourceCaps {
+    pub play_pause: bool,
+    pub seek: bool,
+    pub next_previous: bool,
+    pub shuffle: bool,
+    pub repeat: bool,
+    /// MA: the source is started from outside, not picked on the player
+    pub passive: bool,
+}
+
+impl Default for SourceCaps {
+    fn default() -> Self {
+        Self {
+            play_pause: true,
+            seek: true,
+            next_previous: true,
+            shuffle: true,
+            repeat: true,
+            passive: false,
+        }
+    }
+}
+
+/// An external source (AirPlay, Spotify Connect, ...) as MA lists it
+/// for the player
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExternalSource {
+    /// MA's listed name without the player suffix: "AirPlay Receiver"
+    pub name: String,
+    pub caps: SourceCaps,
+    /// the source's own ordering state (null in MA's list = off)
+    pub shuffle: bool,
+    pub repeat: RepeatMode,
+}
+
 /// Transport-level command, already resolved (TogglePlay becomes
 /// Play or Pause at the call site — the provider does not know the
 /// current state).
@@ -190,6 +229,11 @@ pub enum SourceCommand {
     Shuffle(bool),
     /// queue-level repeat
     Repeat(RepeatMode),
+    /// the same three on the player itself — what an external
+    /// source answers to, it has no queue
+    PlayerSeek(u64),
+    PlayerShuffle(bool),
+    PlayerRepeat(RepeatMode),
 }
 
 /// Events for the track being displayed — already resolved to the
@@ -219,7 +263,7 @@ pub enum SourceEvent {
     /// now, or None while MA still reports the clock of the previous
     /// track (it lags a skip, like the queue does)
     External {
-        source: String,
+        source: ExternalSource,
         track: Option<TrackMeta>,
         elapsed_sec: Option<f64>,
     },

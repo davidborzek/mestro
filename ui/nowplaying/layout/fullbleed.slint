@@ -1,4 +1,4 @@
-import { RepeatMode } from "../../common.slint";
+import { RepeatMode, TransportCaps } from "../../common.slint";
 import { TransportRow } from "../transport.slint";
 import { NpMetadata } from "../metadata.slint";
 
@@ -40,6 +40,7 @@ export component FullbleedLayout {
     in property <RepeatMode> repeat: RepeatMode.off;
     // the external source's name (AirPlay, ...), empty = the MA queue
     in property <string> external-source;
+    in property <TransportCaps> caps;
     // the cluster's available width, passed from the caller:
     // reading own width for the wrap decision is a binding loop
     // (the cluster layout feeds the very width it would measure)
@@ -141,7 +142,7 @@ export component FullbleedLayout {
                     loading-opacity: root.loading-opacity;
                     shuffle: root.shuffle;
                     repeat: root.repeat;
-                    queue-controls: root.external-source == "";
+                    caps: root.caps;
                     toggle-play => {
                         root.toggle-play();
                     }
@@ -206,7 +207,7 @@ export component FullbleedLayout {
                         loading-opacity: root.loading-opacity;
                         shuffle: root.shuffle;
                         repeat: root.repeat;
-                        queue-controls: root.external-source == "";
+                        caps: root.caps;
                         toggle-play => {
                             root.toggle-play();
                         }

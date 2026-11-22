@@ -10,7 +10,7 @@
 //!
 //!   MESTRO_SNAPSHOT_DIR=/tmp/shots cargo test --test external_source_snapshot -- --ignored
 
-use mestro::Mestro;
+use mestro::{Mestro, TransportCaps};
 use slint::platform::software_renderer::{MinimalSoftwareWindow, RepaintBufferType};
 use slint::platform::{Platform, WindowAdapter};
 use slint::ComponentHandle;
@@ -107,8 +107,15 @@ fn now_playing_while_airplay_plays() {
     queue.save(dir.join("np-queue.png")).unwrap();
 
     // AirPlay: the same screen, the source named, queue-bound things off
-    ui.set_external_source("AirPlay".into());
+    ui.set_external_source("AirPlay Receiver".into());
     ui.set_can_seek(false);
+    // AirPlay reports every capability false: play-pause greys out too
+    ui.set_transport_caps(TransportCaps {
+        play_pause: false,
+        next_previous: false,
+        shuffle: false,
+        repeat: false,
+    });
     let external = render(&window);
     external.save(dir.join("np-external-side.png")).unwrap();
 
@@ -122,8 +129,18 @@ fn now_playing_while_airplay_plays() {
         via(&queue)
     );
 
+    // the round play button: accent fill on the queue, the bar colour
+    // once the source reports can_play_pause = false
+    let play = |img: &image::RgbImage| count(img, 460, 322, 120, 50, 140, 255);
+    assert!(
+        play(&external) + 200 < play(&queue),
+        "play-pause did not grey out: {} vs {}",
+        play(&external),
+        play(&queue)
+    );
+
     // the queue-bound glyphs (shuffle, previous | next, repeat) drop from
-    // text-dim to text-mute; the round play button stays lit
+    // text-dim to text-mute
     let glyphs = |img: &image::RgbImage| {
         count(img, 340, 325, 120, 45, 140, 255) + count(img, 575, 325, 130, 45, 140, 255)
     };
@@ -134,6 +151,26 @@ fn now_playing_while_airplay_plays() {
         bright(&external),
         bright(&queue)
     );
+
+    // a source that skips and seeks (Spotify Connect): those two come
+    // back, the rest stays grey
+    ui.set_transport_caps(TransportCaps {
+        play_pause: true,
+        next_previous: true,
+        shuffle: false,
+        repeat: false,
+    });
+    ui.set_can_seek(true);
+    render(&window)
+        .save(dir.join("np-external-spotify-like.png"))
+        .unwrap();
+    ui.set_transport_caps(TransportCaps {
+        play_pause: false,
+        next_previous: false,
+        shuffle: false,
+        repeat: false,
+    });
+    ui.set_can_seek(false);
 
     // fullbleed shares the greyed row
     ui.set_np_layout(1);

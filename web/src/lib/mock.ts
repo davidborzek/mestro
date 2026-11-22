@@ -86,6 +86,14 @@ const state: RemoteState = {
     has_media: params.get("state") !== "nothing",
     // /?mock&source=AirPlay shows the external-source remote
     source: params.get("source") ?? "",
+    // an external source lists what it can do; AirPlay: nothing
+    source_caps: {
+      play_pause: !params.get("source"),
+      seek: !params.get("source"),
+      next_previous: !params.get("source"),
+      shuffle: !params.get("source"),
+      repeat: !params.get("source"),
+    },
     volume: 42,
     title: params.has("long") ? LONG_TITLE : "Nights",
     artist: params.has("long") ? LONG_ARTIST : "Frank Ocean",
@@ -377,8 +385,13 @@ class MockSocket {
       }
       case "ctl": {
         const cmd = request.cmd as CtlCmd;
-        if (cmd === "play-pause") state.player.playing = !state.player.playing;
-        else if (cmd === "now-playing")
+        if (cmd === "play-pause") {
+          if (!state.player.source_caps?.play_pause) {
+            respond(false, `play-pause is not available while ${state.player.source} plays`);
+            return;
+          }
+          state.player.playing = !state.player.playing;
+        } else if (cmd === "now-playing")
           state.view = { ...state.view, now_playing: true, queue: false, vu: false };
         else if (cmd === "queue") {
           if (state.player.source) {

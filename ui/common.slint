@@ -7,6 +7,15 @@ export enum Page { hub, library, lyrics, search, settings }
 // queue-level repeat state as MA reports it (player_queues/repeat)
 export enum RepeatMode { off, all, one }
 
+// what the playing source lets the transport do (MA's source list:
+// can_play_pause, can_seek, ...) — the buttons it cannot do grey out
+export struct TransportCaps {
+    play-pause: bool,
+    next-previous: bool,
+    shuffle: bool,
+    repeat: bool,
+}
+
 // one entry of a manifest skin's dial layer stack (see
 // skins/…/manifest.toml and ui/vu/svgskin.slint). kind:
 // 0 = image art, 1 = engine glow wash, 2 = needle (rotated

@@ -1,4 +1,4 @@
-import { Theme, Page, RepeatMode } from "common.slint";
+import { Theme, Page, RepeatMode, TransportCaps } from "common.slint";
 import { ConnectionBanner } from "connection.slint";
 import { SearchPage } from "search.slint";
 import { SettingsView } from "settings.slint";
@@ -212,6 +212,7 @@ export component Mestro inherits Window {
     // empty = the MA queue: queue-bound controls and the queue
     // view are off while it is set
     in property <string> external-source;
+    in property <TransportCaps> transport-caps: { play-pause: true, next-previous: true, shuffle: true, repeat: true };
     private property <bool> backdrop-visible: root.backdrop-enabled && root.has-media && !root.cover-missing;
     in property <bool> backdrop-enabled;
     in property <bool> clock-analog;
@@ -913,6 +914,7 @@ export component Mestro inherits Window {
                     has-media: root.has-media;
                     cover-missing: root.cover-missing;
                     external-source: root.external-source;
+                    transport-caps: root.transport-caps;
                     playing: root.playing;
                     loading: root.loading;
                     loading-opacity: root.loading-opacity;

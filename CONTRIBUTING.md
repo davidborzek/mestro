@@ -144,7 +144,12 @@ WebSocket API elsewhere:
   the elapsed clock on a skip; `image_url` is MA's public hostname
   with `size=0`. `current_media` is read ONLY while the source is
   external (`src/providers/ma/external.rs`); on the queue it lags and
-  stays ignored. Fixtures: `tests/fixtures/ma/`
+  stays ignored. The source's list entry also says what it can do
+  (`can_play_pause`, `can_seek`, `can_next_previous`, `can_shuffle`,
+  `can_repeat`, `passive`; AirPlay: all false, passive) — the
+  transport greys out the rest, and what stays goes to MA as
+  `players/cmd/{play,pause,next,previous,seek,shuffle,repeat}`, never
+  to `player_queues/*`. Fixtures: `tests/fixtures/ma/`
 - queue lists must be fetched via `player_queues/items`;
   `queue_updated` carries only an item *count*, and a cleared queue
   arrives *without* `current_item`
