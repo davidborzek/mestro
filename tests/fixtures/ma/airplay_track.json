@@ -1,0 +1,175 @@
+{
+ "data": {
+  "active_group": null,
+  "active_output_protocol": "native",
+  "active_sound_mode": null,
+  "active_source": "airplay_receiver://audio_source/02:00:00:00:00:01",
+  "active_source_audio": {
+   "crossfade_mode": "unknown",
+   "input_fidelity": {
+    "bit_perfect": null,
+    "quality": "lossless"
+   },
+   "input_format": {
+    "bit_depth": 16,
+    "bit_rate": 0,
+    "channels": 2,
+    "codec_type": "alac",
+    "content_type": "alac",
+    "output_format_str": "alac",
+    "sample_rate": 44100
+   },
+   "outputs": [
+    {
+     "dsp": {
+      "filters": [],
+      "input_gain": 0.0,
+      "output_gain": 0.0,
+      "preset_id": null,
+      "state": "disabled"
+     },
+     "fidelity": {
+      "bit_perfect": true,
+      "quality": "lossless"
+     },
+     "output_format": {
+      "bit_depth": 16,
+      "bit_rate": 1411,
+      "channels": 2,
+      "codec_type": "?",
+      "content_type": "wav",
+      "output_format_str": "wav;rate=44100;bitrate=16;channels=2",
+      "sample_rate": 44100
+     },
+     "player_ids": [
+      "02:00:00:00:00:01"
+     ],
+     "source_channel": null
+    }
+   ],
+   "volume_normalization_mode": "unknown"
+  },
+  "available": true,
+  "can_group_with": [],
+  "current_media": {
+   "album": "Stand by Me",
+   "album_artist": null,
+   "artist": "Ben E. King",
+   "custom_data": null,
+   "duration": 179,
+   "elapsed_time": 0,
+   "elapsed_time_last_updated": 1795350805.2879329,
+   "image_url": "http://ma.local:8095/imageproxy/7c47ad991a1d0d057e5952472824556d2fd55efcd016123ca8e99ec723be0704?size=0&fmt=jpg",
+   "media_type": "audio_source",
+   "palette": null,
+   "queue_item_id": null,
+   "source_id": "02:00:00:00:00:01",
+   "stream_duration": null,
+   "title": "Stand by Me",
+   "uri": "airplay_receiver://audio_source/02:00:00:00:00:01"
+  },
+  "device_info": {
+   "identifiers": {
+    "ip_address": "192.0.2.10",
+    "mac_address": "02:00:00:00:00:01"
+   },
+   "ip_address": "192.0.2.10",
+   "mac_address": "02:00:00:00:00:01",
+   "manufacturer": "squeezeplay",
+   "manufacturer_id": null,
+   "model": "SqueezeLite",
+   "model_id": null,
+   "software_version": null
+  },
+  "display_name": "HiFi",
+  "elapsed_time": 0,
+  "elapsed_time_last_updated": 1795350805.2879329,
+  "enabled": true,
+  "expose_to_ha": true,
+  "extra_attributes": {},
+  "extra_data": {},
+  "group_childs": [],
+  "group_members": [],
+  "group_volume": 0,
+  "group_volume_muted": false,
+  "has_setup_flow": false,
+  "hide_in_ui": false,
+  "hide_player_in_ui": [
+   "when_unavailable",
+   "when_synced",
+   "when_group_active"
+  ],
+  "icon": "speaker",
+  "mute_control": "media_player.wohnzimmer_verstarker",
+  "name": "HiFi",
+  "needs_setup": false,
+  "options": [],
+  "output_protocols": [
+   {
+    "available": true,
+    "derived_from": null,
+    "is_native": true,
+    "name": "Squeezelite",
+    "output_protocol_id": "native",
+    "priority": 0,
+    "protocol_domain": "squeezelite"
+   }
+  ],
+  "playback_state": "playing",
+  "player_id": "02:00:00:00:00:01",
+  "power_control": "native",
+  "powered": true,
+  "private": false,
+  "provider": "squeezelite",
+  "setup_reason": null,
+  "sleep_timer_expires_at": null,
+  "sound_mode_list": [],
+  "source_list": [
+   {
+    "account_id": null,
+    "can_next_previous": true,
+    "can_play_pause": true,
+    "can_repeat": false,
+    "can_seek": true,
+    "can_shuffle": false,
+    "id": "02:00:00:00:00:01",
+    "name": "Music Assistant Queue",
+    "passive": false,
+    "repeat_mode": null,
+    "shuffle_enabled": null
+   },
+   {
+    "account_id": null,
+    "can_next_previous": false,
+    "can_play_pause": false,
+    "can_repeat": false,
+    "can_seek": false,
+    "can_shuffle": false,
+    "id": "airplay_receiver://audio_source/02:00:00:00:00:01",
+    "name": "AirPlay Receiver (HiFi)",
+    "passive": true,
+    "repeat_mode": null,
+    "shuffle_enabled": null
+   }
+  ],
+  "state": "playing",
+  "static_group_members": [],
+  "supported_features": [
+   "set_members",
+   "multi_device_dsp",
+   "play_media",
+   "volume_mute",
+   "pause",
+   "enqueue",
+   "gapless_playback",
+   "power"
+  ],
+  "synced_to": null,
+  "type": "player",
+  "volume_control": "none",
+  "volume_level": null,
+  "volume_muted": false
+ },
+ "event": "player_updated",
+ "object_id": "02:00:00:00:00:01"
+}

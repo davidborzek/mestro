@@ -206,6 +206,22 @@ pub enum SourceEvent {
     /// for it (natural advances can surface long after the track
     /// actually started, so always trust the carried position)
     Track { track: TrackMeta, elapsed_sec: f64 },
+    /// the player plays an external source (AirPlay, Spotify
+    /// Connect, ...): the queue is silent and the player's own
+    /// metadata is the only truth. `track` None = no metadata yet
+    /// (MA's placeholder titles are already dropped). Repeats on
+    /// every change while the source runs. `elapsed_sec` is the position
+    /// now, or None while MA still reports the clock of the previous
+    /// track (it lags a skip, like the queue does)
+    External {
+        source: String,
+        track: Option<TrackMeta>,
+        elapsed_sec: Option<f64>,
+    },
+    /// the player is back on the queue: ends External. The queue's
+    /// own Track/Position/Queue events re-seed the display right
+    /// after (the provider requests them)
+    ExternalEnded,
     /// position correction for the current track
     Position(f64),
     /// full queue snapshot; current_index points at the playing

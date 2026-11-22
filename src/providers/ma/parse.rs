@@ -5,8 +5,10 @@ use crate::providers::{MediaEntry, QueueItem, RepeatMode, TrackMeta};
 use serde_json::Value;
 
 /// Per-player identity and transport for discovery/auto-pick.
-/// Player-side metadata (current_media) is deliberately NOT parsed:
-/// it lags behind the queue during a skip and must never reach the UI.
+/// Player-side metadata (current_media) lags behind the queue during
+/// a skip and must never reach the UI: it is read ONLY while the
+/// player plays an external source (`source`), where the queue is
+/// silent and current_media is the one place that knows the track.
 pub(super) struct PlayerSnapshot {
     pub(super) player_id: String,
     pub(super) name: String,
@@ -15,6 +17,59 @@ pub(super) struct PlayerSnapshot {
     pub(super) powered: bool,
     pub(super) available: bool,
     pub(super) has_media: bool,
+    pub(super) source: PlayerSource,
+}
+
+/// what the player plays out of, from its `active_source`
+// ExternalMedia carries a whole TrackMeta; snapshots are consumed
+// right away, boxing would only add an allocation per event
+#[allow(clippy::large_enum_variant)]
+pub(super) enum PlayerSource {
+    /// MA's own queue (active_source is a queue id, not a source
+    /// URI): queue events own the metadata, current_media is never
+    /// read
+    Queue,
+    /// an external source (AirPlay, Spotify Connect, ...)
+    External(ExternalMedia),
+}
+
+/// current_media of a player running an external source
+pub(super) struct ExternalMedia {
+    /// display name of the source: "AirPlay", "Spotify Connect", ...
+    pub(super) source: String,
+    /// None = no metadata yet (absent, or MA's placeholder title)
+    pub(super) track: Option<TrackMeta>,
+    /// current_media.elapsed_time, as of `elapsed_updated`
+    pub(super) elapsed_sec: f64,
+    /// unix time of that reading, 0 = not reported
+    elapsed_updated: f64,
+}
+
+impl ExternalMedia {
+    /// identifies one reading of MA's external clock: it changes
+    /// only when MA writes a new elapsed_time, so an unchanged key
+    /// after a skip means the clock still belongs to the old track
+    pub(super) fn reading_key(&self) -> (u64, u64) {
+        (self.elapsed_sec.to_bits(), self.elapsed_updated.to_bits())
+    }
+
+    /// the position now: MA stamps elapsed_time with the time it was
+    /// true and does not tick it, so a playing source is carried
+    /// forward by the reading's age — when that age is plausible
+    /// (stamped, not from the future, within the track's length;
+    /// the two machines' clocks are not trusted further)
+    pub(super) fn position_at(&self, now_unix: f64, playing: bool) -> f64 {
+        let duration = self
+            .track
+            .as_ref()
+            .map_or(0.0, |track| track.duration_ms as f64 / 1000.0);
+        let age = now_unix - self.elapsed_updated;
+        if playing && self.elapsed_updated > 0.0 && age > 0.0 && age <= duration {
+            (self.elapsed_sec + age).min(duration)
+        } else {
+            self.elapsed_sec
+        }
+    }
 }
 
 /// Typed push events from the MA socket (provider-internal; the
@@ -229,7 +284,7 @@ pub(super) fn parse_queue_item(v: &Value, img_base: &str) -> Option<QueueItem> {
     })
 }
 
-pub(super) fn parse_player(v: &Value) -> Option<PlayerSnapshot> {
+pub(super) fn parse_player(v: &Value, img_base: &str) -> Option<PlayerSnapshot> {
     Some(PlayerSnapshot {
         player_id: str_at(v, &["player_id"]),
         name: str_at(v, &["name"]),
@@ -248,7 +303,103 @@ pub(super) fn parse_player(v: &Value) -> Option<PlayerSnapshot> {
             .get("current_media")
             .map(|m| !m.is_null())
             .unwrap_or(false),
+        source: parse_source(v, img_base),
     })
+}
+
+/// The display name of an external source from the URI scheme of
+/// `active_source` ("airplay_receiver://audio_source/<id>"); None
+/// for anything that is not a source URI — a queue id.
+fn source_name(active_source: &str) -> Option<String> {
+    let (scheme, _) = active_source.split_once("://")?;
+    match scheme {
+        "" => None,
+        "airplay_receiver" => Some("AirPlay".to_string()),
+        "spotify_connect" => Some("Spotify Connect".to_string()),
+        // unknown sources: the scheme, prettified ("line_in" -> "Line In")
+        other => Some(
+            other
+                .split(['_', '-'])
+                .filter(|word| !word.is_empty())
+                .map(|word| {
+                    let mut chars = word.chars();
+                    chars
+                        .next()
+                        .map(|first| first.to_uppercase().chain(chars).collect::<String>())
+                        .unwrap_or_default()
+                })
+                .collect::<Vec<_>>()
+                .join(" "),
+        ),
+    }
+}
+
+/// Queue unless `active_source` is a source URI; then the player's
+/// current_media is the external track.
+fn parse_source(v: &Value, img_base: &str) -> PlayerSource {
+    let active_source = str_at(v, &["active_source"]);
+    let Some(source) = source_name(&active_source) else {
+        return PlayerSource::Queue;
+    };
+    let media = v.get("current_media").unwrap_or(&Value::Null);
+    // MA's own name for the active source ("AirPlay Receiver (HiFi)")
+    // is what its placeholder title says
+    let listed_name = v
+        .get("source_list")
+        .and_then(|list| list.as_array())
+        .and_then(|list| {
+            list.iter()
+                .find(|entry| entry.get("id").and_then(|id| id.as_str()) == Some(&active_source))
+        })
+        .and_then(|entry| entry.get("name"))
+        .and_then(|name| name.as_str());
+    let title = str_at(media, &["title"]);
+    let image_url = str_at(media, &["image_url"]);
+    // MA fills current_media with the source's own name (and later a
+    // "<source> | <player> | Music Assistant" string) until the first
+    // real track arrives; those carry no artwork
+    let placeholder = image_url.is_empty()
+        && (listed_name == Some(title.as_str())
+            || title.contains("| Music Assistant")
+            || title.starts_with(&format!("{source} Receiver")));
+    let track = (!title.is_empty() && !placeholder).then(|| TrackMeta {
+        title,
+        artist: str_at(media, &["artist"]),
+        album: str_at(media, &["album"]),
+        image_url: rebase_image_url(&image_url, img_base),
+        duration_ms: (media
+            .get("duration")
+            .and_then(|d| d.as_f64())
+            .unwrap_or(0.0)
+            * 1000.0) as u64,
+        ..Default::default()
+    });
+    PlayerSource::External(ExternalMedia {
+        source,
+        track,
+        elapsed_sec: media
+            .get("elapsed_time")
+            .and_then(|t| t.as_f64())
+            .unwrap_or(0.0),
+        elapsed_updated: media
+            .get("elapsed_time_last_updated")
+            .and_then(|t| t.as_f64())
+            .unwrap_or(0.0),
+    })
+}
+
+/// current_media carries a ready-made imageproxy URL on MA's public
+/// hostname with size=0 (the original). Fetch it the way queue
+/// covers are fetched: through the configured MA host, at cover size.
+fn rebase_image_url(url: &str, img_base: &str) -> String {
+    let Some((_, rest)) = url.split_once("/imageproxy/") else {
+        return url.to_string();
+    };
+    let proxy_id = rest.split('?').next().unwrap_or(rest);
+    if proxy_id.is_empty() {
+        return url.to_string();
+    }
+    format!("{img_base}/imageproxy/{proxy_id}?size=512&fmt=jpg")
 }
 
 /// Extract the queue-owned metadata from a queue item (current_item).
@@ -403,7 +554,7 @@ pub(super) fn parse_event(v: &Value, img_base: &str) -> Option<MaEvent> {
         "player_updated" => {
             let data = v.get("data").cloned().unwrap_or(Value::Null);
             let player = data.get("player").unwrap_or(&data);
-            Some(MaEvent::Player(parse_player(player)?))
+            Some(MaEvent::Player(parse_player(player, img_base)?))
         }
         "queue_time_updated" => {
             let elapsed_sec = v.get("data").and_then(|d| d.as_f64())?;
@@ -480,4 +631,193 @@ pub(super) fn parse_active_queue(v: &Value, img_base: &str) -> Option<ActiveQueu
         shuffle,
         repeat,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const BASE: &str = "http://ma.test:8095";
+
+    fn fixture(json: &str) -> Value {
+        let frame: Value = serde_json::from_str(json).unwrap();
+        frame["data"].clone()
+    }
+
+    fn placeholder() -> Value {
+        fixture(include_str!(
+            "../../../tests/fixtures/ma/airplay_placeholder.json"
+        ))
+    }
+
+    fn airplay_track() -> Value {
+        fixture(include_str!(
+            "../../../tests/fixtures/ma/airplay_track.json"
+        ))
+    }
+
+    fn queue_back() -> Value {
+        fixture(include_str!("../../../tests/fixtures/ma/queue_back.json"))
+    }
+
+    fn external(v: &Value) -> ExternalMedia {
+        match parse_player(v, BASE).unwrap().source {
+            PlayerSource::External(media) => media,
+            PlayerSource::Queue => panic!("expected an external source"),
+        }
+    }
+
+    #[test]
+    fn an_airplay_track_is_read_from_current_media() {
+        let media = external(&airplay_track());
+        assert_eq!(media.source, "AirPlay");
+        let track = media.track.unwrap();
+        assert_eq!(track.title, "Stand by Me");
+        assert_eq!(track.artist, "Ben E. King");
+        assert_eq!(track.album, "Stand by Me");
+        assert_eq!(track.duration_ms, 179_000);
+        assert_eq!(media.elapsed_sec, 0.0);
+        assert!((media.elapsed_updated - 1795350805.2879329).abs() < 1e-6);
+    }
+
+    #[test]
+    fn the_cover_loads_through_the_configured_host_at_cover_size() {
+        // current_media ships MA's public hostname and size=0
+        let track = external(&airplay_track()).track.unwrap();
+        assert_eq!(
+            track.image_url,
+            "http://ma.test:8095/imageproxy/7c47ad991a1d0d057e5952472824556d2fd55efcd016123ca8e99ec723be0704?size=512&fmt=jpg"
+        );
+    }
+
+    #[test]
+    fn the_airplay_placeholder_is_no_metadata_yet() {
+        let media = external(&placeholder());
+        assert_eq!(media.source, "AirPlay");
+        assert!(media.track.is_none());
+    }
+
+    #[test]
+    fn the_music_assistant_suffix_title_is_a_placeholder_without_artwork() {
+        let mut v = placeholder();
+        v["current_media"]["title"] = "AirPlay | HiFi | Music Assistant".into();
+        assert!(external(&v).track.is_none());
+    }
+
+    #[test]
+    fn a_title_with_artwork_is_never_a_placeholder() {
+        let mut v = airplay_track();
+        v["current_media"]["title"] = "AirPlay Receiver (HiFi)".into();
+        assert!(external(&v).track.is_some());
+    }
+
+    #[test]
+    fn a_title_equal_to_the_listed_source_name_is_a_placeholder() {
+        // generic: any source whose placeholder is its own name
+        // in the player's source_list
+        let mut v = placeholder();
+        v["active_source"] = "spotify_connect://audio_source/x".into();
+        v["source_list"][1]["id"] = "spotify_connect://audio_source/x".into();
+        v["source_list"][1]["name"] = "Spotify Connect (HiFi)".into();
+        v["current_media"]["title"] = "Spotify Connect (HiFi)".into();
+        assert!(external(&v).track.is_none());
+    }
+
+    #[test]
+    fn a_missing_current_media_is_no_metadata_yet() {
+        let mut v = placeholder();
+        v["current_media"] = Value::Null;
+        let media = external(&v);
+        assert!(media.track.is_none());
+        assert_eq!(media.elapsed_updated, 0.0);
+    }
+
+    #[test]
+    fn a_track_without_artwork_has_an_empty_image_url() {
+        let mut v = airplay_track();
+        v["current_media"]["image_url"] = Value::Null;
+        assert_eq!(external(&v).track.unwrap().image_url, "");
+    }
+
+    #[test]
+    fn the_queue_as_active_source_never_reads_current_media() {
+        // the stale current_media (Teardrop) must not surface: the
+        // queue owns the metadata
+        let snapshot = parse_player(&queue_back(), BASE).unwrap();
+        assert!(matches!(snapshot.source, PlayerSource::Queue));
+        assert!(snapshot.has_media);
+    }
+
+    #[test]
+    fn queue_ids_and_missing_sources_are_the_queue() {
+        for active in [
+            "",
+            "02:00:00:00:00:01",
+            "fAmSz7AIRKWlePCgtK3ZflTQD3N6Lcrqi7ZxzPMkFGw",
+        ] {
+            let mut v = airplay_track();
+            v["active_source"] = active.into();
+            assert!(
+                matches!(parse_player(&v, BASE).unwrap().source, PlayerSource::Queue),
+                "{active:?}"
+            );
+        }
+        let mut v = airplay_track();
+        v.as_object_mut().unwrap().remove("active_source");
+        assert!(matches!(
+            parse_player(&v, BASE).unwrap().source,
+            PlayerSource::Queue
+        ));
+    }
+
+    #[test]
+    fn source_labels_come_from_the_uri_scheme() {
+        for (uri, label) in [
+            ("airplay_receiver://audio_source/x", "AirPlay"),
+            ("spotify_connect://audio_source/x", "Spotify Connect"),
+            ("line_in://audio_source/x", "Line In"),
+            ("dlna-renderer://x", "Dlna Renderer"),
+        ] {
+            assert_eq!(source_name(uri).as_deref(), Some(label), "{uri}");
+        }
+        assert_eq!(source_name("://x"), None);
+        assert_eq!(source_name("plain-queue-id"), None);
+    }
+
+    #[test]
+    fn a_playing_reading_is_carried_forward_by_its_age() {
+        // 0 s of a 179 s track, stamped at 1795350805.29
+        let media = external(&airplay_track());
+        let stamp = 1795350805.2879329;
+        assert!((media.position_at(stamp + 30.0, true) - 30.0).abs() < 1e-6);
+        // paused: frozen where MA left it
+        assert_eq!(media.position_at(stamp + 30.0, false), 0.0);
+        // a stamp from the future (clock skew) is taken as is
+        assert_eq!(media.position_at(stamp - 5.0, true), 0.0);
+        // older than the track is long: a frozen clock, not a position
+        assert_eq!(media.position_at(stamp + 500.0, true), 0.0);
+        // never past the end
+        assert_eq!(media.position_at(stamp + 179.0, true), 179.0);
+    }
+
+    #[test]
+    fn unstamped_readings_and_unknown_durations_are_taken_as_is() {
+        let mut v = airplay_track();
+        v["current_media"]["elapsed_time"] = 7.into();
+        v["current_media"]["elapsed_time_last_updated"] = Value::Null;
+        assert_eq!(external(&v).position_at(1795350900.0, true), 7.0);
+        // the placeholder has no track, hence no duration
+        let media = external(&placeholder());
+        assert_eq!(media.position_at(1795350321.0 + 10.0, true), 62.0);
+    }
+
+    #[test]
+    fn the_reading_key_changes_only_with_a_new_reading() {
+        let a = external(&airplay_track());
+        let same = external(&airplay_track());
+        assert_eq!(a.reading_key(), same.reading_key());
+        let mut v = airplay_track();
+        v["current_media"]["elapsed_time_last_updated"] = 1795350900.5.into();
+        assert_ne!(a.reading_key(), external(&v).reading_key());
+    }
 }
