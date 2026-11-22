@@ -21,6 +21,21 @@ const ID_FILE: &str = "device-id";
 /// not writable the id derives from the hostname instead: stable
 /// across restarts as well
 pub(crate) fn device_id(net_class: &Path, state_dir: &Path, hostname: &str) -> String {
+    physical_mac_id(net_class).unwrap_or_else(|| persisted_id(&state_dir.join(ID_FILE), hostname))
+}
+
+/// the device's own Music Assistant player id: squeezelite registers
+/// with the MAC of its interface, in MA's lowercase colon form. Only a
+/// real MAC counts, never the random or hostname fallback of
+/// [`device_id`] — that would match nothing and pretend otherwise
+pub(crate) fn own_player_id(net_class: &Path) -> Option<String> {
+    let id = physical_mac_id(net_class)?;
+    let pairs: Vec<&str> = (0..id.len()).step_by(2).map(|i| &id[i..i + 2]).collect();
+    Some(pairs.join(":"))
+}
+
+/// the first physical interface (by name) with a real MAC, as 12 hex chars
+fn physical_mac_id(net_class: &Path) -> Option<String> {
     let mut names: Vec<_> = std::fs::read_dir(net_class)
         .map(|dir| dir.flatten().map(|e| e.file_name()).collect())
         .unwrap_or_default();
@@ -29,7 +44,6 @@ pub(crate) fn device_id(net_class: &Path, state_dir: &Path, hostname: &str) -> S
         .iter()
         .filter(|name| net_class.join(name).join("device").exists())
         .find_map(|name| mac_id(&net_class.join(name).join("address")))
-        .unwrap_or_else(|| persisted_id(&state_dir.join(ID_FILE), hostname))
 }
 
 /// one `address` file as an id: 6 hex pairs, not all zero
@@ -151,6 +165,25 @@ mod tests {
             ("wlan0", "D8:3A:DD:77:34:56", true),
         ]);
         assert_eq!(device_id(root.path(), &state(), HOST), "d83add773455");
+    }
+
+    #[test]
+    fn the_own_player_id_is_the_physical_mac_in_colon_form() {
+        let root = tree(&[
+            ("br0", "02:00:00:00:00:01", false),
+            ("eth0", "D8:3A:DD:BC:6B:EC", true),
+        ]);
+        assert_eq!(
+            own_player_id(root.path()).as_deref(),
+            Some("d8:3a:dd:bc:6b:ec")
+        );
+    }
+
+    #[test]
+    fn without_a_physical_interface_there_is_no_own_player_id() {
+        let root = tree(&[("lo", "00:00:00:00:00:00", false)]);
+        assert_eq!(own_player_id(root.path()), None);
+        assert_eq!(own_player_id(Path::new("/nonexistent")), None);
     }
 
     #[test]

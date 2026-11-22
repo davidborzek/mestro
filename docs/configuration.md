@@ -99,7 +99,7 @@ backlight = "auto"          # auto | firmware | sysfs | none
 ```toml
 [music-assistant]
 url = "ws://ma.example.com:8095/ws"
-player = "Living Room"      # empty = the one playing
+player = "Living Room"      # empty = the device's own squeezelite, else the first playing/available player
 # token = "…"               # usually written by the web app
 ```
 

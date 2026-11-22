@@ -870,6 +870,7 @@ mod tests {
             ws_url: String::new(),
             token: String::new(),
             player_name: "wohnzimmer".into(),
+            own_player_id: None,
         }));
         crate::remote::web::Push::new(events.clone(), ma_cfg, "wohnzimmer").publish_snapshot();
         tokio::runtime::Builder::new_current_thread()
