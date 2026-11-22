@@ -206,6 +206,11 @@ pub enum SourceEvent {
     /// for it (natural advances can surface long after the track
     /// actually started, so always trust the carried position)
     Track { track: TrackMeta, elapsed_sec: f64 },
+    /// the queue's own answer to what plays (the active-queue reply):
+    /// authoritative, so the replay guard never rejects it — and it
+    /// re-arms the guard against the item shown before it, which a
+    /// late `queue_updated` may still replay
+    QueueSeed { track: TrackMeta, elapsed_sec: f64 },
     /// the player plays an external source (AirPlay, Spotify
     /// Connect, ...): the queue is silent and the player's own
     /// metadata is the only truth. `track` None = no metadata yet
@@ -220,7 +225,7 @@ pub enum SourceEvent {
     },
     /// the player is back on the queue: ends External. The queue's
     /// own Track/Position/Queue events re-seed the display right
-    /// after (the provider requests them)
+    /// after (the provider requests them, as a `QueueSeed`)
     ExternalEnded,
     /// position correction for the current track
     Position(f64),
