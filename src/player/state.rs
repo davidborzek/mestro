@@ -150,11 +150,11 @@ pub struct Live {
 }
 
 impl Live {
-    pub(crate) fn new(state: PlayerState) -> Self {
+    pub(crate) fn new(state: PlayerState, now: Instant) -> Self {
         Self {
             state,
-            at: Instant::now(),
-            created_at: Instant::now(),
+            at: now,
+            created_at: now,
             loading_since: None,
             pending_pos: None,
             pending_seek: None,
@@ -183,6 +183,7 @@ pub fn apply_transport(
     playing: bool,
     volume: i32,
     powered: bool,
+    now: Instant,
 ) {
     let (st, toast, osd_volume) = {
         let mut g = locks::lock(shared);
@@ -202,7 +203,7 @@ pub fn apply_transport(
                 let mut osd_volume = None;
                 if volume != live.state.volume {
                     let echo = live.volume_local.is_some_and(|(at, v)| {
-                        at.elapsed() < Duration::from_secs(4) && v == volume
+                        now.saturating_duration_since(at) < Duration::from_secs(4) && v == volume
                     });
                     if echo {
                         live.volume_local = None;
@@ -219,7 +220,7 @@ pub fn apply_transport(
                     live.state.loading = false;
                     live.loading_since = None;
                 }
-                live.at = Instant::now();
+                live.at = now;
                 (live.state.clone(), toast, osd_volume)
             }
             None => {
@@ -229,7 +230,7 @@ pub fn apply_transport(
                     powered,
                     ..Default::default()
                 };
-                *g = Some(Live::new(state.clone()));
+                *g = Some(Live::new(state.clone(), now));
                 (state, None, None)
             }
         }
@@ -247,7 +248,13 @@ pub fn apply_transport(
 /// shuffle/repeat state off a queue event → the transport + queue
 /// header buttons. Same channel discipline: the UI applies the
 /// state on its own thread.
-pub fn apply_options(shared: &Shared, update_tx: &UpdateTx, shuffle: bool, repeat: RepeatMode) {
+pub fn apply_options(
+    shared: &Shared,
+    update_tx: &UpdateTx,
+    shuffle: bool,
+    repeat: RepeatMode,
+    now: Instant,
+) {
     let st = {
         let mut g = locks::lock(shared);
         match g.as_mut() {
@@ -258,7 +265,7 @@ pub fn apply_options(shared: &Shared, update_tx: &UpdateTx, shuffle: bool, repea
                 }
                 live.state.shuffle = shuffle;
                 live.state.repeat = repeat;
-                live.at = Instant::now();
+                live.at = now;
                 live.state.clone()
             }
             None => {
@@ -267,7 +274,7 @@ pub fn apply_options(shared: &Shared, update_tx: &UpdateTx, shuffle: bool, repea
                     repeat,
                     ..Default::default()
                 };
-                *g = Some(Live::new(state.clone()));
+                *g = Some(Live::new(state.clone(), now));
                 state
             }
         }
@@ -293,6 +300,7 @@ pub fn apply_queue(
     last_cover: &mut String,
     items: Vec<QueueItem>,
     current_index: usize,
+    now: Instant,
 ) {
     // toast on additions: entries whose queue_item_id is new
     // since the last queue snapshot (reorders stay silent); an
@@ -340,7 +348,7 @@ pub fn apply_queue(
                     reset_media(&mut live.state);
                     live.loading_since = None;
                 }
-                live.at = Instant::now();
+                live.at = now;
                 live.state.clone()
             }
             None => {
@@ -351,7 +359,7 @@ pub fn apply_queue(
                     queue_current: current_index,
                     ..Default::default()
                 };
-                *g = Some(Live::new(state.clone()));
+                *g = Some(Live::new(state.clone(), now));
                 state
             }
         }
@@ -395,6 +403,7 @@ pub fn apply_track(
     track: &TrackMeta,
     elapsed_sec: f64,
     variant: crate::ui::palette::Variant,
+    now: Instant,
 ) {
     apply_queue_track(
         shared,
@@ -404,6 +413,7 @@ pub fn apply_track(
         elapsed_sec,
         variant,
         false,
+        now,
     );
 }
 
@@ -419,6 +429,7 @@ pub fn apply_queue_seed(
     track: &TrackMeta,
     elapsed_sec: f64,
     variant: crate::ui::palette::Variant,
+    now: Instant,
 ) {
     apply_queue_track(
         shared,
@@ -428,9 +439,11 @@ pub fn apply_queue_seed(
         elapsed_sec,
         variant,
         true,
+        now,
     );
 }
 
+#[allow(clippy::too_many_arguments)]
 fn apply_queue_track(
     shared: &Shared,
     update_tx: &UpdateTx,
@@ -439,6 +452,7 @@ fn apply_queue_track(
     elapsed_sec: f64,
     variant: crate::ui::palette::Variant,
     authoritative: bool,
+    now: Instant,
 ) {
     let (update, changed) = {
         let mut g = locks::lock(shared);
@@ -458,7 +472,7 @@ fn apply_queue_track(
             live.loading_since = None;
             live.pending_seek = None;
             live.pending_pos = None;
-            live.at = Instant::now();
+            live.at = now;
             (Some(live.state.clone()), false)
         } else {
             let changed = !track.title.is_empty() && live.state.title != track.title;
@@ -476,16 +490,18 @@ fn apply_queue_track(
                     };
                     live.recent_switch = replayable
                         .filter(|prev| !prev.is_empty())
-                        .map(|prev| (Instant::now(), prev));
+                        .map(|prev| (now, prev));
                 } else {
                     // stale-replay guard: ignore a revert to the title we
                     // switched away from within the window
                     if let Some((since, prev)) = &live.recent_switch {
-                        if since.elapsed() < Duration::from_secs(3) && track.title == *prev {
+                        if now.saturating_duration_since(*since) < Duration::from_secs(3)
+                            && track.title == *prev
+                        {
                             return;
                         }
                     }
-                    live.recent_switch = Some((Instant::now(), live.state.title.clone()));
+                    live.recent_switch = Some((now, live.state.title.clone()));
                 }
                 // seed the bar from the event's own elapsed value — natural
                 // advances can arrive seconds after the track started
@@ -528,7 +544,7 @@ fn apply_queue_track(
                 live.cover_wanted = track.image_url.clone();
             }
             live.state.has_media = true;
-            live.at = Instant::now();
+            live.at = now;
             (Some(live.state.clone()), changed)
         }
     };
@@ -567,6 +583,7 @@ fn apply_queue_track(
 /// display stays empty. `elapsed_sec` seeds the bar on a title
 /// change and corrects it otherwise — None while MA still reports
 /// the previous track's clock (it lags a skip, like the queue).
+#[allow(clippy::too_many_arguments)]
 pub fn apply_external(
     shared: &Shared,
     update_tx: &UpdateTx,
@@ -575,6 +592,7 @@ pub fn apply_external(
     track: Option<&TrackMeta>,
     elapsed_sec: Option<f64>,
     variant: crate::ui::palette::Variant,
+    now: Instant,
 ) {
     let (st, changed) = {
         let mut g = locks::lock(shared);
@@ -633,7 +651,7 @@ pub fn apply_external(
                 }
             }
         }
-        live.at = Instant::now();
+        live.at = now;
         (live.state.clone(), changed)
     };
     if changed {
@@ -663,7 +681,12 @@ pub fn apply_external(
 /// The player is back on the queue: the external track is wiped, the
 /// queue's own events re-seed the display right after. A no-op when
 /// no external source was shown.
-pub fn apply_external_ended(shared: &Shared, update_tx: &UpdateTx, last_cover: &mut String) {
+pub fn apply_external_ended(
+    shared: &Shared,
+    update_tx: &UpdateTx,
+    last_cover: &mut String,
+    now: Instant,
+) {
     let st = {
         let mut g = locks::lock(shared);
         let Some(live) = g.as_mut() else { return };
@@ -683,7 +706,7 @@ pub fn apply_external_ended(shared: &Shared, update_tx: &UpdateTx, last_cover: &
         live.loading_since = None;
         live.pending_seek = None;
         live.pending_pos = None;
-        live.at = Instant::now();
+        live.at = now;
         // the queue's cover is fetched again, whatever came before
         *last_cover = String::new();
         live.state.clone()
@@ -780,7 +803,7 @@ fn land_cover(shared: &Shared, url: &str, external: bool, landed: bool) -> Optio
 /// disagreeing with the interpolation by >2.5s is held back until the
 /// next correction confirms the new position — one-off outliers are
 /// stale replays, a consistent new position is a seek.
-pub fn apply_position(shared: &Shared, update_tx: &UpdateTx, secs: f64) {
+pub fn apply_position(shared: &Shared, update_tx: &UpdateTx, secs: f64, now: Instant) {
     let st = {
         let mut g = locks::lock(shared);
         let Some(live) = g.as_mut() else { return };
@@ -793,7 +816,7 @@ pub fn apply_position(shared: &Shared, update_tx: &UpdateTx, secs: f64) {
         }
         let new_ms = (secs * 1000.0) as u64;
         let seek_confirmed = if let Some((since, target)) = live.pending_seek {
-            if since.elapsed() < Duration::from_secs(5) {
+            if now.saturating_duration_since(since) < Duration::from_secs(5) {
                 if new_ms.abs_diff(target) > 2_500 {
                     return;
                 }
@@ -807,12 +830,16 @@ pub fn apply_position(shared: &Shared, update_tx: &UpdateTx, secs: f64) {
             false
         };
         let off = new_ms.abs_diff(live.state.position_ms);
-        if seek_confirmed || live.created_at.elapsed() < Duration::from_secs(2) || off <= 2_500 {
+        if seek_confirmed
+            || now.saturating_duration_since(live.created_at) < Duration::from_secs(2)
+            || off <= 2_500
+        {
             live.pending_pos = None;
             live.state.position_ms = new_ms;
         } else {
             let confirms = live.pending_pos.as_ref().is_some_and(|(since, pending)| {
-                since.elapsed() < Duration::from_secs(5) && new_ms.abs_diff(*pending) <= 2_500
+                now.saturating_duration_since(*since) < Duration::from_secs(5)
+                    && new_ms.abs_diff(*pending) <= 2_500
             });
             if confirms {
                 tracing::debug!("seek adopted -> {new_ms}");
@@ -823,11 +850,11 @@ pub fn apply_position(shared: &Shared, update_tx: &UpdateTx, secs: f64) {
                     "hold correction {new_ms} (interp {})",
                     live.state.position_ms
                 );
-                live.pending_pos = Some((Instant::now(), new_ms));
+                live.pending_pos = Some((now, new_ms));
                 return;
             }
         }
-        live.at = Instant::now();
+        live.at = now;
         live.state.clone()
     };
     let _ = update_tx.send(PlayerUpdate {
@@ -842,11 +869,11 @@ pub fn apply_position(shared: &Shared, update_tx: &UpdateTx, secs: f64) {
 
 /// User command accepted → show loading until the source reports
 /// "playing" again (or the 6s timeout in `advance` fires).
-pub fn mark_loading(shared: &Shared, update_tx: &UpdateTx) {
+pub fn mark_loading(shared: &Shared, update_tx: &UpdateTx, now: Instant) {
     let mut g = locks::lock(shared);
     if let Some(live) = g.as_mut() {
         live.state.loading = true;
-        live.loading_since = Some(Instant::now());
+        live.loading_since = Some(now);
         let _ = update_tx.send(PlayerUpdate {
             state: live.state.clone(),
             cover: None,
@@ -861,10 +888,10 @@ pub fn mark_loading(shared: &Shared, update_tx: &UpdateTx) {
 /// mark a locally initiated volume change (slider, control
 /// channel): the transport echo matching it is OUR command
 /// confirming — anything else is remote and OSD material
-pub fn mark_volume_local(shared: &Shared, v: i32) {
+pub fn mark_volume_local(shared: &Shared, v: i32, now: Instant) {
     let mut g = locks::lock(shared);
     if let Some(live) = g.as_mut() {
-        live.volume_local = Some((Instant::now(), v));
+        live.volume_local = Some((now, v));
     }
 }
 
@@ -872,23 +899,24 @@ pub fn mark_volume_local(shared: &Shared, v: i32) {
 /// interpolation. Returns the render tuple (pos, dur, loading).
 /// Advance only happens with a known duration — min(0) would pin
 /// radio streams to zero between corrections.
-pub fn advance(shared: &Shared) -> Option<(u64, u64, bool)> {
+pub fn advance(shared: &Shared, now: Instant) -> Option<(u64, u64, bool)> {
     let mut g = locks::lock(shared);
     let live = g.as_mut()?;
     // loading timeout BEFORE everything else: during loading the
     // duration is often 0, which would skip this check
     if live.state.loading {
         if let Some(ls) = live.loading_since {
-            if ls.elapsed() > Duration::from_secs(6) {
+            if now.saturating_duration_since(ls) > Duration::from_secs(6) {
                 live.state.loading = false;
                 live.loading_since = None;
             }
         }
     }
     if live.state.playing && live.state.duration_ms > 0 {
-        live.state.position_ms = (live.state.position_ms + live.at.elapsed().as_millis() as u64)
+        live.state.position_ms = (live.state.position_ms
+            + now.saturating_duration_since(live.at).as_millis() as u64)
             .min(live.state.duration_ms);
-        live.at = Instant::now();
+        live.at = now;
     }
     Some((
         live.state.position_ms,
@@ -901,13 +929,16 @@ pub fn advance(shared: &Shared) -> Option<(u64, u64, bool)> {
 mod seek_tests {
     use super::*;
     fn live() -> Live {
-        let mut live = Live::new(PlayerState {
-            title: "Track".into(),
-            has_media: true,
-            duration_ms: 120_000,
-            position_ms: 10_000,
-            ..Default::default()
-        });
+        let mut live = Live::new(
+            PlayerState {
+                title: "Track".into(),
+                has_media: true,
+                duration_ms: 120_000,
+                position_ms: 10_000,
+                ..Default::default()
+            },
+            Instant::now(),
+        );
         live.created_at = Instant::now() - Duration::from_secs(10);
         live.pending_seek = Some((Instant::now(), 60_000));
         live
@@ -916,13 +947,13 @@ mod seek_tests {
     fn requested_seek_ignores_old_echo_and_accepts_first_matching_confirmation() {
         let shared = Arc::new(Mutex::new(Some(live())));
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-        apply_position(&shared, &tx, 11.0);
+        apply_position(&shared, &tx, 11.0, Instant::now());
         assert!(rx.try_recv().is_err());
         assert_eq!(
             locks::lock(&shared).as_ref().unwrap().state.position_ms,
             10_000
         );
-        apply_position(&shared, &tx, 60.0);
+        apply_position(&shared, &tx, 60.0, Instant::now());
         assert_eq!(rx.try_recv().unwrap().state.position_ms, 60_000);
         assert!(shared
             .lock()
@@ -938,7 +969,7 @@ mod seek_tests {
         live.pending_seek = Some((Instant::now() - Duration::from_secs(6), 60_000));
         let shared = Arc::new(Mutex::new(Some(live)));
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-        apply_position(&shared, &tx, 12.0);
+        apply_position(&shared, &tx, 12.0, Instant::now());
         assert_eq!(rx.try_recv().unwrap().state.position_ms, 12_000);
     }
     #[test]
@@ -955,6 +986,7 @@ mod seek_tests {
             },
             0.0,
             crate::ui::palette::Variant::TonalSpot,
+            Instant::now(),
         );
         let guard = locks::lock(&shared);
         let live = guard.as_ref().unwrap();
@@ -970,7 +1002,7 @@ mod external_tests {
     const VARIANT: crate::ui::palette::Variant = crate::ui::palette::Variant::TonalSpot;
 
     fn shared_with(state: PlayerState) -> Shared {
-        let mut live = Live::new(state);
+        let mut live = Live::new(state, Instant::now());
         live.created_at = Instant::now() - Duration::from_secs(10);
         Arc::new(Mutex::new(Some(live)))
     }
@@ -1033,6 +1065,7 @@ mod external_tests {
             t,
             elapsed,
             VARIANT,
+            Instant::now(),
         );
     }
 
@@ -1062,13 +1095,14 @@ mod external_tests {
             Some(&track("Song", "Band")),
             Some(1.0),
             VARIANT,
+            Instant::now(),
         );
         let state = snapshot(&shared);
         assert_eq!(state.source_caps, spotify.caps);
         assert!(state.shuffle);
         assert_eq!(state.repeat, RepeatMode::All);
         // a stray queue event does not say what the source does
-        apply_options(&shared, &tx, false, RepeatMode::Off);
+        apply_options(&shared, &tx, false, RepeatMode::Off, Instant::now());
         let state = snapshot(&shared);
         assert!(state.shuffle);
         assert_eq!(state.repeat, RepeatMode::All);
@@ -1090,6 +1124,7 @@ mod external_tests {
             None,
             None,
             VARIANT,
+            Instant::now(),
         );
         assert!(snapshot(&shared).source_caps.next_previous);
     }
@@ -1100,10 +1135,10 @@ mod external_tests {
         let (tx, _rx) = channel();
         external(&shared, &tx, None, None);
         assert!(!snapshot(&shared).source_caps.play_pause);
-        apply_external_ended(&shared, &tx, &mut String::new());
+        apply_external_ended(&shared, &tx, &mut String::new(), Instant::now());
         let state = snapshot(&shared);
         assert_eq!(state.source_caps, SourceCaps::default());
-        apply_options(&shared, &tx, true, RepeatMode::One);
+        apply_options(&shared, &tx, true, RepeatMode::One, Instant::now());
         assert!(snapshot(&shared).shuffle);
     }
 
@@ -1178,9 +1213,17 @@ mod external_tests {
             &track("Teardrop", "Massive Attack"),
             3.0,
             VARIANT,
+            Instant::now(),
         );
-        apply_position(&shared, &tx, 3.0);
-        apply_queue(&shared, &tx, &mut String::new(), Vec::new(), usize::MAX);
+        apply_position(&shared, &tx, 3.0, Instant::now());
+        apply_queue(
+            &shared,
+            &tx,
+            &mut String::new(),
+            Vec::new(),
+            usize::MAX,
+            Instant::now(),
+        );
         let state = snapshot(&shared);
         assert_eq!(state.title, "Stand by Me");
         assert_eq!(state.position_ms, 40_000);
@@ -1234,7 +1277,7 @@ mod external_tests {
             Some((Instant::now(), "Teardrop".into()));
         let (tx, _rx) = channel();
         external(&shared, &tx, Some(&track("Stand by Me", "B")), Some(1.0));
-        apply_external_ended(&shared, &tx, &mut String::new());
+        apply_external_ended(&shared, &tx, &mut String::new(), Instant::now());
         let state = snapshot(&shared);
         assert_eq!(state.external, None);
         assert!(!state.has_media, "the external track must not linger");
@@ -1247,8 +1290,9 @@ mod external_tests {
             &track("Teardrop", "Massive Attack"),
             59.0,
             VARIANT,
+            Instant::now(),
         );
-        apply_position(&shared, &tx, 59.0);
+        apply_position(&shared, &tx, 59.0, Instant::now());
         let state = snapshot(&shared);
         assert_eq!(state.title, "Teardrop");
         assert_eq!(state.position_ms, 59_000);
@@ -1270,16 +1314,48 @@ mod external_tests {
         });
         let (tx, _rx) = channel();
         let mut cover = String::new();
-        apply_track(&shared, &tx, &mut cover, &track("B", "X"), 0.0, VARIANT);
+        apply_track(
+            &shared,
+            &tx,
+            &mut cover,
+            &track("B", "X"),
+            0.0,
+            VARIANT,
+            Instant::now(),
+        );
         external(&shared, &tx, Some(&track("Stand by Me", "Ben")), Some(1.0));
-        apply_external_ended(&shared, &tx, &mut cover);
-        apply_queue_seed(&shared, &tx, &mut cover, &track("B", "X"), 5.0, VARIANT);
+        apply_external_ended(&shared, &tx, &mut cover, Instant::now());
+        apply_queue_seed(
+            &shared,
+            &tx,
+            &mut cover,
+            &track("B", "X"),
+            5.0,
+            VARIANT,
+            Instant::now(),
+        );
         assert_eq!(snapshot(&shared).title, "B");
         // queue_updated still carries the item from before the episode
-        apply_track(&shared, &tx, &mut cover, &track("A", "X"), 5.5, VARIANT);
+        apply_track(
+            &shared,
+            &tx,
+            &mut cover,
+            &track("A", "X"),
+            5.5,
+            VARIANT,
+            Instant::now(),
+        );
         assert_eq!(snapshot(&shared).title, "B");
         // a genuine skip is not a replay
-        apply_track(&shared, &tx, &mut cover, &track("C", "X"), 0.0, VARIANT);
+        apply_track(
+            &shared,
+            &tx,
+            &mut cover,
+            &track("C", "X"),
+            0.0,
+            VARIANT,
+            Instant::now(),
+        );
         assert_eq!(snapshot(&shared).title, "C");
     }
 
@@ -1295,7 +1371,7 @@ mod external_tests {
         locks::lock(&shared).as_mut().unwrap().recent_switch =
             Some((Instant::now(), "Earlier".into()));
         external(&shared, &tx, Some(&track("Stand by Me", "Ben")), Some(1.0));
-        apply_external_ended(&shared, &tx, &mut cover);
+        apply_external_ended(&shared, &tx, &mut cover, Instant::now());
         apply_queue_seed(
             &shared,
             &tx,
@@ -1303,6 +1379,7 @@ mod external_tests {
             &track("Earlier", "X"),
             9.0,
             VARIANT,
+            Instant::now(),
         );
         let state = snapshot(&shared);
         assert_eq!(state.title, "Earlier");
@@ -1343,7 +1420,7 @@ mod external_tests {
     fn leaving_a_source_that_was_never_active_changes_nothing() {
         let shared = queue_playing();
         let (tx, mut rx) = channel();
-        apply_external_ended(&shared, &tx, &mut String::new());
+        apply_external_ended(&shared, &tx, &mut String::new(), Instant::now());
         assert_eq!(snapshot(&shared).title, "Teardrop");
         assert!(rx.try_recv().is_err());
     }
@@ -1359,9 +1436,25 @@ mod external_tests {
         });
         let (tx, _rx) = channel();
         let mut cover = String::new();
-        apply_track(&shared, &tx, &mut cover, &track("New", "A"), 0.0, VARIANT);
+        apply_track(
+            &shared,
+            &tx,
+            &mut cover,
+            &track("New", "A"),
+            0.0,
+            VARIANT,
+            Instant::now(),
+        );
         // ~1.5 s later the queue replays the previous item
-        apply_track(&shared, &tx, &mut cover, &track("Old", "A"), 9.0, VARIANT);
+        apply_track(
+            &shared,
+            &tx,
+            &mut cover,
+            &track("Old", "A"),
+            9.0,
+            VARIANT,
+            Instant::now(),
+        );
         let state = snapshot(&shared);
         assert_eq!(state.title, "New");
         assert_eq!(state.external, None);

@@ -83,7 +83,7 @@ pub fn wire(
         move |v| {
             // local origin: the transport echo of THIS change must
             // not pop the remote-volume OSD
-            state::mark_volume_local(&shared, v);
+            state::mark_volume_local(&shared, v, std::time::Instant::now());
             let _ = cmd_tx.send(crate::providers::SourceCommand::Volume(v));
         }
     });
@@ -182,7 +182,7 @@ fn send_transport(
         .as_ref()
         .is_none_or(|live| live.state.external.is_none());
     if on_queue && cmd != SourceCommand::Pause {
-        state::mark_loading(shared, update_tx);
+        state::mark_loading(shared, update_tx, std::time::Instant::now());
     }
     let _ = cmd_tx.send(cmd);
 }

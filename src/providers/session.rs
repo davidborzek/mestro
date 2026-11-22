@@ -156,7 +156,14 @@ pub fn spawn<P, F>(
                             playing,
                             volume,
                             powered,
-                        } => state::apply_transport(&shared, &update_tx, playing, volume, powered),
+                        } => state::apply_transport(
+                            &shared,
+                            &update_tx,
+                            playing,
+                            volume,
+                            powered,
+                            Instant::now(),
+                        ),
                         SourceEvent::Track { track, elapsed_sec } => state::apply_track(
                             &shared,
                             &update_tx,
@@ -164,6 +171,7 @@ pub fn spawn<P, F>(
                             &track,
                             elapsed_sec,
                             theme_variant.raw().clone(),
+                            Instant::now(),
                         ),
                         SourceEvent::QueueSeed { track, elapsed_sec } => state::apply_queue_seed(
                             &shared,
@@ -172,6 +180,7 @@ pub fn spawn<P, F>(
                             &track,
                             elapsed_sec,
                             theme_variant.raw().clone(),
+                            Instant::now(),
                         ),
                         SourceEvent::External {
                             source,
@@ -185,12 +194,16 @@ pub fn spawn<P, F>(
                             track.as_ref(),
                             elapsed_sec,
                             theme_variant.raw().clone(),
+                            Instant::now(),
                         ),
-                        SourceEvent::ExternalEnded => {
-                            state::apply_external_ended(&shared, &update_tx, &mut last_cover)
-                        }
+                        SourceEvent::ExternalEnded => state::apply_external_ended(
+                            &shared,
+                            &update_tx,
+                            &mut last_cover,
+                            Instant::now(),
+                        ),
                         SourceEvent::Position(secs) => {
-                            state::apply_position(&shared, &update_tx, secs)
+                            state::apply_position(&shared, &update_tx, secs, Instant::now())
                         }
                         SourceEvent::Queue {
                             items,
@@ -201,10 +214,15 @@ pub fn spawn<P, F>(
                             &mut last_cover,
                             items,
                             current_index,
+                            Instant::now(),
                         ),
-                        SourceEvent::Options { shuffle, repeat } => {
-                            state::apply_options(&shared, &update_tx, shuffle, repeat)
-                        }
+                        SourceEvent::Options { shuffle, repeat } => state::apply_options(
+                            &shared,
+                            &update_tx,
+                            shuffle,
+                            repeat,
+                            Instant::now(),
+                        ),
                         // library events route through the lib module
                         ev @ (SourceEvent::Browse { .. } | SourceEvent::SubjectImage { .. }) => {
                             library::route(&lib_feed, ev);

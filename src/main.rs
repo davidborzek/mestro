@@ -780,7 +780,7 @@ fn start_ticker(ui: &Mestro, shared: &Shared, player: &str, clock: &Rc<StandbyCl
             ui.set_hub_greeting(greeting.into());
             ui.set_hub_sub(sub.into());
         }
-        let Some((pos, dur, loading)) = state::advance(&shared) else {
+        let Some((pos, dur, loading)) = state::advance(&shared, std::time::Instant::now()) else {
             return;
         };
         if let Some(ui) = ui_weak.upgrade() {
