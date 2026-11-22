@@ -5,12 +5,13 @@
 use super::command::{command_for, command_frame};
 use super::external::ExternalTracker;
 use super::parse::{
-    http_base_from_ws, parse_active_queue, parse_event, parse_media_entry, parse_player,
-    parse_queue_item, MaEvent, PlayerSnapshot,
+    http_base_from_ws, parse_active_queue, parse_event, parse_media_entry, parse_player, MaEvent,
+    PlayerSnapshot,
 };
+use super::translate;
 use super::AuthError;
 use super::Config;
-use crate::providers::{Enqueue, MediaEntry, QueueItem, SourceCommand, SourceEvent};
+use crate::providers::{Enqueue, MediaEntry, SourceCommand, SourceEvent};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -244,20 +245,16 @@ pub(super) async fn run_session(
                             }
                             let relevant = matched_id.as_deref() == Some(p.player_id.as_str());
                             if relevant {
-                                let _ = events.send(SourceEvent::Transport {
-                                    playing: p.playing,
-                                    volume: p.volume,
-                                    powered: p.powered,
-                                });
-                                let step = external.observe(&p, unix_now());
-                                for event in step.events {
+                                let (player_events, back_on_queue) =
+                                    translate::player_updated(&p, &mut external, unix_now());
+                                for event in player_events {
                                     let _ = events.send(event);
                                 }
                                 // back on the queue: its current item
                                 // and list were not pushed while the
                                 // source played — ask again, the reply
                                 // re-seeds the display at once
-                                if step.back_on_queue {
+                                if back_on_queue {
                                     if let Some(pid) = matched_id.as_deref() {
                                         sink.send(Message::Text(command_frame(
                                             msg_id,
@@ -279,13 +276,10 @@ pub(super) async fn run_session(
                         MaEvent::Queue { queue_id, track, elapsed_sec, current_index: idx, shuffle, repeat } => {
                             if matched_queue.as_deref() == Some(queue_id.as_str()) {
                                 current_index = idx;
-                                if let Some(track) = track {
-                                    let _ = events.send(SourceEvent::Track { track, elapsed_sec });
-                                }
-                                // shuffle/repeat state rides every
-                                // queue event — keep the transport lit
                                 tracing::debug!("ma: queue event shuffle={shuffle} repeat={repeat:?}");
-                                let _ = events.send(SourceEvent::Options { shuffle, repeat });
+                                for event in translate::queue_updated(track, elapsed_sec, shuffle, repeat) {
+                                    let _ = events.send(event);
+                                }
                                 // queue changed — the item list may
                                 // have moved with it; refetch (one request
                                 // in flight at a time)
@@ -317,15 +311,9 @@ pub(super) async fn run_session(
                         if let Some(aq) = parse_active_queue(&v, &img_base) {
                             matched_queue = Some(aq.queue_id.clone());
                             current_index = aq.current_index;
-                            let _ = events.send(SourceEvent::Position(aq.elapsed_sec));
-                            let _ = events.send(SourceEvent::QueueSeed {
-                                track: aq.track,
-                                elapsed_sec: aq.elapsed_sec,
-                            });
-                            let _ = events.send(SourceEvent::Options {
-                                shuffle: aq.shuffle,
-                                repeat: aq.repeat,
-                            });
+                            for event in translate::queue_seed(&aq) {
+                                let _ = events.send(event);
+                            }
                             // seed the queue view: one full snapshot
                             sink.send(Message::Text(command_frame(
                                 msg_id,
@@ -447,27 +435,9 @@ pub(super) async fn run_session(
                     if replied == Some(want_id) {
                         items_req = None;
                         if let Some(items) = v.get("result").and_then(|r| r.as_array()) {
-                            // current_index counts positions in exactly
-                            // this array — the queue position IS the index,
-                            // never MA's sort_index (insertion order: it
-                            // diverges under shuffle/reorders, putting
-                            // history rows above the current row and
-                            // losing or multi-marking the active row)
-                            let parsed: Vec<QueueItem> = items
-                                .iter()
-                                .enumerate()
-                                .filter_map(|(pos, it)| {
-                                    let mut q = parse_queue_item(it, &img_base)?;
-                                    q.sort_index = pos;
-                                    Some(q)
-                                })
-                                .collect();
                             // an empty reply is valid — it is how a
                             // cleared queue reaches the UI
-                            let _ = events.send(SourceEvent::Queue {
-                                items: parsed,
-                                current_index,
-                            });
+                            let _ = events.send(translate::queue_items(items, &img_base, current_index));
                         }
                     }
                 }
@@ -480,11 +450,7 @@ pub(super) async fn run_session(
                         remember_player(&mut players, p);
                         let relevant = matched_id.as_deref() == Some(p.player_id.as_str());
                         if relevant {
-                            let _ = events.send(SourceEvent::Transport {
-                                playing: p.playing,
-                                volume: p.volume,
-                                powered: p.powered,
-                            });
+                            let _ = events.send(translate::transport(p));
                         }
                     }
                     let pick = try_pick(&mut matched_id, &players, &cfg.player_name, cfg.own_player_id.as_deref());
@@ -503,12 +469,7 @@ pub(super) async fn run_session(
                     // the loop skipped the matched player — emit it once
                     if let Some(id) = matched_id.clone() {
                         if let Some(p) = snaps.iter().find(|p| p.player_id == id) {
-                            let _ = events.send(SourceEvent::Transport {
-                                playing: p.playing,
-                                volume: p.volume,
-                                powered: p.powered,
-                            });
-                            for event in external.observe(p, unix_now()).events {
+                            for event in translate::player_updated(p, &mut external, unix_now()).0 {
                                 let _ = events.send(event);
                             }
                         }

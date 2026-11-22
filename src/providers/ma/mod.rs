@@ -28,6 +28,7 @@ mod parse;
 mod scenarios;
 mod session;
 mod shuffle;
+mod translate;
 
 use super::PlaybackSource;
 

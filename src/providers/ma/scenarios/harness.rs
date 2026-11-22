@@ -1,25 +1,22 @@
 //! The scenario rig: feeds MA wire frames through the same steps the
-//! running session takes (parse → external tracker → `SourceEvent` →
-//! `PlayerFeed`), records every published `PlayerUpdate` and every
+//! running session takes (parse → `translate` → `PlayerFeed`), records every published `PlayerUpdate` and every
 //! cover request, and owns the clock.
 //!
 //! Time is explicit: every call into the state machine gets the rig's
 //! `now`, which only moves with `advance`. MA's wall clock (the
 //! stamps on external readings) moves with it.
 //!
-//! `player_frame`, `queue_updated`, `queue_time`, `seed` and
-//! `queue_items` mirror the dispatch in `session::run_session` (which
-//! needs a websocket and cannot be driven): if that dispatch changes,
-//! change these with it.
+//! The frame → `SourceEvent` translation is `translate`, shared with
+//! `session::run_session`; only the matching of a frame to the display's
+//! player and queue (which needs the websocket session) is the rig's own.
 
 use super::super::external::ExternalTracker;
-use super::super::parse::{
-    parse_active_queue, parse_event, parse_queue_item, MaEvent, PlayerSnapshot,
-};
+use super::super::parse::{parse_active_queue, parse_event, MaEvent};
+use super::super::translate;
 use crate::player::cover::{CoverData, CoverFetcher, CoverLanded, CoverSource};
 use crate::player::state::{self, Live, PlayerState, PlayerUpdate, Shared};
 use crate::providers::session::PlayerFeed;
-use crate::providers::{QueueItem, SourceEvent};
+use crate::providers::SourceEvent;
 use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -166,7 +163,12 @@ impl Scenario {
         let Some(MaEvent::Player(player)) = parse_event(&frame, BASE) else {
             panic!("not a player_updated frame");
         };
-        for event in self.translate_player(&player) {
+        let (events, back_on_queue) =
+            translate::player_updated(&player, &mut self.tracker, self.wall);
+        if back_on_queue {
+            self.reseed_requested = true;
+        }
+        for event in events {
             self.send(event);
         }
     }
@@ -183,10 +185,9 @@ impl Scenario {
         else {
             panic!("not a queue_updated frame");
         };
-        if let Some(track) = track {
-            self.send(SourceEvent::Track { track, elapsed_sec });
+        for event in translate::queue_updated(track, elapsed_sec, shuffle, repeat) {
+            self.send(event);
         }
-        self.send(SourceEvent::Options { shuffle, repeat });
     }
 
     /// a `queue_time_updated` push
@@ -204,33 +205,15 @@ impl Scenario {
         let reply = json!({"message_id": "1", "result": update.data()});
         let active = parse_active_queue(&reply, BASE).expect("an active queue reply");
         self.reseed_requested = false;
-        self.send(SourceEvent::Position(active.elapsed_sec));
-        self.send(SourceEvent::QueueSeed {
-            track: active.track,
-            elapsed_sec: active.elapsed_sec,
-        });
-        self.send(SourceEvent::Options {
-            shuffle: active.shuffle,
-            repeat: active.repeat,
-        });
+        for event in translate::queue_seed(&active) {
+            self.send(event);
+        }
     }
 
     /// the reply to `player_queues/items`; `current_index` is what the
     /// session remembered from the queue event or seed
     pub fn queue_items(&mut self, items: &[Value], current_index: usize) {
-        let parsed: Vec<QueueItem> = items
-            .iter()
-            .enumerate()
-            .filter_map(|(pos, item)| {
-                let mut queued = parse_queue_item(item, BASE)?;
-                queued.sort_index = pos;
-                Some(queued)
-            })
-            .collect();
-        self.send(SourceEvent::Queue {
-            items: parsed,
-            current_index,
-        });
+        self.send(translate::queue_items(items, BASE, current_index));
     }
 
     // ---- what the user does on the player ----
@@ -258,20 +241,6 @@ impl Scenario {
     /// one ticker beat (the 500 ms timer in main): position, duration, loading
     pub fn tick(&self) -> (u64, u64, bool) {
         state::advance(&self.shared, self.now()).unwrap()
-    }
-
-    fn translate_player(&mut self, player: &PlayerSnapshot) -> Vec<SourceEvent> {
-        let mut events = vec![SourceEvent::Transport {
-            playing: player.playing,
-            volume: player.volume,
-            powered: player.powered,
-        }];
-        let step = self.tracker.observe(player, self.wall);
-        events.extend(step.events);
-        if step.back_on_queue {
-            self.reseed_requested = true;
-        }
-        events
     }
 }
 
