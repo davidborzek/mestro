@@ -69,7 +69,6 @@ fn set_connected(ui_weak: &slint::Weak<Mestro>, connected: bool) {
 pub struct PlayerFeed {
     shared: Shared,
     update_tx: UpdateTx,
-    last_cover: String,
     covers: CoverSource,
 }
 
@@ -78,7 +77,6 @@ impl PlayerFeed {
         Self {
             shared,
             update_tx,
-            last_cover: String::new(),
             covers,
         }
     }
@@ -87,7 +85,6 @@ impl PlayerFeed {
     pub fn apply(&mut self, ev: SourceEvent, now: Instant) -> Option<SourceEvent> {
         let shared = &self.shared;
         let update_tx = &self.update_tx;
-        let last_cover = &mut self.last_cover;
         let covers = &self.covers;
         match ev {
             SourceEvent::Transport {
@@ -95,24 +92,12 @@ impl PlayerFeed {
                 volume,
                 powered,
             } => state::apply_transport(shared, update_tx, playing, volume, powered, now),
-            SourceEvent::Track { track, elapsed_sec } => state::apply_track(
-                shared,
-                update_tx,
-                last_cover,
-                &track,
-                elapsed_sec,
-                covers,
-                now,
-            ),
-            SourceEvent::QueueSeed { track, elapsed_sec } => state::apply_queue_seed(
-                shared,
-                update_tx,
-                last_cover,
-                &track,
-                elapsed_sec,
-                covers,
-                now,
-            ),
+            SourceEvent::Track { track, elapsed_sec } => {
+                state::apply_track(shared, update_tx, &track, elapsed_sec, covers, now)
+            }
+            SourceEvent::QueueSeed { track, elapsed_sec } => {
+                state::apply_queue_seed(shared, update_tx, &track, elapsed_sec, covers, now)
+            }
             SourceEvent::External {
                 source,
                 track,
@@ -120,21 +105,18 @@ impl PlayerFeed {
             } => state::apply_external(
                 shared,
                 update_tx,
-                last_cover,
                 &source,
                 track.as_ref(),
                 elapsed_sec,
                 covers,
                 now,
             ),
-            SourceEvent::ExternalEnded => {
-                state::apply_external_ended(shared, update_tx, last_cover, now)
-            }
+            SourceEvent::ExternalEnded => state::apply_external_ended(shared, update_tx, now),
             SourceEvent::Position(secs) => state::apply_position(shared, update_tx, secs, now),
             SourceEvent::Queue {
                 items,
                 current_index,
-            } => state::apply_queue(shared, update_tx, last_cover, items, current_index, now),
+            } => state::apply_queue(shared, update_tx, items, current_index, now),
             SourceEvent::Options { shuffle, repeat } => {
                 state::apply_options(shared, update_tx, shuffle, repeat, now)
             }

@@ -139,6 +139,10 @@ pub struct Live {
     /// the artwork url the shown track expects ("" = none): a cover
     /// result for any other url belongs to a track no longer shown
     pub cover_wanted: String,
+    /// the artwork url last FETCHED ("" = none, or forgotten so the
+    /// same art fetches again) — a new fetch starts only when the
+    /// shown track's url differs from it
+    pub cover_requested: String,
     /// the title the queue showed when an external source took over:
     /// `recent_switch` stays the queue's own meanwhile, the re-seed
     /// after the source ends re-arms the replay guard from both
@@ -160,6 +164,7 @@ impl Live {
             pending_seek: None,
             recent_switch: None,
             cover_wanted: String::new(),
+            cover_requested: String::new(),
             queue_title_before_external: None,
             volume_local: None,
         }
@@ -297,7 +302,6 @@ pub fn apply_options(
 pub fn apply_queue(
     shared: &Shared,
     update_tx: &UpdateTx,
-    last_cover: &mut String,
     items: Vec<QueueItem>,
     current_index: usize,
     now: Instant,
@@ -344,7 +348,7 @@ pub fn apply_queue(
                 // track the queue knows nothing about
                 if live.state.queue.is_empty() && live.state.external.is_none() {
                     live.cover_wanted = String::new();
-                    *last_cover = String::new();
+                    live.cover_requested = String::new();
                     reset_media(&mut live.state);
                     live.loading_since = None;
                 }
@@ -399,22 +403,12 @@ fn reset_media(state: &mut PlayerState) {
 pub fn apply_track(
     shared: &Shared,
     update_tx: &UpdateTx,
-    last_cover: &mut String,
     track: &TrackMeta,
     elapsed_sec: f64,
     covers: &CoverSource,
     now: Instant,
 ) {
-    apply_queue_track(
-        shared,
-        update_tx,
-        last_cover,
-        track,
-        elapsed_sec,
-        covers,
-        false,
-        now,
-    );
+    apply_queue_track(shared, update_tx, track, elapsed_sec, covers, false, now);
 }
 
 /// The queue's own answer to "what plays" (the reply to the active-queue
@@ -425,29 +419,18 @@ pub fn apply_track(
 pub fn apply_queue_seed(
     shared: &Shared,
     update_tx: &UpdateTx,
-    last_cover: &mut String,
     track: &TrackMeta,
     elapsed_sec: f64,
     covers: &CoverSource,
     now: Instant,
 ) {
-    apply_queue_track(
-        shared,
-        update_tx,
-        last_cover,
-        track,
-        elapsed_sec,
-        covers,
-        true,
-        now,
-    );
+    apply_queue_track(shared, update_tx, track, elapsed_sec, covers, true, now);
 }
 
 #[allow(clippy::too_many_arguments)]
 fn apply_queue_track(
     shared: &Shared,
     update_tx: &UpdateTx,
-    last_cover: &mut String,
     track: &TrackMeta,
     elapsed_sec: f64,
     covers: &CoverSource,
@@ -467,7 +450,7 @@ fn apply_queue_track(
         // normal path below only ever sees non-empty tracks
         if track.title.is_empty() && track.artist.is_empty() {
             live.cover_wanted = String::new();
-            *last_cover = String::new();
+            live.cover_requested = String::new();
             reset_media(&mut live.state);
             live.loading_since = None;
             live.pending_seek = None;
@@ -565,14 +548,7 @@ fn apply_queue_track(
             osd_volume: None,
         });
     }
-    fetch_cover(
-        shared,
-        update_tx,
-        last_cover,
-        &track.image_url,
-        false,
-        covers,
-    );
+    fetch_cover(shared, update_tx, &track.image_url, false, covers);
 }
 
 /// External source events → the source's own metadata, shown in
@@ -587,7 +563,6 @@ fn apply_queue_track(
 pub fn apply_external(
     shared: &Shared,
     update_tx: &UpdateTx,
-    last_cover: &mut String,
     source: &ExternalSource,
     track: Option<&TrackMeta>,
     elapsed_sec: Option<f64>,
@@ -607,7 +582,7 @@ pub fn apply_external(
             live.loading_since = None;
             live.pending_seek = None;
             live.pending_pos = None;
-            *last_cover = String::new();
+            live.cover_requested = String::new();
             // the queue's cover on screen is not this source's
             live.state.cover_missing = true;
         }
@@ -621,7 +596,7 @@ pub fn apply_external(
                 reset_media(&mut live.state);
                 live.state.cover_missing = true;
                 live.cover_wanted = String::new();
-                *last_cover = String::new();
+                live.cover_requested = String::new();
             }
             Some(track) => {
                 changed = live.state.title != track.title;
@@ -634,7 +609,7 @@ pub fn apply_external(
                 if track.image_url.is_empty() {
                     live.state.cover_missing = true;
                     // the same art coming back later must fetch again
-                    *last_cover = String::new();
+                    live.cover_requested = String::new();
                 }
                 // a reading is authoritative: nothing replays an
                 // external clock, and a seek on the phone arrives
@@ -667,26 +642,14 @@ pub fn apply_external(
         osd_volume: None,
     });
     if let Some(track) = track {
-        fetch_cover(
-            shared,
-            update_tx,
-            last_cover,
-            &track.image_url,
-            true,
-            covers,
-        );
+        fetch_cover(shared, update_tx, &track.image_url, true, covers);
     }
 }
 
 /// The player is back on the queue: the external track is wiped, the
 /// queue's own events re-seed the display right after. A no-op when
 /// no external source was shown.
-pub fn apply_external_ended(
-    shared: &Shared,
-    update_tx: &UpdateTx,
-    last_cover: &mut String,
-    now: Instant,
-) {
+pub fn apply_external_ended(shared: &Shared, update_tx: &UpdateTx, now: Instant) {
     let st = {
         let mut g = locks::lock(shared);
         let Some(live) = g.as_mut() else { return };
@@ -708,7 +671,7 @@ pub fn apply_external_ended(
         live.pending_pos = None;
         live.at = now;
         // the queue's cover is fetched again, whatever came before
-        *last_cover = String::new();
+        live.cover_requested = String::new();
         live.state.clone()
     };
     let _ = update_tx.send(PlayerUpdate {
@@ -728,13 +691,21 @@ pub fn apply_external_ended(
 fn fetch_cover(
     shared: &Shared,
     update_tx: &UpdateTx,
-    last_cover: &mut String,
     image_url: &str,
     external: bool,
     covers: &CoverSource,
 ) {
-    if !image_url.is_empty() && image_url != *last_cover {
-        *last_cover = image_url.to_string();
+    let wanted = {
+        let mut g = locks::lock(shared);
+        g.as_mut().is_some_and(|live| {
+            let fetch = !image_url.is_empty() && image_url != live.cover_requested;
+            if fetch {
+                live.cover_requested = image_url.to_string();
+            }
+            fetch
+        })
+    };
+    if wanted {
         let cover_tx = update_tx.clone();
         let url = image_url.to_string();
         let shared = shared.clone();
@@ -992,7 +963,6 @@ mod seek_tests {
         apply_track(
             &shared,
             &tx,
-            &mut String::new(),
             &TrackMeta {
                 title: "Radio".into(),
                 ..Default::default()
@@ -1079,7 +1049,6 @@ mod external_tests {
         apply_external(
             shared,
             tx,
-            &mut String::new(),
             &airplay(),
             t,
             elapsed,
@@ -1109,7 +1078,6 @@ mod external_tests {
         apply_external(
             &shared,
             &tx,
-            &mut String::new(),
             &spotify,
             Some(&track("Song", "Band")),
             Some(1.0),
@@ -1135,16 +1103,7 @@ mod external_tests {
         assert!(!snapshot(&shared).source_caps.next_previous);
         let mut richer = airplay();
         richer.caps.next_previous = true;
-        apply_external(
-            &shared,
-            &tx,
-            &mut String::new(),
-            &richer,
-            None,
-            None,
-            &covers(),
-            Instant::now(),
-        );
+        apply_external(&shared, &tx, &richer, None, None, &covers(), Instant::now());
         assert!(snapshot(&shared).source_caps.next_previous);
     }
 
@@ -1154,7 +1113,7 @@ mod external_tests {
         let (tx, _rx) = channel();
         external(&shared, &tx, None, None);
         assert!(!snapshot(&shared).source_caps.play_pause);
-        apply_external_ended(&shared, &tx, &mut String::new(), Instant::now());
+        apply_external_ended(&shared, &tx, Instant::now());
         let state = snapshot(&shared);
         assert_eq!(state.source_caps, SourceCaps::default());
         apply_options(&shared, &tx, true, RepeatMode::One, Instant::now());
@@ -1228,21 +1187,13 @@ mod external_tests {
         apply_track(
             &shared,
             &tx,
-            &mut String::new(),
             &track("Teardrop", "Massive Attack"),
             3.0,
             &covers(),
             Instant::now(),
         );
         apply_position(&shared, &tx, 3.0, Instant::now());
-        apply_queue(
-            &shared,
-            &tx,
-            &mut String::new(),
-            Vec::new(),
-            usize::MAX,
-            Instant::now(),
-        );
+        apply_queue(&shared, &tx, Vec::new(), usize::MAX, Instant::now());
         let state = snapshot(&shared);
         assert_eq!(state.title, "Stand by Me");
         assert_eq!(state.position_ms, 40_000);
@@ -1296,7 +1247,7 @@ mod external_tests {
             Some((Instant::now(), "Teardrop".into()));
         let (tx, _rx) = channel();
         external(&shared, &tx, Some(&track("Stand by Me", "B")), Some(1.0));
-        apply_external_ended(&shared, &tx, &mut String::new(), Instant::now());
+        apply_external_ended(&shared, &tx, Instant::now());
         let state = snapshot(&shared);
         assert_eq!(state.external, None);
         assert!(!state.has_media, "the external track must not linger");
@@ -1305,7 +1256,6 @@ mod external_tests {
         apply_queue_seed(
             &shared,
             &tx,
-            &mut String::new(),
             &track("Teardrop", "Massive Attack"),
             59.0,
             &covers(),
@@ -1332,22 +1282,19 @@ mod external_tests {
             ..Default::default()
         });
         let (tx, _rx) = channel();
-        let mut cover = String::new();
         apply_track(
             &shared,
             &tx,
-            &mut cover,
             &track("B", "X"),
             0.0,
             &covers(),
             Instant::now(),
         );
         external(&shared, &tx, Some(&track("Stand by Me", "Ben")), Some(1.0));
-        apply_external_ended(&shared, &tx, &mut cover, Instant::now());
+        apply_external_ended(&shared, &tx, Instant::now());
         apply_queue_seed(
             &shared,
             &tx,
-            &mut cover,
             &track("B", "X"),
             5.0,
             &covers(),
@@ -1358,7 +1305,6 @@ mod external_tests {
         apply_track(
             &shared,
             &tx,
-            &mut cover,
             &track("A", "X"),
             5.5,
             &covers(),
@@ -1369,7 +1315,6 @@ mod external_tests {
         apply_track(
             &shared,
             &tx,
-            &mut cover,
             &track("C", "X"),
             0.0,
             &covers(),
@@ -1384,17 +1329,15 @@ mod external_tests {
     fn the_reseed_is_never_rejected_by_the_replay_guard() {
         let shared = queue_playing();
         let (tx, _rx) = channel();
-        let mut cover = String::new();
         // the queue had just skipped away from "Earlier" when AirPlay
         // took over, and it is back on exactly that title
         locks::lock(&shared).as_mut().unwrap().recent_switch =
             Some((Instant::now(), "Earlier".into()));
         external(&shared, &tx, Some(&track("Stand by Me", "Ben")), Some(1.0));
-        apply_external_ended(&shared, &tx, &mut cover, Instant::now());
+        apply_external_ended(&shared, &tx, Instant::now());
         apply_queue_seed(
             &shared,
             &tx,
-            &mut cover,
             &track("Earlier", "X"),
             9.0,
             &covers(),
@@ -1439,7 +1382,7 @@ mod external_tests {
     fn leaving_a_source_that_was_never_active_changes_nothing() {
         let shared = queue_playing();
         let (tx, mut rx) = channel();
-        apply_external_ended(&shared, &tx, &mut String::new(), Instant::now());
+        apply_external_ended(&shared, &tx, Instant::now());
         assert_eq!(snapshot(&shared).title, "Teardrop");
         assert!(rx.try_recv().is_err());
     }
@@ -1454,11 +1397,9 @@ mod external_tests {
             ..Default::default()
         });
         let (tx, _rx) = channel();
-        let mut cover = String::new();
         apply_track(
             &shared,
             &tx,
-            &mut cover,
             &track("New", "A"),
             0.0,
             &covers(),
@@ -1468,7 +1409,6 @@ mod external_tests {
         apply_track(
             &shared,
             &tx,
-            &mut cover,
             &track("Old", "A"),
             9.0,
             &covers(),
