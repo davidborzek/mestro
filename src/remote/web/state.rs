@@ -122,8 +122,17 @@ pub fn from_player(
             volume: state.volume.clamp(0, 100),
             title: state.title.clone(),
             artist: state.artist.clone(),
-            cover: cover_url(art.version),
-            accent: art.accent.clone(),
+            // the held artwork is not the shown track's: send none
+            cover: if state.cover_missing {
+                String::new()
+            } else {
+                cover_url(art.version)
+            },
+            accent: if state.cover_missing {
+                String::new()
+            } else {
+                art.accent.clone()
+            },
         },
         view: ctx.view.clone(),
         display: ctx.display,
@@ -316,6 +325,16 @@ mod tests {
         assert_eq!(value["player"]["cover"], json!(""));
         assert_eq!(value["player"]["accent"], json!(""));
         assert_eq!(value["player"]["name"], json!(""));
+    }
+
+    #[test]
+    fn a_missing_cover_hides_the_previous_artwork_and_accent() {
+        let mut state = sample();
+        state.cover_missing = true;
+        let out = from_player(&state, "p", &ctx(), &art());
+        let value = serde_json::to_value(&out).unwrap();
+        assert_eq!(value["player"]["cover"], json!(""));
+        assert_eq!(value["player"]["accent"], json!(""));
     }
 
     #[test]
