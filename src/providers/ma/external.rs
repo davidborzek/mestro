@@ -186,14 +186,14 @@ mod tests {
 
         // 1. the source starts with MA's placeholder: named, no metadata
         let first = step(&mut tracker, &placeholder(), false, 1795350321.5);
-        assert_eq!(external(&first).0, "AirPlay");
+        assert_eq!(external(&first).0, "AirPlay Receiver");
         assert_eq!(external(&first).1, None);
         assert!(!first.back_on_queue);
 
         // 2. the real track: title, a position carried by the reading's age
         let second = step(&mut tracker, &track(), true, 1795350807.0);
         let (source, title, elapsed) = external(&second);
-        assert_eq!((source, title), ("AirPlay", Some("Stand by Me")));
+        assert_eq!((source, title), ("AirPlay Receiver", Some("Stand by Me")));
         assert!((elapsed.unwrap() - 1.71).abs() < 0.01, "{elapsed:?}");
 
         // 3. the skip: the title moves first, the clock still belongs
@@ -294,6 +294,13 @@ mod tests {
         step(&mut tracker, &track(), true, 1795350806.0);
         let mut spotify = track();
         spotify["active_source"] = "spotify_connect://audio_source/x".into();
+        spotify["source_list"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+                "id": "spotify_connect://audio_source/x",
+                "name": "Spotify Connect (HiFi)",
+            }));
         let switched = step(&mut tracker, &spotify, true, 1795350807.0);
         let (source, _, elapsed) = external(&switched);
         assert_eq!(source, "Spotify Connect");

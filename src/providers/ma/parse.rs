@@ -25,9 +25,9 @@ pub(super) struct PlayerSnapshot {
 // right away, boxing would only add an allocation per event
 #[allow(clippy::large_enum_variant)]
 pub(super) enum PlayerSource {
-    /// MA's own queue (active_source is a queue id, not a source
-    /// URI): queue events own the metadata, current_media is never
-    /// read
+    /// MA's own queue (active_source is the player's own id, empty
+    /// or not a listed source): queue events own the metadata,
+    /// current_media is never read
     Queue,
     /// an external source (AirPlay, Spotify Connect, ...)
     External(ExternalMedia),
@@ -35,7 +35,8 @@ pub(super) enum PlayerSource {
 
 /// current_media of a player running an external source
 pub(super) struct ExternalMedia {
-    /// display name of the source: "AirPlay", "Spotify Connect", ...
+    /// display name of the source, MA's listed name without the
+    /// player suffix: "AirPlay Receiver", "Spotify Connect", ...
     pub(super) source: String,
     /// None = no metadata yet (absent, or MA's placeholder title)
     pub(super) track: Option<TrackMeta>,
@@ -307,43 +308,26 @@ pub(super) fn parse_player(v: &Value, img_base: &str) -> Option<PlayerSnapshot> 
     })
 }
 
-/// The display name of an external source from the URI scheme of
-/// `active_source` ("airplay_receiver://audio_source/<id>"); None
-/// for anything that is not a source URI — a queue id.
-fn source_name(active_source: &str) -> Option<String> {
-    let (scheme, _) = active_source.split_once("://")?;
-    match scheme {
-        "" => None,
-        "airplay_receiver" => Some("AirPlay".to_string()),
-        "spotify_connect" => Some("Spotify Connect".to_string()),
-        // unknown sources: the scheme, prettified ("line_in" -> "Line In")
-        other => Some(
-            other
-                .split(['_', '-'])
-                .filter(|word| !word.is_empty())
-                .map(|word| {
-                    let mut chars = word.chars();
-                    chars
-                        .next()
-                        .map(|first| first.to_uppercase().chain(chars).collect::<String>())
-                        .unwrap_or_default()
-                })
-                .collect::<Vec<_>>()
-                .join(" "),
-        ),
-    }
+/// MA lists a player's sources with the player's name appended
+/// ("AirPlay Receiver (HiFi)"); the display drops that suffix
+fn display_source_name(listed: &str, player_name: &str) -> String {
+    listed
+        .strip_suffix(&format!(" ({player_name})"))
+        .filter(|stripped| !player_name.is_empty() && !stripped.trim().is_empty())
+        .unwrap_or(listed)
+        .to_string()
 }
 
-/// Queue unless `active_source` is a source URI; then the player's
-/// current_media is the external track.
+/// MA's own rule (its frontend's `resolveExternalSource`): the
+/// player plays an external source when `active_source` is set, is
+/// not the player's own id (the queue) and is listed in
+/// `source_list`. Anything else — also when unsure — is the queue;
+/// then current_media is not read.
 fn parse_source(v: &Value, img_base: &str) -> PlayerSource {
     let active_source = str_at(v, &["active_source"]);
-    let Some(source) = source_name(&active_source) else {
+    if active_source.is_empty() || active_source == str_at(v, &["player_id"]) {
         return PlayerSource::Queue;
-    };
-    let media = v.get("current_media").unwrap_or(&Value::Null);
-    // MA's own name for the active source ("AirPlay Receiver (HiFi)")
-    // is what its placeholder title says
+    }
     let listed_name = v
         .get("source_list")
         .and_then(|list| list.as_array())
@@ -351,22 +335,35 @@ fn parse_source(v: &Value, img_base: &str) -> PlayerSource {
             list.iter()
                 .find(|entry| entry.get("id").and_then(|id| id.as_str()) == Some(&active_source))
         })
-        .and_then(|entry| entry.get("name"))
-        .and_then(|name| name.as_str());
+        .map(|entry| str_at(entry, &["name"]))
+        .filter(|name| !name.is_empty());
+    let Some(listed_name) = listed_name else {
+        return PlayerSource::Queue;
+    };
+    let player_name = match str_at(v, &["display_name"]) {
+        name if name.is_empty() => str_at(v, &["name"]),
+        name => name,
+    };
+    let source = display_source_name(&listed_name, &player_name);
+    let is_source_name = |text: &str| text == listed_name || text == source;
+    let media = v.get("current_media").unwrap_or(&Value::Null);
     let title = str_at(media, &["title"]);
-    let image_url = str_at(media, &["image_url"]);
-    // MA fills current_media with the source's own name (and later a
-    // "<source> | <player> | Music Assistant" string) until the first
-    // real track arrives; those carry no artwork
-    let placeholder = image_url.is_empty()
-        && (listed_name == Some(title.as_str())
-            || title.contains("| Music Assistant")
-            || title.starts_with(&format!("{source} Receiver")));
+    let album = str_at(media, &["album"]);
+    // MA fills current_media with the source's own name until the
+    // first real track arrives (its frontend's rule); the capture
+    // also shows "<source> | <player> | Music Assistant", which that
+    // rule does not catch
+    let placeholder = is_source_name(&title) || title.ends_with("| Music Assistant");
     let track = (!title.is_empty() && !placeholder).then(|| TrackMeta {
         title,
         artist: str_at(media, &["artist"]),
-        album: str_at(media, &["album"]),
-        image_url: rebase_image_url(&image_url, img_base),
+        // a source without an album lands its own name there
+        album: if is_source_name(&album) {
+            String::new()
+        } else {
+            album
+        },
+        image_url: rebase_image_url(&str_at(media, &["image_url"]), img_base),
         duration_ms: (media
             .get("duration")
             .and_then(|d| d.as_f64())
@@ -667,10 +664,27 @@ mod tests {
         }
     }
 
+    /// a source entry as MA lists it, with the active source switched to it
+    fn switch_to(v: &mut Value, id: &str, name: &str) {
+        v["active_source"] = id.into();
+        v["source_list"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+                "id": id, "name": name, "passive": false,
+                "can_play_pause": true, "can_seek": false, "can_next_previous": false,
+                "can_shuffle": false, "can_repeat": false,
+            }));
+    }
+
+    fn is_queue(v: &Value) -> bool {
+        matches!(parse_player(v, BASE).unwrap().source, PlayerSource::Queue)
+    }
+
     #[test]
     fn an_airplay_track_is_read_from_current_media() {
         let media = external(&airplay_track());
-        assert_eq!(media.source, "AirPlay");
+        assert_eq!(media.source, "AirPlay Receiver");
         let track = media.track.unwrap();
         assert_eq!(track.title, "Stand by Me");
         assert_eq!(track.artist, "Ben E. King");
@@ -691,36 +705,119 @@ mod tests {
     }
 
     #[test]
+    fn a_listed_source_other_than_the_players_own_id_is_external() {
+        assert!(!is_queue(&placeholder()));
+        assert!(!is_queue(&airplay_track()));
+        assert!(is_queue(&queue_back()));
+    }
+
+    #[test]
+    fn the_players_own_id_is_the_queue_even_when_listed() {
+        // the queue is always listed under the player's id
+        let mut v = airplay_track();
+        v["active_source"] = v["player_id"].clone();
+        assert!(is_queue(&v));
+    }
+
+    #[test]
+    fn an_active_source_missing_from_the_source_list_is_the_queue() {
+        // a URI-shaped id MA does not list: not sure, so the queue
+        let mut v = airplay_track();
+        v["active_source"] = "spotify_connect://audio_source/x".into();
+        assert!(is_queue(&v));
+        let mut v = airplay_track();
+        v["source_list"] = Value::Null;
+        assert!(is_queue(&v));
+    }
+
+    #[test]
+    fn an_empty_or_missing_active_source_is_the_queue() {
+        let mut v = airplay_track();
+        v["active_source"] = "".into();
+        assert!(is_queue(&v));
+        v["active_source"] = Value::Null;
+        assert!(is_queue(&v));
+        v.as_object_mut().unwrap().remove("active_source");
+        assert!(is_queue(&v));
+    }
+
+    #[test]
+    fn a_source_without_a_uri_shape_is_external_when_listed() {
+        // no URI-scheme heuristics: MA's source list decides
+        let mut v = airplay_track();
+        switch_to(&mut v, "optical", "Optical (HiFi)");
+        assert_eq!(external(&v).source, "Optical");
+    }
+
+    #[test]
+    fn the_player_name_suffix_is_stripped_from_the_source_name() {
+        assert_eq!(
+            display_source_name("AirPlay Receiver (HiFi)", "HiFi"),
+            "AirPlay Receiver"
+        );
+        // another player's name, or none at all, stays
+        assert_eq!(
+            display_source_name("AirPlay Receiver (Kitchen)", "HiFi"),
+            "AirPlay Receiver (Kitchen)"
+        );
+        assert_eq!(display_source_name("Line-In", "HiFi"), "Line-In");
+        assert_eq!(display_source_name("Line-In (HiFi)", ""), "Line-In (HiFi)");
+        // nothing would be left
+        assert_eq!(display_source_name(" (HiFi)", "HiFi"), " (HiFi)");
+    }
+
+    #[test]
     fn the_airplay_placeholder_is_no_metadata_yet() {
         let media = external(&placeholder());
-        assert_eq!(media.source, "AirPlay");
+        assert_eq!(media.source, "AirPlay Receiver");
         assert!(media.track.is_none());
     }
 
     #[test]
-    fn the_music_assistant_suffix_title_is_a_placeholder_without_artwork() {
+    fn a_title_equal_to_the_source_name_is_a_placeholder_listed_or_stripped() {
+        for title in ["AirPlay Receiver (HiFi)", "AirPlay Receiver"] {
+            let mut v = airplay_track();
+            v["current_media"]["title"] = title.into();
+            assert!(external(&v).track.is_none(), "{title}");
+        }
+    }
+
+    #[test]
+    fn a_placeholder_is_one_even_when_it_carries_artwork() {
+        // MA's rule looks at the title only
+        let mut v = airplay_track();
+        v["current_media"]["title"] = "AirPlay Receiver (HiFi)".into();
+        assert!(v["current_media"]["image_url"].is_string());
+        assert!(external(&v).track.is_none());
+    }
+
+    #[test]
+    fn the_music_assistant_suffix_title_is_a_placeholder() {
+        // the second placeholder of the capture: not the source's name,
+        // so MA's own rule would show it
         let mut v = placeholder();
         v["current_media"]["title"] = "AirPlay | HiFi | Music Assistant".into();
         assert!(external(&v).track.is_none());
     }
 
     #[test]
-    fn a_title_with_artwork_is_never_a_placeholder() {
+    fn a_title_that_merely_starts_like_the_source_is_a_track() {
         let mut v = airplay_track();
-        v["current_media"]["title"] = "AirPlay Receiver (HiFi)".into();
-        assert!(external(&v).track.is_some());
+        v["current_media"]["title"] = "AirPlay Receiver Blues".into();
+        assert_eq!(external(&v).track.unwrap().title, "AirPlay Receiver Blues");
     }
 
     #[test]
-    fn a_title_equal_to_the_listed_source_name_is_a_placeholder() {
-        // generic: any source whose placeholder is its own name
-        // in the player's source_list
-        let mut v = placeholder();
-        v["active_source"] = "spotify_connect://audio_source/x".into();
-        v["source_list"][1]["id"] = "spotify_connect://audio_source/x".into();
-        v["source_list"][1]["name"] = "Spotify Connect (HiFi)".into();
-        v["current_media"]["title"] = "Spotify Connect (HiFi)".into();
-        assert!(external(&v).track.is_none());
+    fn an_album_equal_to_the_source_name_is_no_album() {
+        for album in ["AirPlay Receiver (HiFi)", "AirPlay Receiver"] {
+            let mut v = airplay_track();
+            v["current_media"]["album"] = album.into();
+            assert_eq!(external(&v).track.unwrap().album, "", "{album}");
+        }
+        assert_eq!(
+            external(&airplay_track()).track.unwrap().album,
+            "Stand by Me"
+        );
     }
 
     #[test]
@@ -746,42 +843,6 @@ mod tests {
         let snapshot = parse_player(&queue_back(), BASE).unwrap();
         assert!(matches!(snapshot.source, PlayerSource::Queue));
         assert!(snapshot.has_media);
-    }
-
-    #[test]
-    fn queue_ids_and_missing_sources_are_the_queue() {
-        for active in [
-            "",
-            "02:00:00:00:00:01",
-            "fAmSz7AIRKWlePCgtK3ZflTQD3N6Lcrqi7ZxzPMkFGw",
-        ] {
-            let mut v = airplay_track();
-            v["active_source"] = active.into();
-            assert!(
-                matches!(parse_player(&v, BASE).unwrap().source, PlayerSource::Queue),
-                "{active:?}"
-            );
-        }
-        let mut v = airplay_track();
-        v.as_object_mut().unwrap().remove("active_source");
-        assert!(matches!(
-            parse_player(&v, BASE).unwrap().source,
-            PlayerSource::Queue
-        ));
-    }
-
-    #[test]
-    fn source_labels_come_from_the_uri_scheme() {
-        for (uri, label) in [
-            ("airplay_receiver://audio_source/x", "AirPlay"),
-            ("spotify_connect://audio_source/x", "Spotify Connect"),
-            ("line_in://audio_source/x", "Line In"),
-            ("dlna-renderer://x", "Dlna Renderer"),
-        ] {
-            assert_eq!(source_name(uri).as_deref(), Some(label), "{uri}");
-        }
-        assert_eq!(source_name("://x"), None);
-        assert_eq!(source_name("plain-queue-id"), None);
     }
 
     #[test]
