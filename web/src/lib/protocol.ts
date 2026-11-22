@@ -107,6 +107,8 @@ export type RemoteState = {
     playing: boolean;
     loading: boolean;
     has_media: boolean;
+    // the external source playing ("AirPlay", ...), "" = the MA queue
+    source: string;
     volume: number;
     title: string;
     artist: string;

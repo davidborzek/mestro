@@ -49,6 +49,11 @@ pub struct RemotePlayer {
     pub playing: bool,
     pub loading: bool,
     pub has_media: bool,
+    /// the external source playing on the player ("AirPlay", ...),
+    /// "" = Music Assistant's queue. While set, the queue (view,
+    /// `queue` ctl) and next/prev/seek do not apply
+    #[serde(default)]
+    pub source: String,
     /// 0..100
     pub volume: i32,
     pub title: String,
@@ -113,6 +118,7 @@ pub fn from_player(
             playing: state.playing,
             loading: state.loading,
             has_media: state.has_media,
+            source: state.external.clone().unwrap_or_default(),
             volume: state.volume.clamp(0, 100),
             title: state.title.clone(),
             artist: state.artist.clone(),
@@ -259,6 +265,7 @@ mod tests {
                         "playing": true,
                         "loading": false,
                         "has_media": true,
+                        "source": "",
                         "volume": 42,
                         "title": "Track",
                         "artist": "Artist",
@@ -278,6 +285,20 @@ mod tests {
                 }
             })
         );
+    }
+
+    #[test]
+    fn an_external_source_is_named_in_the_player() {
+        let mut state = sample();
+        state.external = Some("AirPlay".into());
+        let out = from_player(&state, "p", &ctx(), &art());
+        let value = serde_json::to_value(&out).unwrap();
+        assert_eq!(value["player"]["source"], json!("AirPlay"));
+        // an older frame without the field still reads
+        let mut old = value.clone();
+        old["player"].as_object_mut().unwrap().remove("source");
+        let parsed: RemoteState = serde_json::from_value(old).unwrap();
+        assert_eq!(parsed.player.source, "");
     }
 
     #[test]
