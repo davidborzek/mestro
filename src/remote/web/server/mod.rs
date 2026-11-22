@@ -417,7 +417,7 @@ pub(crate) async fn dispatch(
             if !paired {
                 return http::json(&Response::err(id, "pairing required"));
             }
-            audio::handle(id, action).await
+            audio::handle(id, action, bridge).await
         }
         Request::Ma { action } => {
             if !paired {

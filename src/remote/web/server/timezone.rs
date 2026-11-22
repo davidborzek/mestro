@@ -215,7 +215,11 @@ mod tests {
             outcome.response.data.unwrap(),
             json!({"zone": "Europe/London", "taken": true, "restarting": true})
         );
-        assert_eq!(env_text(&system), "RUST_LOG=debug\nTZ=Europe/London\n");
+        assert!(env_text(&system).ends_with("TZ=Europe/London\n"));
+        assert!(
+            !env_text(&system).contains("RUST_LOG"),
+            "the file is mestro's, whole"
+        );
     }
 
     #[test]

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { currentOutput, outputLabel, switchOutput, type AudioSend } from "./audio";
-import type { AudioOutput } from "./protocol";
+import { audioTextFields, currentOutput, outputLabel, switchOutput, type AudioSend } from "./audio";
+import type { AudioOutput, Field, Schema } from "./protocol";
 
 const OUTPUTS: AudioOutput[] = [
   { id: "hw:CARD=Headphones", name: "bcm2835 Headphones", current: true },
@@ -55,5 +55,32 @@ describe("switchOutput", () => {
     const result = await switchOutput(send, "hw:CARD=S3");
     expect(result.error).toContain("hw:CARD=S3");
     expect(currentOutput(result.outputs)?.id).toBe("hw:CARD=Headphones");
+  });
+});
+
+describe("audioTextFields", () => {
+  const text = (key: string): Field => ({ key, label: key, kind: { type: "text" } });
+  const schema: Schema = {
+    sections: [
+      { id: "display", title: "Display", icon: "x", fields: [text("display.other")] },
+      {
+        id: "audio",
+        title: "Audio",
+        icon: "speaker",
+        fields: [text("audio.output"), text("audio.name"), text("audio.server")],
+      },
+    ],
+  };
+
+  test("are the audio section's fields without the output the picker owns", () => {
+    expect(audioTextFields(schema).map((field) => field.key)).toEqual([
+      "audio.name",
+      "audio.server",
+    ]);
+  });
+
+  test("are none without a schema or an audio section", () => {
+    expect(audioTextFields(null)).toEqual([]);
+    expect(audioTextFields({ sections: [schema.sections[0]] })).toEqual([]);
   });
 });

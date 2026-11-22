@@ -75,6 +75,9 @@ pub enum Kind {
     /// tri-state: unset inherits the base flag, a reset clears
     /// the key (the osd.<context>.* overrides)
     InheritBool,
+    /// free text; an empty value means "automatic" (the audio.*
+    /// settings)
+    Text,
 }
 
 #[derive(Debug, Serialize)]
@@ -119,6 +122,7 @@ pub fn schema(config: &Config) -> Schema {
             home(),
             notifications(),
             vu_meters(config),
+            audio(),
         ],
     }
 }
@@ -536,6 +540,33 @@ fn display() -> Section {
     }
 }
 
+/// squeezelite's settings (the player image, feature `audio-output`):
+/// the web app's Audio page renders them (the output next to its device
+/// list, only where the device reports the capability); the device's
+/// own pages have none. Empty = mestro derives the value
+/// (src/system/squeezelite.rs)
+fn audio() -> Section {
+    Section {
+        id: "audio",
+        title: "Audio",
+        icon: "speaker",
+        fields: vec![
+            Field {
+                help: Some("Empty = a USB DAC, else an I2S HAT."),
+                ..field("audio.output", "Output", Kind::Text)
+            },
+            Field {
+                help: Some("Empty = mestro-XXXX."),
+                ..field("audio.name", "Name", Kind::Text)
+            },
+            Field {
+                help: Some("Empty = the host of the Music Assistant URL."),
+                ..field("audio.server", "Server", Kind::Text)
+            },
+        ],
+    }
+}
+
 fn home() -> Section {
     Section {
         id: "home",
@@ -706,10 +737,11 @@ mod tests {
     #[test]
     fn the_editable_surface_stays_at_45_static_keys() {
         // the 45 keys the device settings UI edits; the per-skin
-        // vu.<skin>.* fields are dynamic on top of these
+        // vu.<skin>.* fields are dynamic on top of these, the audio.*
+        // ones are web-only
         let keys: Vec<String> = schema_keys(&schema(&Config::default()))
             .into_iter()
-            .filter(|k| !k.starts_with("vu.") || k == "vu.cycle")
+            .filter(|k| (!k.starts_with("vu.") || k == "vu.cycle") && !k.starts_with("audio."))
             .collect();
         assert_eq!(keys.len(), 45, "keys: {keys:?}");
     }
@@ -761,10 +793,11 @@ mod tests {
             }
         }
         // the vu family is Rust-written (wire_vu owns the array
-        // arithmetic) and the per-skin keys are dynamic
+        // arithmetic) and the per-skin keys are dynamic; the audio
+        // section is web-only
         let schema: BTreeSet<String> = schema_keys(&schema(&Config::default()))
             .into_iter()
-            .filter(|k| !k.starts_with("vu."))
+            .filter(|k| !k.starts_with("vu.") && !k.starts_with("audio."))
             .collect();
         let missing: Vec<_> = slint.difference(&schema).collect();
         let extra: Vec<_> = schema.difference(&slint).collect();
@@ -775,6 +808,30 @@ mod tests {
         assert!(
             extra.is_empty(),
             "schema keys no slint page writes: {extra:?}"
+        );
+    }
+
+    #[test]
+    fn the_audio_section_holds_the_squeezelite_text_settings() {
+        let schema = schema(&Config::default());
+        let audio = schema
+            .sections
+            .iter()
+            .find(|s| s.id == "audio")
+            .expect("an audio section");
+        let fields: Vec<(&str, bool)> = audio
+            .fields
+            .iter()
+            .map(|f| (f.key.as_str(), matches!(f.kind, Kind::Text)))
+            .collect();
+        assert_eq!(
+            fields,
+            [
+                ("audio.output", true),
+                ("audio.name", true),
+                ("audio.server", true)
+            ],
+            "audio.extra is config-file only"
         );
     }
 

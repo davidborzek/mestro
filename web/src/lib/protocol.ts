@@ -170,7 +170,9 @@ export type FieldKind =
   | { type: "ordered-subset"; options: Option[] }
   | { type: "permutation"; options: Option[] }
   // unset = inherit the base value (osd.<context>.*)
-  | { type: "inherit-bool" };
+  | { type: "inherit-bool" }
+  // free text, empty = automatic (audio.*)
+  | { type: "text" };
 export type Option = {
   value: string;
   label: string;

@@ -69,9 +69,10 @@ ota = []
 # enable it next to `ota`; desktop builds stay without it
 wifi-setup = ["dep:sha1", "dep:hmac"]
 # the web app's audio output picker: lists the ALSA playback
-# devices and rewrites OUTPUT in squeezelite.env (image only)
+# devices, sets the audio.* settings and writes squeezelite's env
+# file from them (image only)
 audio-output = []
-# the web app's timezone picker: writes TZ into mestro.env and
+# the web app's timezone picker: writes TZ into mestro's env file and
 # restarts the player (image only; a desktop follows the OS zone)
 timezone = []
 

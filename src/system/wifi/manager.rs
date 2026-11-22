@@ -126,17 +126,13 @@ impl<B: WifiBackend> Manager<B> {
         mdns_gate: Arc<MdnsGate>,
         ui: slint::Weak<crate::Mestro>,
         mac: &str,
+        device_id: &str,
         web_port: u16,
         shutdown: WifiShutdown,
     ) -> Self {
-        // mestro-XXXX: the MAC's last two bytes as hex, so every
+        // mestro-XXXX: the same suffix as squeezelite's NAME, so every
         // device names its hotspot differently without state
-        let hex = mac.replace(':', "");
-        let suffix = if hex.len() >= 4 {
-            &hex[hex.len() - 4..]
-        } else {
-            hex.as_str()
-        };
+        let suffix = crate::remote::web::device_suffix(mac, device_id);
         let manager = Self {
             backend,
             plan,
@@ -148,7 +144,7 @@ impl<B: WifiBackend> Manager<B> {
             ap_up: false,
             ap_reason: ApReason::Setup,
             ap_secs: 0,
-            ap_ssid: format!("mestro-{}", suffix.to_uppercase()),
+            ap_ssid: format!("mestro-{suffix}"),
             web_port,
             ssid: String::new(),
             last_error: String::new(),
@@ -1013,12 +1009,14 @@ impl<B: WifiBackend> Ops<B> {
 /// the manager thread: ops from the web endpoint and the policy tick.
 /// Ops never wait for the manager mutex on the async path — they run
 /// on the blocking pool; the tick shares the lock with them
+#[allow(clippy::too_many_arguments)]
 pub async fn run(
     mut rx: tokio::sync::mpsc::Receiver<WifiRequest>,
     ap_mode: Arc<AtomicBool>,
     mdns_gate: Arc<MdnsGate>,
     ui: slint::Weak<crate::Mestro>,
     config: crate::config::Wifi,
+    device_id: String,
     web_port: u16,
     shutdown: WifiShutdown,
 ) {
@@ -1056,6 +1054,7 @@ pub async fn run(
         mdns_gate,
         ui,
         &mac,
+        &device_id,
         web_port,
         shutdown.clone(),
     )));
@@ -1128,6 +1127,7 @@ mod tests {
     use crate::remote::web::{confirming_worker, GatePhase};
 
     const MAC: &str = "d8:3a:dd:77:34:56";
+    const DEVICE_ID: &str = "d83add773455";
 
     /// the default [wifi] resolved for tests: wlan0, the default
     /// hotspot addresses, conf files in a temp dir
@@ -1156,6 +1156,7 @@ mod tests {
             Arc::default(),
             slint::Weak::default(),
             MAC,
+            DEVICE_ID,
             80,
             WifiShutdown::default(),
         );
@@ -1187,10 +1188,52 @@ mod tests {
             Arc::default(),
             slint::Weak::default(),
             "aa:bb",
+            "a1b2c3d46bec",
             80,
             WifiShutdown::default(),
         );
         assert_eq!(short.ap_ssid, "mestro-AABB");
+    }
+
+    #[test]
+    fn the_hotspot_and_the_squeezelite_name_share_one_suffix_on_a_wlan_plus_eth_device() {
+        // eth0 sorts before wlan0: the player id is the ethernet MAC,
+        // the hotspot lives on the wifi interface
+        let root = tempfile::tempdir().unwrap();
+        for (name, mac, wireless) in [
+            ("eth0", "d8:3a:dd:77:34:55", false),
+            ("wlan0", "d8:3a:dd:77:34:56", true),
+        ] {
+            let dir = root.path().join(name);
+            std::fs::create_dir_all(dir.join("device")).unwrap();
+            if wireless {
+                std::fs::create_dir_all(dir.join("wireless")).unwrap();
+            }
+            std::fs::write(dir.join("address"), format!("{mac}\n")).unwrap();
+        }
+        let state = tempfile::tempdir().unwrap();
+        let device_id = crate::remote::web::device_id(root.path(), state.path(), "host");
+        let roots = super::super::backend::Roots {
+            net_class: root.path().to_path_buf(),
+            proc: "/nonexistent-proc".into(),
+        };
+        let mac = std::fs::read_to_string(root.path().join("wlan0/address")).unwrap();
+        let mac = mac.trim();
+        let dir = tempfile::tempdir().unwrap();
+        let hotspot = Manager::new(
+            FakeBackend::new(mac),
+            plan(dir.path()),
+            Arc::new(AtomicBool::new(false)),
+            Arc::default(),
+            slint::Weak::default(),
+            mac,
+            &device_id,
+            80,
+            WifiShutdown::default(),
+        );
+        let name_suffix = super::super::name_suffix(&roots, "auto", &device_id);
+        assert_eq!(format!("mestro-{name_suffix}"), hotspot.ap_ssid);
+        assert_eq!(name_suffix, "3456", "the wifi MAC, not the ethernet one");
     }
 
     #[test]
@@ -1304,6 +1347,7 @@ mod tests {
             Arc::default(),
             slint::Weak::default(),
             MAC,
+            DEVICE_ID,
             8787,
             WifiShutdown::default(),
         );
@@ -1524,6 +1568,7 @@ mod tests {
             gate.clone(),
             slint::Weak::default(),
             MAC,
+            DEVICE_ID,
             80,
             WifiShutdown::default(),
         );
@@ -1559,6 +1604,7 @@ mod tests {
             gate.clone(),
             slint::Weak::default(),
             MAC,
+            DEVICE_ID,
             80,
             WifiShutdown::default(),
         );
@@ -1585,6 +1631,7 @@ mod tests {
             gate.clone(),
             slint::Weak::default(),
             MAC,
+            DEVICE_ID,
             80,
             WifiShutdown::default(),
         );
@@ -1986,6 +2033,7 @@ mod tests {
             Arc::default(),
             slint::Weak::default(),
             MAC,
+            DEVICE_ID,
             80,
             WifiShutdown::default(),
         )
@@ -2386,6 +2434,7 @@ mod tests {
             Arc::default(),
             slint::Weak::default(),
             MAC,
+            DEVICE_ID,
             80,
             shutdown.clone(),
         );

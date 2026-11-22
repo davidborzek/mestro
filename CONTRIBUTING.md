@@ -18,8 +18,8 @@ src/
   providers/       PlaybackSource trait + the Music Assistant client
   remote/          control vocabulary, ctl socket, web endpoint, QR
   system/          wifi hotspot + first-boot setup, factory reset
-                   (feature `wifi-setup`); the env-file editor, audio
-                   output and timezone pickers (features
+                   (feature `wifi-setup`); the mestro-owned env files,
+                   audio output and timezone pickers (features
                    `audio-output`, `timezone`)
   restart.rs       self-restart after a settings change or update
 ui/                the slint views (mestro.slint is the root)
@@ -53,9 +53,9 @@ only the production call sites read the constants.
 
 | variable | default | what |
 |---|---|---|
-| `MESTRO_SQUEEZELITE_ENV` | `/data/squeezelite.env` | the env file the audio output picker rewrites (`OUTPUT=`); the picker shows only while it exists |
-| `MESTRO_SQUEEZELITE_RESTART` | `/etc/init.d/S60squeezelite restart` | the command that restarts squeezelite (split on whitespace, no shell) |
-| `MESTRO_ENV_FILE` | `/data/mestro.env` | the env file the init script sources before it starts mestro; the timezone picker writes `TZ=` there |
+| `MESTRO_SQUEEZELITE_ENV` | `/data/state/mestro/squeezelite.env` | the env file mestro owns and writes whole (`OUTPUT`, `NAME`, `SERVER`, `EXTRA`, from the `audio.*` settings); the only file the init script sources — must match the path S60squeezelite sources |
+| `MESTRO_SQUEEZELITE_RESTART` | `/etc/init.d/S60squeezelite restart` | the command that restarts squeezelite (split on whitespace, no shell); the audio output picker and the env file act only while its program exists |
+| `MESTRO_ENV_FILE` | `/data/state/mestro/mestro.env` | the env file mestro owns and writes whole (`TZ=`, from the timezone setting); S50mestro sources it before the user's `/data/mestro.env` — must match that path |
 | `MESTRO_ZONEINFO_DIR` | `/usr/share/zoneinfo` | the zoneinfo database a chosen zone must exist in; the timezone picker shows only while it exists |
 | `MESTRO_LOCALTIME` | `/etc/localtime` | the system zone link, read to learn the running zone when `TZ` is unset |
 | `MESTRO_DIAG_LOGS` | `/tmp/mestro.log:/tmp/mestro.log.old:/tmp/ota.log` | colon-separated log files whose last 200 lines go into the diagnostics download (`.old` is the previous run); a missing file is skipped |

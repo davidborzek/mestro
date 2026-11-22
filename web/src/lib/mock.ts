@@ -318,7 +318,10 @@ class MockSocket {
               );
             } else {
               audioCurrent = output;
+              // the device records the pick as the audio.output setting
+              applyFlat("audio.output", output);
               respond(true, { output });
+              pushSettings();
             }
           }, 1200);
         }

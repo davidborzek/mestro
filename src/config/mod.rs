@@ -17,6 +17,7 @@
 //! background.rs, ui.rs, vu.rs), this file owns the Config
 //! struct, loading and validation.
 
+mod audio;
 mod background;
 mod clock;
 mod display;
@@ -33,6 +34,7 @@ mod vu;
 mod wifi;
 mod window;
 
+pub use audio::Audio;
 pub use background::Background;
 pub use clock::{
     BackgroundSource, Clock, StandbyBackground, BUILTIN_STYLES as CLOCK_BUILTIN_STYLES,
@@ -86,6 +88,10 @@ pub struct Config {
     /// only, feature `wifi-setup` on the kiosk)
     #[serde(default)]
     pub wifi: Wifi,
+    /// [audio]: squeezelite's output, name, server and extra flags
+    /// (feature `audio-output` writes them into its env file)
+    #[serde(default)]
+    pub audio: Audio,
     /// [system]: the timezone (a device setting) and the files it is
     /// applied through (feature `timezone` on the kiosk)
     #[serde(default)]

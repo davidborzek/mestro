@@ -1,23 +1,21 @@
 #!/bin/sh
-# S60squeezelite — the audio player, config via /data/squeezelite.env
-# (option 2: env file + service restart, no in-process control).
+# S60squeezelite — the audio player. mestro owns its config: it writes
+# /data/state/mestro/squeezelite.env (clean LF) from the audio
+# settings (Settings → Audio, [audio] in config.toml) and restarts
+# this script when the content changes. Nothing else is read; without
+# the file squeezelite runs on its own defaults.
 #
-#	OUTPUT=hw:CARD=DAC	# bit-perfect ALSA device (mestro's audio
-#				# output picker rewrites this line)
-#	SERVER=			# Music Assistant host; empty = discovery
-#	NAME=mestro
-#	EXTRA="-r -Z 100"
+#	OUTPUT=hw:CARD=DAC	# ALSA device (empty = squeezelite's default)
+#	SERVER=192.168.1.5	# Music Assistant host (empty = discovery)
+#	NAME=HiFi		# the player's name
+#	EXTRA='-r -Z 100'	# further flags, split on whitespace
 
 case "$1" in
 start)
 	[ -d /data ] || exit 0
-	# the file is edited on Windows too (CRLF, maybe a UTF-8 BOM) and
-	# rewritten by mestro (audio output picker): source a copy without
-	# the carriage returns and the BOM (it would glue onto the first key)
 	# env-source:begin
-	bom=$(printf '\357\273\277')
-	tr -d '\r' </data/squeezelite.env | sed "1s/^$bom//" >/tmp/squeezelite.env
-	. /tmp/squeezelite.env
+	unset OUTPUT NAME SERVER EXTRA
+	[ -f /data/state/mestro/squeezelite.env ] && . /data/state/mestro/squeezelite.env
 	# env-source:end
 	# the VU shm ring is named after the interface MAC — wait for the
 	# network so it isn't written with 00:00:00:00:00:00 (mestro
@@ -31,7 +29,7 @@ start)
 	done
 	rm -f /dev/shm/squeezelite-00:00:00:00:00:00
 	start-stop-daemon -S -b -x /usr/bin/squeezelite -- \
-		-v -o "$OUTPUT" ${SERVER:+-s "$SERVER"} -n "$NAME" $EXTRA
+		-v ${OUTPUT:+-o "$OUTPUT"} ${SERVER:+-s "$SERVER"} ${NAME:+-n "$NAME"} $EXTRA
 	;;
 stop)
 	start-stop-daemon -K -x /usr/bin/squeezelite

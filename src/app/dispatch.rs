@@ -48,6 +48,7 @@ pub struct Families {
     pub now_playing: bool,
     pub theme_ui: bool,
     pub connection: bool,
+    pub audio: bool,
     pub vu: bool,
     pub display: bool,
     pub clock: bool,
@@ -59,6 +60,7 @@ impl Families {
         now_playing: true,
         theme_ui: true,
         connection: true,
+        audio: true,
         vu: true,
         display: true,
         clock: true,
@@ -78,6 +80,7 @@ impl Families {
                 || has("osd.")
                 || has("hub."),
             connection: has("music-assistant."),
+            audio: has("audio."),
             vu: has("vu."),
             display: has("display."),
             clock: has("clock."),
@@ -194,6 +197,15 @@ impl Dispatch {
                 ma::Config::from_music_assistant(&effective.music_assistant);
             let _ = self.cmd_tx.send(SourceCommand::Reconnect);
         }
+        // squeezelite's env file follows the audio settings and the
+        // url its SERVER derives from
+        #[cfg(feature = "audio-output")]
+        if touched.audio || touched.connection {
+            mestro::system::squeezelite::settings_changed(
+                &effective.audio,
+                &effective.music_assistant.url,
+            );
+        }
         if touched.vu {
             mestro::settings::sync_vu(ui, &self.settings, effective, &self.vui, &self.vu_state);
         }
@@ -225,6 +237,8 @@ mod tests {
         assert!(!clock.display);
 
         assert!(Families::of_key("music-assistant.url").connection);
+        assert!(Families::of_key("audio.output").audio);
+        assert!(!Families::of_key("audio.output").connection);
         assert!(Families::of_key("display.brightness").display);
         assert!(Families::of_key("vu.cycle").vu);
         assert!(Families::of_key("osd.style").theme_ui);
@@ -236,6 +250,7 @@ mod tests {
                 now_playing: false,
                 theme_ui: false,
                 connection: false,
+                audio: false,
                 vu: false,
                 display: false,
                 clock: false

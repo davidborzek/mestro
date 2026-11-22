@@ -1,7 +1,16 @@
 // the audio output picker's logic: DOM-free, the page state lives
 // in the component. `send` is the socket's request function.
 
-import type { AudioOp, AudioOutput, AudioOutputsData } from "./protocol";
+import type { AudioOp, AudioOutput, AudioOutputsData, Field, Schema } from "./protocol";
+
+// the schema's audio fields the picker does not cover: the output
+// is the picker's (it writes audio.output itself)
+export const OUTPUT_KEY = "audio.output";
+
+export function audioTextFields(schema: Schema | null): Field[] {
+  const section = schema?.sections.find((candidate) => candidate.id === "audio");
+  return (section?.fields ?? []).filter((field) => field.key !== OUTPUT_KEY);
+}
 
 export type AudioSend = (request: { op: "audio" } & AudioOp) => Promise<unknown>;
 

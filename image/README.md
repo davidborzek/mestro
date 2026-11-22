@@ -10,7 +10,7 @@ system that runs entirely from RAM — piCorePlayer-style.
 | Partition | Type | Content |
 |---|---|---|
 | 1 (boot) | FAT32 | the system in two slots `Image.a`/`Image.b` (kernel with embedded initramfs), DTBs, firmware, `config.txt` |
-| 2 (data) | FAT32 `MESTRODATA` | `squeezelite.env`, `wpa_supplicant.conf` (written by the setup hotspot), mestro state/config — survives reflashes, editable on Windows/macOS |
+| 2 (data) | FAT32 `MESTRODATA` | `wpa_supplicant.conf` (written by the setup hotspot), mestro state/config (settings, the env files mestro writes) — survives reflashes, editable on Windows/macOS |
 
 - No root partition: the rootfs is an initramfs inside the kernel
   image. The SD card is only read at boot; zero wear afterwards.
@@ -18,32 +18,31 @@ system that runs entirely from RAM — piCorePlayer-style.
   `mestro` — the linuxkms backend picks the connector's preferred
   DRM mode itself (`SLINT_DRM_MODE` overrides). First boot shows
   the setup hotspot's WiFi QR (no network yet) or the pairing QR;
-  the phone + the settings UI write everything into `/data`.
-  `squeezelite.env` is the one file a plain flash seeds
+  the phone + the settings UI write everything into `/data`; a plain
+  flash seeds nothing but the wifi template
   - `wpa_supplicant.conf` — written by mestro when you pick a
     network on the setup page (a hand-written one works too;
     `/etc/mestro-defaults/wpa_supplicant.conf` is the template).
     mestro keeps the last working one as `wpa_supplicant.conf.good`
-  - `squeezelite.env` — `OUTPUT` (bit-perfect ALSA device),
-    `SERVER` (Music Assistant host, empty = discovery), `NAME`,
-    `EXTRA`; applied with
-    `/etc/init.d/S60squeezelite restart`
-    (the web app's Settings → Audio → Audio output does exactly that:
-    it rewrites only the `OUTPUT=` line, keeps comments, other keys
-    and CRLF, and reverts to the previous output when squeezelite
-    does not start on the new one — feature `audio-output`)
-  (the env file and the restart command are build-time settings:
-  CONTRIBUTING.md, "Building for another image")
-  - `mestro.env` — environment for mestro, sourced by `S50mestro`
-    (`RUST_LOG`, `SLINT_DRM_OUTPUT`, `MESTRO_REMOTE_PORT`, …) and
-    `TZ`, the timezone: the image bakes `/etc/localtime` =
-    Europe/Berlin, `TZ` overrides it. The web app's Settings → System →
-    Time zone writes exactly that one line (every other line,
-    comment and CRLF stays) and restarts mestro to apply it —
-    feature `timezone`; the first paired browser's zone is adopted
-    once, later phones never change it. The legacy `/data/timezone`
-    file (read by `S02data` into `/etc/localtime`) still works
-    underneath; `TZ` wins
+  - **no `squeezelite.env` here**: mestro owns squeezelite's config. It
+    writes `/data/state/mestro/squeezelite.env` from the `audio.*`
+    settings (Settings → Audio; `[audio]` in `config.toml`, incl. `extra`
+    for further flags) and restarts squeezelite when the content changes —
+    see [Sound card / HAT](#sound-card--hat). Never edit that file; mestro
+    overwrites it. (The env files and the restart command are build-time
+    settings: CONTRIBUTING.md, "Building for another image")
+  - `/data/state/mestro/mestro.env` — written by mestro (`TZ`, from the
+    timezone setting; the image bakes `/etc/localtime` = Europe/Berlin,
+    `TZ` overrides it). Settings → System → Time zone writes it and
+    restarts mestro to apply it — feature `timezone`; the first paired
+    browser's zone is adopted once, later phones never change it. The
+    legacy `/data/timezone` file (read by `S02data` into `/etc/localtime`)
+    still works underneath; `TZ` wins
+  - `/data/mestro.env` — **yours**, the expert escape hatch: environment
+    for mestro, sourced by `S50mestro` after mestro's own file
+    (`RUST_LOG`, `SLINT_DRM_OUTPUT`, `SLINT_DRM_MODE`, …; a `TZ` here wins).
+    Optional, never created or written by mestro; CRLF and a UTF-8 BOM
+    from Windows editors are handled
 - Squeezelite: the **upstream Buildroot package** with
   `BR2_PACKAGE_SQUEEZELITE_VISEXPORT` (the shm ring mestro's VU
   reads, src/vu/mod.rs) and **no resampler**: `hw:` output stays
@@ -209,6 +208,45 @@ OS):
 power-save = false
 # country = "DE"
 ```
+
+## Sound card / HAT
+
+squeezelite plays on a `hw:` ALSA device, bit-perfect. mestro owns its
+config: it writes `/data/state/mestro/squeezelite.env` (`OUTPUT`, `NAME`,
+`SERVER`, `EXTRA`) from the audio settings (Settings → Audio, or `[audio]`
+in the config file); an empty setting falls back to what mestro derives,
+and squeezelite restarts once when the file changes. Nothing on the data
+partition to edit. The details:
+[configuration.md](../docs/configuration.md#audio).
+
+mestro picks the output at startup (feature `audio-output`):
+
+- **USB DACs work out of the box**: plug it in before the boot, mestro
+  derives `OUTPUT=hw:CARD=<id>` and restarts squeezelite once. Several
+  cards: a USB DAC beats an I2S HAT; among equals the lower card
+  number. A DAC that enumerates slowly gets ~10 s before mestro
+  decides.
+- **HATs (I2S) need their device-tree overlay**: edit `config.txt` on
+  the boot partition (FAT, any OS) and add the overlay of your board
+  — `dtoverlay=hifiberry-dacplus`, `hifiberry-digi`,
+  `iqaudio-dacplus` or `allo-boss-dac-pcm512x-audio` (the full list
+  is the `overlays/` folder next to it; its kernel driver must be in
+  the image — the four above are). Reboot. The card appears as a
+  sound card, and mestro picks it. The
+  image ships `dtparam=audio=off` (no headphone jack card); remove
+  that line to get the Pi's jack back, then choose it under
+  Settings → Audio.
+- The built-in headphone jack and the HDMI ports are never picked
+  automatically — with only those present `OUTPUT` stays empty and
+  squeezelite uses its own default (mestro logs a warning).
+- To use another card: Settings → Audio → Audio output (it sets the
+  `audio.output` setting). A DAC plugged in **later** is not picked up by
+  itself (no hotplug); choose it there, or reboot.
+
+`NAME` becomes `mestro-XXXX` (the hotspot's suffix, from the wifi
+MAC) and `SERVER` the host of the Music Assistant url — this also
+finds MA in another subnet, where the broadcast discovery cannot.
+To pin your own, set `audio.name` / `audio.server` (Settings → Audio).
 
 ## Bug reports (diagnostics)
 

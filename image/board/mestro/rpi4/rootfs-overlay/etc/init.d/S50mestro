@@ -5,8 +5,9 @@
 # connector's preferred mode itself (highest/preferred DRM mode,
 # SLINT_DRM_MODE to override). The first-run QR overlay pairs
 # the phone; the wizard + settings UI write everything into
-# /data. Escape hatch: /data/mestro.env sources env vars
-# (SLINT_DRM_OUTPUT, SLINT_DRM_MODE, RUST_LOG, …).
+# /data. Env vars: /data/state/mestro/mestro.env is written by
+# mestro (TZ, from the timezone setting); /data/mestro.env is yours,
+# the escape hatch (SLINT_DRM_OUTPUT, SLINT_DRM_MODE, RUST_LOG, …).
 
 case "$1" in
 start)
@@ -28,12 +29,17 @@ start)
 	# /data/mestro.env overrides it
 	export MESTRO_REMOTE_PORT=80
 	# timezone comes from /etc/localtime (BR2_TARGET_LOCALTIME in
-	# the defconfig); TZ in /data/mestro.env overrides it. The file is
-	# edited on Windows too (CRLF, maybe a UTF-8 BOM) and one line is
-	# rewritten by mestro (timezone picker): source a copy without the
-	# carriage returns and the BOM (it would glue onto the first key),
-	# and export TZ — a plain `TZ=Europe/Berlin` line is not exported
+	# the defconfig); the timezone setting overrides it through
+	# mestro's own file (written whole by mestro, clean LF), and TZ in
+	# your /data/mestro.env overrides both. Yours is edited on Windows
+	# (CRLF, maybe a UTF-8 BOM): source a copy without the carriage
+	# returns and the BOM (it would glue onto the first key). Export
+	# TZ — a plain `TZ=Europe/Berlin` line is not exported
 	# env-source:begin
+	if [ -f /data/state/mestro/mestro.env ]; then
+		. /data/state/mestro/mestro.env
+		[ -n "${TZ:-}" ] && export TZ
+	fi
 	if [ -f /data/mestro.env ]; then
 		bom=$(printf '\357\273\277')
 		tr -d '\r' </data/mestro.env | sed "1s/^$bom//" >/tmp/mestro.env

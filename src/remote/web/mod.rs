@@ -17,6 +17,9 @@
 //! and either opens `/ws`, `/ota` and `/cover`.
 
 mod identity;
+#[cfg(all(test, feature = "wifi-setup"))]
+pub(crate) use identity::device_id;
+pub use identity::device_suffix;
 mod mdns;
 mod protocol;
 pub mod push;

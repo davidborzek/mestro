@@ -99,6 +99,25 @@ fn random_id() -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+/// the 4 uppercase hex digits that make a player's name unique
+/// (`mestro-XXXX`: the hotspot SSID and squeezelite's `NAME`): the
+/// last two bytes of the wifi interface's MAC (`wifi_mac`, empty when
+/// there is none), else of the player id. Empty when neither has 4
+/// hex digits
+pub fn device_suffix(wifi_mac: &str, device_id: &str) -> String {
+    hex_tail(wifi_mac)
+        .or_else(|| hex_tail(device_id))
+        .unwrap_or_default()
+}
+
+fn hex_tail(raw: &str) -> Option<String> {
+    let hex: String = raw.trim().chars().filter(|c| *c != ':').collect();
+    let tail = hex.get(hex.len().checked_sub(4)?..)?;
+    tail.bytes()
+        .all(|b| b.is_ascii_hexdigit())
+        .then(|| tail.to_ascii_uppercase())
+}
+
 /// the player's label: the configured Music Assistant player name,
 /// else the hostname, else "mestro"
 pub(crate) fn label(configured_player: &str, hostname: &str) -> String {
@@ -228,6 +247,27 @@ mod tests {
         let id = device_id(root.path(), &state, HOST);
         assert!(is_id(&id), "{id}");
         assert_eq!(std::fs::read_to_string(state.join(ID_FILE)).unwrap(), id);
+    }
+
+    #[test]
+    fn the_suffix_is_the_wifi_macs_last_two_bytes_uppercase() {
+        assert_eq!(device_suffix("d8:3a:dd:77:34:56", "a1b2c3d46bec"), "3456");
+        assert_eq!(device_suffix("a8:72:4d:0c:41:ab", "a1b2c3d46bec"), "41AB");
+    }
+
+    #[test]
+    fn without_a_wifi_mac_the_suffix_is_the_device_ids() {
+        for mac in ["", "garbage", "zz:zz:zz:zz:zz:zz"] {
+            assert_eq!(device_suffix(mac, "a1b2c3d46bec"), "6BEC", "{mac:?}");
+        }
+        assert_eq!(device_suffix("", "  a1b2c3d46bec\n"), "6BEC");
+    }
+
+    #[test]
+    fn a_short_mac_still_gives_four_digits_and_no_source_gives_none() {
+        assert_eq!(device_suffix("aa:bb", ""), "AABB");
+        assert_eq!(device_suffix("", ""), "");
+        assert_eq!(device_suffix("", "wohnzimmer"), "");
     }
 
     #[test]

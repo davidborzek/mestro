@@ -11,7 +11,7 @@ pub struct System {
     /// the IANA zone the user chose, or the web app's browser zone
     /// adopted once; empty = never chosen, the first paired browser
     /// may still set it. Written by the `timezone` op, which also
-    /// puts it into the mestro env file as `TZ`
+    /// writes it as `TZ` into mestro's own env file
     pub timezone: String,
 }
 
