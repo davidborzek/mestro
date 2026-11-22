@@ -14,6 +14,9 @@ export component TransportRow {
     // playback options from the queue state
     in property <bool> shuffle: false;
     in property <RepeatMode> repeat: RepeatMode.off;
+    // the queue-bound buttons (shuffle, previous, next, repeat) work
+    // only while MA's queue plays — greyed, not hidden, otherwise
+    in property <bool> queue-controls: true;
     // which buttons exist, in order ([now-playing] controls)
     in property <[string]> controls: ["shuffle", "previous", "play-pause", "next", "repeat"];
     callback toggle-play();
@@ -35,6 +38,7 @@ export component TransportRow {
             icon-size: c == "play-pause" ? 26px : 20px;
             accent: c == "play-pause";
             round: c == "play-pause";
+            enabled: c == "play-pause" || root.queue-controls;
             active: c == "shuffle" ? root.shuffle : c == "repeat" ? root.repeat != RepeatMode.off : false;
             opacity: c == "play-pause" && root.loading ? root.loading-opacity : 1.0;
             clicked => {

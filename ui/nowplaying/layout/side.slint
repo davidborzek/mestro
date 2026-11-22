@@ -29,6 +29,8 @@ export component SideLayout {
     in property <float> loading-opacity: 0;
     in property <bool> shuffle: false;
     in property <RepeatMode> repeat: RepeatMode.off;
+    // the external source's name (AirPlay, ...), empty = the MA queue
+    in property <string> external-source;
 
     callback toggle-play();
     callback next-track();
@@ -47,6 +49,7 @@ export component SideLayout {
             artist: root.artist;
             album: root.album;
             has-media: root.has-media;
+            via: root.external-source;
             title-size: root.title-size;
             title-weight: root.title-weight;
             artist-size: root.artist-size;
@@ -71,6 +74,7 @@ export component SideLayout {
             loading-opacity: root.loading-opacity;
             shuffle: root.shuffle;
             repeat: root.repeat;
+            queue-controls: root.external-source == "";
             toggle-play => {
                 root.toggle-play();
             }

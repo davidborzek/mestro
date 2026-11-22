@@ -139,9 +139,13 @@ pub(crate) fn handle_ui(
                         Response::err(id, "factory reset not available")
                     }
                 }
-                Request::Ctl { cmd } => {
-                    super::ctl::handle(id, &cmd, dispatch, ui.get_vu_view_count() as usize)
-                }
+                Request::Ctl { cmd } => super::ctl::handle(
+                    id,
+                    &cmd,
+                    dispatch,
+                    ui.get_vu_view_count() as usize,
+                    ui.get_external_source().as_str(),
+                ),
                 Request::Player { action } => super::player::handle(id, &action, player),
                 Request::Timezone { action } => {
                     timezone_response(id, action, ui, settings, dispatch)

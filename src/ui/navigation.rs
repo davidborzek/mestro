@@ -47,6 +47,8 @@ struct NavState {
     layer: Vec<Layer>,
     /// how often the library session was ended by leaving the page
     resets: usize,
+    /// an external source plays: there is no queue to show
+    queue_unavailable: bool,
 }
 
 impl NavState {
@@ -156,6 +158,9 @@ impl NavState {
     /// the queue button inside now-playing: push the queue onto
     /// the layer stack
     fn np_open_queue(&mut self) {
+        if self.queue_unavailable {
+            return;
+        }
         if self.layer.last() == Some(&Layer::Np) {
             self.layer.push(Layer::Queue);
         }
@@ -177,8 +182,20 @@ impl NavState {
         self.layer.push(Layer::Np);
     }
     fn show_queue(&mut self) {
+        if self.queue_unavailable {
+            return;
+        }
         self.show_np();
         self.layer.push(Layer::Queue);
+    }
+
+    /// an external source takes the queue away (or gives it back):
+    /// an open queue view falls back to now playing
+    fn set_queue_unavailable(&mut self, unavailable: bool) {
+        self.queue_unavailable = unavailable;
+        if unavailable {
+            self.layer.retain(|layer| *layer != Layer::Queue);
+        }
     }
     fn show_vu(&mut self) {
         self.show_np();
@@ -321,6 +338,20 @@ impl Navigation {
     pub fn show_np(&self, ui: &Mestro) {
         self.state.borrow_mut().show_np();
         self.sync(ui, false);
+    }
+
+    /// follow the player's source: while an external source plays the
+    /// queue view is closed (back on now playing) and cannot be opened
+    pub fn set_queue_unavailable(&self, ui: &Mestro, unavailable: bool) {
+        let changed = {
+            let mut s = self.state.borrow_mut();
+            let changed = s.queue_unavailable != unavailable;
+            s.set_queue_unavailable(unavailable);
+            changed
+        };
+        if changed {
+            self.sync(ui, false);
+        }
     }
 
     /// ctl/remote: show the queue over the np peek
@@ -664,6 +695,40 @@ mod tests {
         // the reset from this, not from a counter diff
         assert!(s.back(), "back out of the library must report the reset");
         assert_eq!(s.resets, 1);
+    }
+
+    /// an external source takes the queue away: an open queue view
+    /// falls back to the now-playing peek, and none opens until the
+    /// queue is back
+    #[test]
+    fn queue_view_closes_while_a_source_is_external() {
+        let mut s = state();
+        s.open_np();
+        s.np_open_queue();
+        assert_eq!(s.layer, vec![Layer::Np, Layer::Queue]);
+        s.set_queue_unavailable(true);
+        assert_eq!(s.layer, vec![Layer::Np], "queue → now playing");
+
+        s.np_open_queue();
+        assert_eq!(s.layer, vec![Layer::Np], "the queue button is dead");
+        s.show_queue();
+        assert_eq!(s.layer, vec![Layer::Np], "ctl/web 'queue' is dead too");
+
+        s.set_queue_unavailable(false);
+        s.np_open_queue();
+        assert_eq!(s.layer, vec![Layer::Np, Layer::Queue]);
+    }
+
+    /// the queue went away while the user was on another overlay
+    #[test]
+    fn the_other_overlays_survive_the_queue_going_away() {
+        let mut s = state();
+        s.open_np();
+        s.np_open_vu();
+        s.set_queue_unavailable(true);
+        assert_eq!(s.layer, vec![Layer::Np, Layer::Vu]);
+        s.go(Page::Library);
+        assert_eq!(s.page(), Page::Library);
     }
 
     /// np peeks over the library don't reset anything
