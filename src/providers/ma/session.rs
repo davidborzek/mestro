@@ -290,7 +290,7 @@ pub(super) async fn run_session(
                             matched_queue = Some(aq.queue_id.clone());
                             current_index = aq.current_index;
                             let _ = events.send(SourceEvent::Position(aq.elapsed_sec));
-                            let _ = events.send(SourceEvent::Track {
+                            let _ = events.send(SourceEvent::QueueSeed {
                                 track: aq.track,
                                 elapsed_sec: aq.elapsed_sec,
                             });

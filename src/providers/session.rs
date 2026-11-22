@@ -165,6 +165,14 @@ pub fn spawn<P, F>(
                             elapsed_sec,
                             theme_variant.raw().clone(),
                         ),
+                        SourceEvent::QueueSeed { track, elapsed_sec } => state::apply_queue_seed(
+                            &shared,
+                            &update_tx,
+                            &mut last_cover,
+                            &track,
+                            elapsed_sec,
+                            theme_variant.raw().clone(),
+                        ),
                         SourceEvent::External {
                             source,
                             track,

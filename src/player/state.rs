@@ -132,6 +132,13 @@ pub struct Live {
     /// (when, previous title) — sources can replay the previous item
     /// after a skip; reverts inside this window are stale
     pub recent_switch: Option<(Instant, String)>,
+    /// the artwork url the shown track expects ("" = none): a cover
+    /// result for any other url belongs to a track no longer shown
+    pub cover_wanted: String,
+    /// the title the queue showed when an external source took over:
+    /// `recent_switch` stays the queue's own meanwhile, the re-seed
+    /// after the source ends re-arms the replay guard from both
+    pub queue_title_before_external: Option<String>,
     /// (when, value) of a locally initiated volume change — the
     /// transport echo that matches it is OUR command confirming,
     /// anything else is a remote change (OSD material)
@@ -148,6 +155,8 @@ impl Live {
             pending_pos: None,
             pending_seek: None,
             recent_switch: None,
+            cover_wanted: String::new(),
+            queue_title_before_external: None,
             volume_local: None,
         }
     }
@@ -318,6 +327,7 @@ pub fn apply_queue(
                 // last track — unless an external source plays, whose
                 // track the queue knows nothing about
                 if live.state.queue.is_empty() && live.state.external.is_none() {
+                    live.cover_wanted = String::new();
                     *last_cover = String::new();
                     reset_media(&mut live.state);
                     live.loading_since = None;
@@ -378,6 +388,50 @@ pub fn apply_track(
     elapsed_sec: f64,
     variant: crate::ui::palette::Variant,
 ) {
+    apply_queue_track(
+        shared,
+        update_tx,
+        last_cover,
+        track,
+        elapsed_sec,
+        variant,
+        false,
+    );
+}
+
+/// The queue's own answer to "what plays" (the reply to the active-queue
+/// request, at startup and right after an external source ended) is
+/// authoritative: the replay guard never rejects it, and it re-arms
+/// the guard against the item the queue showed before it — a late
+/// `queue_updated` may still replay that one.
+pub fn apply_queue_seed(
+    shared: &Shared,
+    update_tx: &UpdateTx,
+    last_cover: &mut String,
+    track: &TrackMeta,
+    elapsed_sec: f64,
+    variant: crate::ui::palette::Variant,
+) {
+    apply_queue_track(
+        shared,
+        update_tx,
+        last_cover,
+        track,
+        elapsed_sec,
+        variant,
+        true,
+    );
+}
+
+fn apply_queue_track(
+    shared: &Shared,
+    update_tx: &UpdateTx,
+    last_cover: &mut String,
+    track: &TrackMeta,
+    elapsed_sec: f64,
+    variant: crate::ui::palette::Variant,
+    authoritative: bool,
+) {
     let (update, changed) = {
         let mut g = locks::lock(shared);
         let Some(live) = g.as_mut() else { return };
@@ -390,6 +444,7 @@ pub fn apply_track(
         // empty metadata = no media: reset to the idle state; the
         // normal path below only ever sees non-empty tracks
         if track.title.is_empty() && track.artist.is_empty() {
+            live.cover_wanted = String::new();
             *last_cover = String::new();
             reset_media(&mut live.state);
             live.loading_since = None;
@@ -400,14 +455,30 @@ pub fn apply_track(
         } else {
             let changed = !track.title.is_empty() && live.state.title != track.title;
             if changed {
-                // stale-replay guard: ignore a revert to the title we
-                // switched away from within the window
-                if let Some((since, prev)) = &live.recent_switch {
-                    if since.elapsed() < Duration::from_secs(3) && track.title == *prev {
-                        return;
+                if authoritative {
+                    // what a late queue event could replay: the item before
+                    // this one (back from an external source, the queue's
+                    // own switch info survived it)
+                    let replayable = match live.queue_title_before_external.take() {
+                        Some(before) if before == track.title => {
+                            live.recent_switch.take().map(|(_, prev)| prev)
+                        }
+                        Some(before) => Some(before),
+                        None => Some(live.state.title.clone()),
+                    };
+                    live.recent_switch = replayable
+                        .filter(|prev| !prev.is_empty())
+                        .map(|prev| (Instant::now(), prev));
+                } else {
+                    // stale-replay guard: ignore a revert to the title we
+                    // switched away from within the window
+                    if let Some((since, prev)) = &live.recent_switch {
+                        if since.elapsed() < Duration::from_secs(3) && track.title == *prev {
+                            return;
+                        }
                     }
+                    live.recent_switch = Some((Instant::now(), live.state.title.clone()));
                 }
-                live.recent_switch = Some((Instant::now(), live.state.title.clone()));
                 // seed the bar from the event's own elapsed value — natural
                 // advances can arrive seconds after the track started
                 live.state.position_ms = (elapsed_sec * 1000.0) as u64;
@@ -444,6 +515,9 @@ pub fn apply_track(
             }
             if track.duration_ms > 0 {
                 live.state.duration_ms = track.duration_ms;
+            }
+            if changed || !track.image_url.is_empty() {
+                live.cover_wanted = track.image_url.clone();
             }
             live.state.has_media = true;
             live.at = Instant::now();
@@ -499,9 +573,11 @@ pub fn apply_external(
         let Some(live) = g.as_mut() else { return };
         if live.state.external.as_deref() != Some(source) {
             tracing::info!("source -> {source}");
+            if live.state.external.is_none() {
+                live.queue_title_before_external = Some(live.state.title.clone());
+            }
             reset_media(&mut live.state);
             live.state.external = Some(source.to_string());
-            live.recent_switch = None;
             live.loading_since = None;
             live.pending_seek = None;
             live.pending_pos = None;
@@ -514,10 +590,12 @@ pub fn apply_external(
             None => {
                 reset_media(&mut live.state);
                 live.state.cover_missing = true;
+                live.cover_wanted = String::new();
                 *last_cover = String::new();
             }
             Some(track) => {
                 changed = live.state.title != track.title;
+                live.cover_wanted = track.image_url.clone();
                 live.state.title = track.title.clone();
                 live.state.artist = track.artist.clone();
                 live.state.album = track.album.clone();
@@ -583,9 +661,9 @@ pub fn apply_external_ended(shared: &Shared, update_tx: &UpdateTx, last_cover: &
         tracing::info!("source -> queue");
         reset_media(&mut live.state);
         live.state.external = None;
+        live.cover_wanted = String::new();
         // the external cover on screen is not the queue's
         live.state.cover_missing = true;
-        live.recent_switch = None;
         live.loading_since = None;
         live.pending_seek = None;
         live.pending_pos = None;
@@ -639,20 +717,7 @@ fn fetch_cover(
             // fetch must not resurrect a stale loading flag in the UI
             // (and a result that lands after the source mode flipped
             // belongs to the other mode: dropped)
-            let st = {
-                let mut g = locks::lock(&shared);
-                g.as_mut()
-                    .filter(|live| live.state.external.is_some() == external)
-                    .map(|live| {
-                        // a landed cover ends the placeholder art; a failed
-                        // fetch keeps it rather than a stale cover
-                        if external || live.state.cover_missing {
-                            live.state.cover_missing = cover.is_none();
-                        }
-                        live.state.clone()
-                    })
-            };
-            if let Some(st) = st {
+            if let Some(st) = land_cover(&shared, &url, external, cover.is_some()) {
                 let palette = cover
                     .as_ref()
                     .and_then(|c| crate::ui::palette::from_cover(c, variant));
@@ -676,6 +741,23 @@ fn fetch_cover(
             }
         });
     }
+}
+
+/// A fetched cover reaches the state: the snapshot to publish, or
+/// None when the result is stale: the source mode flipped, or the
+/// shown track wants another url (no `cover_missing` flip, no publish).
+fn land_cover(shared: &Shared, url: &str, external: bool, landed: bool) -> Option<PlayerState> {
+    let mut g = locks::lock(shared);
+    g.as_mut()
+        .filter(|live| live.state.external.is_some() == external && live.cover_wanted == url)
+        .map(|live| {
+            // a landed cover ends the placeholder art; a failed
+            // fetch keeps it rather than a stale cover
+            if external || live.state.cover_missing {
+                live.state.cover_missing = !landed;
+            }
+            live.state.clone()
+        })
 }
 
 /// Position events → corrections. Coherence-guarded: a correction
@@ -1044,7 +1126,7 @@ mod external_tests {
     fn leaving_the_external_source_clears_it_and_hands_over_to_the_queue() {
         let shared = queue_playing();
         // the queue skipped to this very title a moment before AirPlay
-        // took over: the stale-replay window must not swallow the re-seed
+        // took over: the stale-replay guard must not swallow the re-seed
         locks::lock(&shared).as_mut().unwrap().recent_switch =
             Some((Instant::now(), "Teardrop".into()));
         let (tx, _rx) = channel();
@@ -1055,7 +1137,7 @@ mod external_tests {
         assert!(!state.has_media, "the external track must not linger");
         assert!(state.title.is_empty());
 
-        apply_track(
+        apply_queue_seed(
             &shared,
             &tx,
             &mut String::new(),
@@ -1071,6 +1153,87 @@ mod external_tests {
         // AirPlay's cover must not sit under the queue's title while
         // the queue's own is fetched
         assert!(state.cover_missing);
+    }
+
+    /// A→B on the queue, a short external episode, back: the re-seed
+    /// shows B, and the queue replaying A (the item before the
+    /// episode) right after it is stale
+    #[test]
+    fn a_late_queue_replay_after_the_reseed_is_dropped() {
+        let shared = shared_with(PlayerState {
+            title: "A".into(),
+            has_media: true,
+            ..Default::default()
+        });
+        let (tx, _rx) = channel();
+        let mut cover = String::new();
+        apply_track(&shared, &tx, &mut cover, &track("B", "X"), 0.0, VARIANT);
+        external(&shared, &tx, Some(&track("Stand by Me", "Ben")), Some(1.0));
+        apply_external_ended(&shared, &tx, &mut cover);
+        apply_queue_seed(&shared, &tx, &mut cover, &track("B", "X"), 5.0, VARIANT);
+        assert_eq!(snapshot(&shared).title, "B");
+        // queue_updated still carries the item from before the episode
+        apply_track(&shared, &tx, &mut cover, &track("A", "X"), 5.5, VARIANT);
+        assert_eq!(snapshot(&shared).title, "B");
+        // a genuine skip is not a replay
+        apply_track(&shared, &tx, &mut cover, &track("C", "X"), 0.0, VARIANT);
+        assert_eq!(snapshot(&shared).title, "C");
+    }
+
+    /// the queue's guard survives the episode, yet the re-seed is
+    /// authoritative: it is never rejected as a "revert"
+    #[test]
+    fn the_reseed_is_never_rejected_by_the_replay_guard() {
+        let shared = queue_playing();
+        let (tx, _rx) = channel();
+        let mut cover = String::new();
+        // the queue had just skipped away from "Earlier" when AirPlay
+        // took over, and it is back on exactly that title
+        locks::lock(&shared).as_mut().unwrap().recent_switch =
+            Some((Instant::now(), "Earlier".into()));
+        external(&shared, &tx, Some(&track("Stand by Me", "Ben")), Some(1.0));
+        apply_external_ended(&shared, &tx, &mut cover);
+        apply_queue_seed(
+            &shared,
+            &tx,
+            &mut cover,
+            &track("Earlier", "X"),
+            9.0,
+            VARIANT,
+        );
+        let state = snapshot(&shared);
+        assert_eq!(state.title, "Earlier");
+        assert_eq!(state.position_ms, 9_000);
+    }
+
+    /// a cover that lands after the shown track changed belongs to the
+    /// old track: no flip of `cover_missing`, no publish
+    #[tokio::test]
+    async fn a_late_cover_of_the_previous_external_track_is_dropped() {
+        let shared = queue_playing();
+        let (tx, _rx) = channel();
+        let url_a = "http://127.0.0.1:9/imageproxy/a";
+        let with_art = TrackMeta {
+            image_url: url_a.into(),
+            ..track("Song A", "Band")
+        };
+        external(&shared, &tx, Some(&with_art), Some(0.0));
+        // the fetch for A is in flight; AirPlay moves on to B, no artwork
+        external(&shared, &tx, Some(&track("Song B", "Band")), Some(0.0));
+        assert!(land_cover(&shared, url_a, true, true).is_none());
+        let state = snapshot(&shared);
+        assert_eq!(state.title, "Song B");
+        assert!(state.cover_missing, "B keeps the placeholder");
+    }
+
+    #[test]
+    fn a_cover_of_the_shown_track_still_lands() {
+        let shared = queue_playing();
+        let (tx, _rx) = channel();
+        external(&shared, &tx, Some(&track("Song", "Band")), Some(0.0));
+        locks::lock(&shared).as_mut().unwrap().cover_wanted = "http://x/a".into();
+        let state = land_cover(&shared, "http://x/a", true, true).unwrap();
+        assert!(!state.cover_missing);
     }
 
     #[test]
