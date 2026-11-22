@@ -24,6 +24,8 @@ pub mod auth;
 mod command;
 mod external;
 mod parse;
+#[cfg(test)]
+mod scenarios;
 mod session;
 mod shuffle;
 
