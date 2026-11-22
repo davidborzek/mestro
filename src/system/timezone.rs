@@ -1,10 +1,11 @@
 //! The timezone picker (feature `timezone`): zone validation against
 //! the device's zoneinfo, the zone list, and applying a zone by
-//! writing `TZ` into the env file the init script sources before it
-//! starts mestro. Applying needs a restart of the player — a live
-//! `tzset` would need `unsafe` and chrono's cached local offset
-//! would still lag — so the caller restarts through `restart.rs`
-//! when [`Applied::restart`] says so.
+//! writing `TZ` into mestro's own env file (written whole — the init
+//! script sources it before it starts mestro, and the user's
+//! `/data/mestro.env` after it). Applying needs a restart of the
+//! player — a live `tzset` would need `unsafe` and chrono's cached
+//! local offset would still lag — so the caller restarts through
+//! `restart.rs` when [`Applied::restart`] says so.
 
 #![deny(clippy::indexing_slicing)]
 
@@ -15,6 +16,9 @@ const MAX_ZONE_LEN: usize = 64;
 /// directory levels below the zoneinfo root
 /// (`America/Argentina/Buenos_Aires` is 3)
 const MAX_DEPTH: usize = 3;
+/// what the env file starts with
+const HEADER: &str =
+    "# written by mestro from its timezone setting — do not edit\n# (yours: /data/mestro.env)\n";
 /// entries of the zoneinfo root that are not zones
 const NOT_ZONES: &[&str] = &["posix", "right", "posixrules", "localtime", "Factory"];
 
@@ -132,7 +136,8 @@ pub struct Applied {
 /// apply `zone`: a browser zone is ignored once a zone was chosen
 /// (`chosen` = the setting is not empty) — a phone in another
 /// timezone must never flip the player later. Otherwise the zone is
-/// validated and `TZ` written into the env file; nothing is written
+/// validated and `TZ` written into mestro's env file (whole, only when
+/// it changes); nothing is written
 /// for a rejected zone. The caller records the setting when `taken`
 /// and restarts when `restart`
 pub fn apply(
@@ -151,7 +156,11 @@ pub fn apply(
         });
     }
     validate_zone(zoneinfo_dir, zone)?;
-    super::envfile::set_key_in_file(env_file, "TZ", zone)?;
+    // a validated zone is made of `[A-Za-z0-9_+-/]`: a plain shell word
+    let text = format!("{HEADER}TZ={zone}\n");
+    if std::fs::read_to_string(env_file).ok().as_deref() != Some(&text) {
+        crate::atomic_file::write_atomic(env_file, &text)?;
+    }
     Ok(Applied {
         zone: zone.to_string(),
         taken: true,
@@ -326,11 +335,14 @@ mod tests {
         assert_eq!(process_zone(None, &odd), None);
     }
 
+    fn env_text(env: &Path) -> String {
+        std::fs::read_to_string(env).unwrap()
+    }
+
     #[test]
-    fn the_user_choice_writes_tz_keeps_the_file_and_asks_for_a_restart() {
+    fn the_user_choice_writes_tz_as_the_whole_file_and_asks_for_a_restart() {
         let dir = zoneinfo();
-        let env = dir.path().join("mestro.env");
-        std::fs::write(&env, "# mestro env\r\nRUST_LOG=debug\r\n").unwrap();
+        let env = dir.path().join("state/mestro/mestro.env");
         let applied = apply(
             dir.path(),
             &env,
@@ -348,11 +360,9 @@ mod tests {
                 restart: true
             }
         );
-        assert_eq!(
-            std::fs::read_to_string(&env).unwrap(),
-            "# mestro env\r\nRUST_LOG=debug\r\nTZ=Europe/London\r\n"
-        );
-        // a second choice rewrites the one line
+        assert_eq!(env_text(&env), format!("{HEADER}TZ=Europe/London\n"));
+        // a second choice replaces the file whole, whatever it held
+        std::fs::write(&env, "TZ=Europe/London\nRUST_LOG=trace\n").unwrap();
         apply(
             dir.path(),
             &env,
@@ -362,10 +372,36 @@ mod tests {
             "UTC",
         )
         .unwrap();
-        assert_eq!(
-            std::fs::read_to_string(&env).unwrap(),
-            "# mestro env\r\nRUST_LOG=debug\r\nTZ=UTC\r\n"
-        );
+        assert_eq!(env_text(&env), format!("{HEADER}TZ=UTC\n"));
+    }
+
+    #[test]
+    fn the_shell_reads_the_zone_back_from_the_file() {
+        let dir = zoneinfo();
+        let env = dir.path().join("mestro.env");
+        for zone in [
+            "Europe/Berlin",
+            "America/Argentina/Buenos_Aires",
+            "Etc/GMT+5",
+        ] {
+            apply(dir.path(), &env, "", None, Source::User, zone).unwrap();
+            let out = std::process::Command::new("sh")
+                .args(["-c", ". \"$0\"; printf %s \"$TZ\""])
+                .arg(&env)
+                .output()
+                .unwrap();
+            assert_eq!(String::from_utf8(out.stdout).unwrap(), zone);
+        }
+    }
+
+    #[test]
+    fn the_same_zone_again_does_not_rewrite_the_file() {
+        let dir = zoneinfo();
+        let env = dir.path().join("mestro.env");
+        apply(dir.path(), &env, "", None, Source::User, "UTC").unwrap();
+        let before = std::fs::metadata(&env).unwrap().modified().unwrap();
+        apply(dir.path(), &env, "UTC", None, Source::User, "UTC").unwrap();
+        assert_eq!(std::fs::metadata(&env).unwrap().modified().unwrap(), before);
     }
 
     #[test]
@@ -402,10 +438,10 @@ mod tests {
         )
         .unwrap();
         assert!(first.taken && first.restart);
-        assert_eq!(std::fs::read_to_string(&env).unwrap(), "TZ=Europe/London\n");
+        assert_eq!(env_text(&env), format!("{HEADER}TZ=Europe/London\n"));
         // chosen (by the user or by that first adoption): a traveller's
         // phone in another zone changes nothing, and writes nothing
-        let before = std::fs::read_to_string(&env).unwrap();
+        let before = env_text(&env);
         let second = apply(
             dir.path(),
             &env,
@@ -429,7 +465,7 @@ mod tests {
         )
         .unwrap();
         assert!(!third.taken && !third.restart);
-        assert_eq!(std::fs::read_to_string(&env).unwrap(), before);
+        assert_eq!(env_text(&env), before);
     }
 
     #[test]

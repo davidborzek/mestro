@@ -645,6 +645,19 @@ fn wire_remote(
         })
     };
     mestro::remote::web::wire(ui, settings, dispatch, &web_info, player, &previews);
+    #[cfg(all(feature = "audio-output", feature = "wifi-setup"))]
+    let name_suffix = mestro::system::wifi::name_suffix(
+        &mestro::system::wifi::backend::Roots::default(),
+        &config.wifi.interface,
+        &web_info.id,
+    );
+    #[cfg(all(feature = "audio-output", not(feature = "wifi-setup")))]
+    let name_suffix = mestro::remote::web::device_suffix("", &web_info.id);
+    // squeezelite's env file (the audio settings, else derived values),
+    // written on a thread of its own (the wait for a slow DAC and the
+    // restart take seconds)
+    #[cfg(feature = "audio-output")]
+    mestro::system::squeezelite::start(&name_suffix, &config.audio, &config.music_assistant.url);
     // the wifi manager thread (feature `wifi-setup`): AP-mode flag,
     // the first-run panel and the ops channel. Without the feature
     // every wifi op answers "unavailable"
@@ -656,6 +669,7 @@ fn wire_remote(
             web_info.mdns_gate.clone(),
             ui.as_weak(),
             config.wifi.clone(),
+            web_info.id.clone(),
             config.remote.port,
             shutdown.clone(),
         );

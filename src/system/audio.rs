@@ -1,13 +1,13 @@
 //! The audio output picker (feature `audio-output`): the ALSA
 //! playback devices from [`ASOUND_DIR`], and switching squeezelite's
-//! `OUTPUT` in its env file. A switch that leaves squeezelite dead
-//! is rolled back — the player must not end up silent because
-//! someone picked a device that cannot be opened.
+//! output through the `audio.output` setting. A switch that leaves
+//! squeezelite dead is rolled back — the player must not end up silent
+//! because someone picked a device that cannot be opened.
 
 #![deny(clippy::indexing_slicing)]
 
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Condvar, Mutex};
 use std::time::Duration;
 
 /// the kernel's ALSA proc tree (`cards` plus `card<N>/pcm<D>p`): a
@@ -26,16 +26,24 @@ pub struct Output {
 
 /// one line of `/proc/asound/cards`
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Card {
-    index: u32,
-    id: String,
-    name: String,
+pub(super) struct Card {
+    pub(super) index: u32,
+    pub(super) id: String,
+    /// the kernel driver (`USB-Audio`, `vc4-hdmi`, …), empty when
+    /// the line names none
+    pub(super) driver: String,
+    pub(super) name: String,
 }
 
 /// `/proc/asound/cards`: `<index> [<id>   ]: <driver> - <name>`,
 /// each followed by an indented long-name line (skipped)
 fn parse_cards(text: &str) -> Vec<Card> {
     text.lines().filter_map(parse_card_line).collect()
+}
+
+/// the cards under `asound_dir`, in card order
+pub(super) fn list_cards(asound_dir: &Path) -> Vec<Card> {
+    parse_cards(&std::fs::read_to_string(asound_dir.join("cards")).unwrap_or_default())
 }
 
 fn parse_card_line(line: &str) -> Option<Card> {
@@ -49,13 +57,12 @@ fn parse_card_line(line: &str) -> Option<Card> {
         return None;
     }
     let rest = rest.trim_start().strip_prefix(':')?;
-    let name = rest
-        .split_once(" - ")
-        .map_or(rest, |(_driver, name)| name)
-        .trim();
+    let (driver, name) = rest.split_once(" - ").unwrap_or(("", rest));
+    let name = name.trim();
     Some(Card {
         index,
         id: id.to_string(),
+        driver: driver.trim().to_string(),
         name: if name.is_empty() { id } else { name }.to_string(),
     })
 }
@@ -79,9 +86,8 @@ fn parse_pcm_label(info: &str) -> Option<String> {
 /// in card order. The first device of a card is plain
 /// `hw:CARD=<id>`; further ones carry `,DEV=<n>` and their label
 pub fn list_outputs(asound_dir: &Path) -> Vec<Output> {
-    let cards = std::fs::read_to_string(asound_dir.join("cards")).unwrap_or_default();
     let mut outputs = Vec::new();
-    for card in parse_cards(&cards) {
+    for card in list_cards(asound_dir) {
         let card_dir = asound_dir.join(format!("card{}", card.index));
         let mut devices: Vec<u32> = std::fs::read_dir(&card_dir)
             .into_iter()
@@ -120,33 +126,37 @@ fn same_device(a: &str, b: &str) -> bool {
     canonical(a) == canonical(b)
 }
 
-/// the `OUTPUT` the env file sets, None when it is not there
-pub fn current_output(env_file: &Path) -> Option<String> {
-    super::envfile::get_key_in_file(env_file, "OUTPUT")
-}
-
-/// the picker's list with the device in use marked
+/// the picker's list with the device in use (`current`, empty = none)
+/// marked
 pub fn outputs_with_current(
-    env_file: &Path,
+    current: &str,
     asound_dir: &Path,
 ) -> (Vec<(Output, bool)>, Option<String>) {
-    let current = current_output(env_file);
     let outputs = list_outputs(asound_dir)
         .into_iter()
         .map(|output| {
-            let is_current = current
-                .as_deref()
-                .is_some_and(|current| same_device(current, &output.id));
+            let is_current = !current.is_empty() && same_device(current, &output.id);
             (output, is_current)
         })
         .collect();
-    (outputs, current)
+    (
+        outputs,
+        Some(current.to_string()).filter(|current| !current.is_empty()),
+    )
 }
 
-/// the capability: the env file exists (a desktop without
-/// squeezelite has none)
-pub fn available(env_file: &Path) -> bool {
-    env_file.is_file()
+/// the capability: squeezelite's restart command exists (a desktop
+/// without squeezelite has none). A bare program name is looked up in
+/// `PATH`
+pub fn available(restart_command: &str) -> bool {
+    let Some(program) = restart_command.split_whitespace().next() else {
+        return false;
+    };
+    if program.contains('/') {
+        return Path::new(program).is_file();
+    }
+    std::env::var_os("PATH")
+        .is_some_and(|dirs| std::env::split_paths(&dirs).any(|dir| dir.join(program).is_file()))
 }
 
 /// how squeezelite is restarted and watched — the seam the tests
@@ -179,14 +189,16 @@ fn survives_startup(runner: &mut dyn Squeezelite) -> bool {
 }
 
 /// env files with a switch in flight: the whole switch / restart /
-/// verify / rollback transaction is one critical section per file
+/// verify / rollback transaction is one critical section per file,
+/// and every background rewrite of the file waits for it
 static SWITCHES_IN_FLIGHT: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+static SWITCH_DONE: Condvar = Condvar::new();
 
 /// the switch slot of one env file, released on drop
-struct SwitchSlot(PathBuf);
+pub(super) struct SwitchSlot(PathBuf);
 
 impl SwitchSlot {
-    fn take(env_file: &Path) -> Result<Self, String> {
+    pub(super) fn take(env_file: &Path) -> Result<Self, String> {
         let mut busy = crate::locks::lock(&SWITCHES_IN_FLIGHT);
         if busy.iter().any(|path| path == env_file) {
             return Err("another switch is in progress".into());
@@ -194,24 +206,55 @@ impl SwitchSlot {
         busy.push(env_file.to_path_buf());
         Ok(Self(env_file.to_path_buf()))
     }
+
+    /// block until the slot is free, for a background rewrite of the
+    /// env file (the web request's `take` still fails fast)
+    pub(super) fn wait(env_file: &Path) -> Self {
+        let mut busy = crate::locks::lock(&SWITCHES_IN_FLIGHT);
+        while busy.iter().any(|path| path == env_file) {
+            busy = SWITCH_DONE
+                .wait(busy)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+        busy.push(env_file.to_path_buf());
+        Self(env_file.to_path_buf())
+    }
 }
 
 impl Drop for SwitchSlot {
     fn drop(&mut self) {
         crate::locks::lock(&SWITCHES_IN_FLIGHT).retain(|path| *path != self.0);
+        SWITCH_DONE.notify_all();
     }
 }
 
+/// where the output switch keeps the choice: the `audio.output`
+/// setting (written through the normal settings path) and the env
+/// file derived from it — the seam the tests replace
+pub trait OutputSetting {
+    /// the `audio.output` setting, empty = automatic
+    fn get(&self) -> String;
+    /// the output squeezelite plays on: the setting, else the derived one
+    fn effective(&self) -> String;
+    /// write the setting
+    fn put(&mut self, value: &str) -> Result<(), String>;
+    /// bring the env file in line with the settings and restart
+    /// squeezelite, whatever changed
+    fn apply(&mut self, runner: &mut dyn Squeezelite) -> Result<(), String>;
+}
+
 /// switch squeezelite to `output`: the id must be one of the
-/// listed devices (anything else errors with the file untouched),
-/// only the `OUTPUT` line changes, squeezelite restarts. If it is
-/// not running after the restart, the previous file is restored
-/// byte for byte, squeezelite restarts again and the error names
-/// the device that failed. One switch per env file at a time: a
-/// second one fails at once with "another switch is in progress"
+/// listed devices (anything else errors, nothing is touched; the one
+/// in use is a no-op). The `audio.output` setting is set and
+/// squeezelite restarts on the env file derived from it. If it is not running after the restart,
+/// the previous setting value returns, squeezelite restarts again
+/// and the error names the device that failed. One switch at a time
+/// per `slot_key` (the env file): a second one fails at once with
+/// "another switch is in progress"
 pub fn set_output(
-    env_file: &Path,
+    slot_key: &Path,
     asound_dir: &Path,
+    setting: &mut dyn OutputSetting,
     runner: &mut dyn Squeezelite,
     output: &str,
 ) -> Result<(), String> {
@@ -219,14 +262,13 @@ pub fn set_output(
     if !listed.iter().any(|candidate| candidate.id == output) {
         return Err(format!("unknown audio output {output}"));
     }
-    let _slot = SwitchSlot::take(env_file)?;
-    if current_output(env_file).is_some_and(|current| same_device(&current, output)) {
+    let _slot = SwitchSlot::take(slot_key)?;
+    if same_device(&setting.effective(), output) {
         return Ok(());
     }
-    let before = std::fs::read_to_string(env_file)
-        .map_err(|e| format!("read {}: {e}", env_file.display()))?;
-    super::envfile::set_key_in_file(env_file, "OUTPUT", output)?;
-    let started = runner.restart().and_then(|()| {
+    let previous = setting.get();
+    setting.put(output)?;
+    let started = setting.apply(runner).and_then(|()| {
         survives_startup(runner)
             .then_some(())
             .ok_or_else(|| "squeezelite stopped right after the start".to_string())
@@ -234,10 +276,10 @@ pub fn set_output(
     let Err(reason) = started else {
         return Ok(());
     };
-    crate::atomic_file::write_atomic(env_file, &before).map_err(|e| {
+    setting.put(&previous).map_err(|e| {
         format!("{output} failed ({reason}) and the previous output could not be restored: {e}")
     })?;
-    match runner.restart() {
+    match setting.apply(runner) {
         Ok(()) => Err(format!(
             "squeezelite could not start on {output} ({reason}) — back on the previous output"
         )),
@@ -315,6 +357,7 @@ fn process_running(proc_dir: &Path, name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Arc, Mutex};
 
     // a Pi 4 with a USB DAC: the headphone jack, both HDMI ports
     // and the DAC (cards as the kernel prints them)
@@ -396,6 +439,28 @@ mod tests {
     }
 
     #[test]
+    fn a_card_carries_the_driver_its_line_names() {
+        let drivers: Vec<_> = parse_cards(PI_CARDS)
+            .into_iter()
+            .map(|card| card.driver)
+            .collect();
+        assert_eq!(
+            drivers,
+            [
+                "bcm2835_headphonographic",
+                "vc4-hdmi",
+                "vc4-hdmi",
+                "USB-Audio",
+                "USB-Audio"
+            ]
+        );
+        // a line without a driver part has none
+        let bare = parse_cards(" 0 [Dummy ]: Just a name\n");
+        assert_eq!(bare.first().map(|c| c.driver.as_str()), Some(""));
+        assert_eq!(bare.first().map(|c| c.name.as_str()), Some("Just a name"));
+    }
+
+    #[test]
     fn a_pi_lists_headphones_hdmi_and_the_usb_dac_but_not_the_microphone() {
         let dir = pi_asound();
         let outputs = list_outputs(dir.path());
@@ -451,12 +516,9 @@ mod tests {
     }
 
     #[test]
-    fn the_current_output_is_the_one_the_env_file_names() {
+    fn the_current_output_is_the_one_the_setting_names() {
         let asound = pi_asound();
-        let env = tempfile::tempdir().unwrap();
-        let env_file = env.path().join("squeezelite.env");
-        std::fs::write(&env_file, "OUTPUT=\"hw:CARD=S3,DEV=0\"\nNAME=x\n").unwrap();
-        let (outputs, current) = outputs_with_current(&env_file, asound.path());
+        let (outputs, current) = outputs_with_current("hw:CARD=S3,DEV=0", asound.path());
         assert_eq!(current.as_deref(), Some("hw:CARD=S3,DEV=0"));
         let marked: Vec<_> = outputs
             .iter()
@@ -465,102 +527,151 @@ mod tests {
             .collect();
         assert_eq!(marked, ["hw:CARD=S3"], "DEV=0 is the plain card");
         // an output that is not plugged in marks nothing
-        std::fs::write(&env_file, "OUTPUT=hw:CARD=DAC\n").unwrap();
-        assert!(outputs_with_current(&env_file, asound.path())
+        assert!(outputs_with_current("hw:CARD=DAC", asound.path())
             .0
             .iter()
             .all(|(_, c)| !c));
+        // nothing in use: nothing marked, no current
+        let (outputs, current) = outputs_with_current("", asound.path());
+        assert_eq!(current, None);
+        assert!(outputs.iter().all(|(_, c)| !c));
     }
 
     #[test]
-    fn the_capability_follows_the_env_file() {
+    fn the_capability_follows_the_restart_command() {
         let dir = tempfile::tempdir().unwrap();
-        let env_file = dir.path().join("squeezelite.env");
-        assert!(!available(&env_file));
-        std::fs::write(&env_file, "OUTPUT=x\n").unwrap();
-        assert!(available(&env_file));
+        let script = dir.path().join("S60squeezelite");
+        let command = format!("{} restart", script.display());
+        assert!(!available(&command));
+        std::fs::write(&script, "#!/bin/sh\n").unwrap();
+        assert!(available(&command));
+        assert!(!available(""));
+        // a bare program name is looked up in PATH
+        assert!(available("sh -c true"));
+        assert!(!available("no-such-program-anywhere restart"));
     }
 
-    /// a squeezelite stand-in: remembers which OUTPUT the env file
-    /// had at every restart; the listed devices "cannot be opened"
+    /// the world a switch acts on: the `audio.output` setting's value
+    type Shared = Arc<Mutex<String>>;
+
+    /// a squeezelite stand-in: remembers which output the setting had
+    /// at every restart; the listed devices "cannot be opened"
     struct Fake {
-        env: std::path::PathBuf,
+        setting: Shared,
         broken: Vec<&'static str>,
-        restarts: Vec<Option<String>>,
+        restarts: Vec<String>,
         restart_fails: bool,
         slept: Duration,
     }
 
     impl Fake {
-        fn new(config: &Setup, broken: &[&'static str]) -> Self {
+        fn new(setting: &Shared, broken: &[&'static str]) -> Self {
             Self {
-                env: config.env_file.clone(),
+                setting: setting.clone(),
                 broken: broken.to_vec(),
                 restarts: Vec::new(),
                 restart_fails: false,
                 slept: Duration::ZERO,
             }
         }
-        fn output(&self) -> Option<String> {
-            current_output(&self.env)
-        }
     }
 
     impl Squeezelite for Fake {
         fn restart(&mut self) -> Result<(), String> {
-            self.restarts.push(self.output());
+            self.restarts.push(self.setting.lock().unwrap().clone());
             if self.restart_fails {
                 return Err("init script exited with 1".into());
             }
             Ok(())
         }
         fn running(&mut self) -> bool {
-            let output = self.output().unwrap_or_default();
-            !self.broken.contains(&output.as_str())
+            !self.broken.contains(&self.setting.lock().unwrap().as_str())
         }
         fn sleep(&mut self, duration: Duration) {
             self.slept += duration;
         }
     }
 
-    const ENV: &str =
-        "# squeezelite env\nOUTPUT=hw:CARD=Headphones\n# host\nSERVER=\nNAME=mestro\n";
+    /// the setting's stand-in: its value is what the env file would
+    /// be derived from
+    struct FakeSetting {
+        value: Shared,
+        writes: Vec<String>,
+        put_fails: bool,
+    }
 
-    /// the two paths a switch works on, in temp dirs
+    impl FakeSetting {
+        fn new(value: &Shared) -> Self {
+            Self {
+                value: value.clone(),
+                writes: Vec::new(),
+                put_fails: false,
+            }
+        }
+    }
+
+    impl OutputSetting for FakeSetting {
+        fn get(&self) -> String {
+            self.value.lock().unwrap().clone()
+        }
+        fn effective(&self) -> String {
+            self.value.lock().unwrap().clone()
+        }
+        fn put(&mut self, value: &str) -> Result<(), String> {
+            if self.put_fails {
+                return Err("settings are read-only".into());
+            }
+            self.writes.push(value.to_string());
+            *self.value.lock().unwrap() = value.to_string();
+            Ok(())
+        }
+        fn apply(&mut self, runner: &mut dyn Squeezelite) -> Result<(), String> {
+            runner.restart()
+        }
+    }
+
+    /// a switch's surroundings: the asound tree, the setting's value
     struct Setup {
-        env_file: PathBuf,
+        _asound: tempfile::TempDir,
         asound_dir: PathBuf,
+        slot_key: PathBuf,
+        setting: Shared,
+    }
+
+    fn setup() -> Setup {
+        let asound = pi_asound();
+        Setup {
+            asound_dir: asound.path().to_path_buf(),
+            slot_key: asound.path().join("squeezelite.env"),
+            _asound: asound,
+            setting: Arc::new(Mutex::new("hw:CARD=Headphones".to_string())),
+        }
     }
 
     fn set_output(
         config: &Setup,
+        setting: &mut FakeSetting,
         runner: &mut dyn Squeezelite,
         output: &str,
     ) -> Result<(), String> {
-        super::set_output(&config.env_file, &config.asound_dir, runner, output)
-    }
-
-    fn setup() -> (tempfile::TempDir, tempfile::TempDir, Setup) {
-        let asound = pi_asound();
-        let env = tempfile::tempdir().unwrap();
-        let config = Setup {
-            env_file: env.path().join("squeezelite.env"),
-            asound_dir: asound.path().to_path_buf(),
-        };
-        std::fs::write(&config.env_file, ENV).unwrap();
-        (asound, env, config)
+        super::set_output(
+            &config.slot_key,
+            &config.asound_dir,
+            setting,
+            runner,
+            output,
+        )
     }
 
     #[test]
-    fn a_switch_rewrites_only_the_output_line_and_restarts_once() {
-        let (_asound, _env, config) = setup();
-        let mut fake = Fake::new(&config, &[]);
-        set_output(&config, &mut fake, "hw:CARD=S3").unwrap();
-        assert_eq!(
-            std::fs::read_to_string(&config.env_file).unwrap(),
-            ENV.replace("hw:CARD=Headphones", "hw:CARD=S3")
-        );
-        assert_eq!(fake.restarts, [Some("hw:CARD=S3".to_string())]);
+    fn a_switch_sets_the_setting_and_restarts_once() {
+        let config = setup();
+        let mut fake = Fake::new(&config.setting, &[]);
+        let mut setting = FakeSetting::new(&config.setting);
+        set_output(&config, &mut setting, &mut fake, "hw:CARD=S3").unwrap();
+        assert_eq!(config.setting.lock().unwrap().as_str(), "hw:CARD=S3");
+        assert_eq!(setting.writes, ["hw:CARD=S3"]);
+        assert_eq!(fake.restarts, ["hw:CARD=S3"]);
         assert!(
             fake.slept >= WATCH_STEP * WATCH_POLLS,
             "the watch window ran"
@@ -568,74 +679,94 @@ mod tests {
     }
 
     #[test]
-    fn an_unknown_output_is_refused_with_the_file_untouched() {
-        let (_asound, _env, config) = setup();
-        let mut fake = Fake::new(&config, &[]);
+    fn an_unknown_output_is_refused_with_nothing_touched() {
+        let config = setup();
+        let mut fake = Fake::new(&config.setting, &[]);
+        let mut setting = FakeSetting::new(&config.setting);
         for bad in ["hw:CARD=DAC", "../../etc/passwd", "hw:CARD=S3\nEXTRA=x", ""] {
-            let err = set_output(&config, &mut fake, bad).unwrap_err();
+            let err = set_output(&config, &mut setting, &mut fake, bad).unwrap_err();
             assert!(err.contains("unknown audio output"), "{bad:?}: {err}");
         }
-        assert_eq!(std::fs::read_to_string(&config.env_file).unwrap(), ENV);
+        assert!(setting.writes.is_empty());
+        assert_eq!(
+            config.setting.lock().unwrap().as_str(),
+            "hw:CARD=Headphones"
+        );
         assert!(fake.restarts.is_empty(), "squeezelite was not touched");
     }
 
     #[test]
-    fn choosing_the_running_output_changes_nothing() {
-        let (_asound, _env, config) = setup();
-        let mut fake = Fake::new(&config, &[]);
-        set_output(&config, &mut fake, "hw:CARD=Headphones").unwrap();
-        assert_eq!(std::fs::read_to_string(&config.env_file).unwrap(), ENV);
+    fn choosing_the_output_of_the_setting_changes_nothing() {
+        let config = setup();
+        let mut fake = Fake::new(&config.setting, &[]);
+        let mut setting = FakeSetting::new(&config.setting);
+        set_output(&config, &mut setting, &mut fake, "hw:CARD=Headphones").unwrap();
+        assert!(setting.writes.is_empty());
+        assert!(fake.restarts.is_empty());
+        // the same card by its other name
+        *config.setting.lock().unwrap() = "hw:CARD=S3,DEV=0".into();
+        set_output(&config, &mut setting, &mut fake, "hw:CARD=S3").unwrap();
+        assert!(setting.writes.is_empty());
         assert!(fake.restarts.is_empty());
     }
 
     #[test]
     fn a_device_squeezelite_cannot_open_is_rolled_back_and_named() {
-        let (_asound, _env, config) = setup();
-        let mut fake = Fake::new(&config, &["hw:CARD=S3"]);
-        let err = set_output(&config, &mut fake, "hw:CARD=S3").unwrap_err();
+        let config = setup();
+        let mut fake = Fake::new(&config.setting, &["hw:CARD=S3"]);
+        let mut setting = FakeSetting::new(&config.setting);
+        let err = set_output(&config, &mut setting, &mut fake, "hw:CARD=S3").unwrap_err();
         assert!(err.contains("hw:CARD=S3"), "{err}");
         assert!(err.contains("previous output"), "{err}");
-        // the file is exactly the old one again, comments included
-        assert_eq!(std::fs::read_to_string(&config.env_file).unwrap(), ENV);
-        // restarted on the new output, then again on the old one
+        // the setting is the old value again
         assert_eq!(
-            fake.restarts,
-            [
-                Some("hw:CARD=S3".to_string()),
-                Some("hw:CARD=Headphones".to_string())
-            ]
+            config.setting.lock().unwrap().as_str(),
+            "hw:CARD=Headphones"
         );
+        assert_eq!(setting.writes, ["hw:CARD=S3", "hw:CARD=Headphones"]);
+        // restarted on the new output, then again on the old one
+        assert_eq!(fake.restarts, ["hw:CARD=S3", "hw:CARD=Headphones"]);
+    }
+
+    #[test]
+    fn a_rollback_restores_an_automatic_setting_as_empty() {
+        let config = setup();
+        *config.setting.lock().unwrap() = String::new();
+        let mut fake = Fake::new(&config.setting, &["hw:CARD=S3"]);
+        let mut setting = FakeSetting::new(&config.setting);
+        assert!(set_output(&config, &mut setting, &mut fake, "hw:CARD=S3").is_err());
+        assert_eq!(config.setting.lock().unwrap().as_str(), "");
+        assert_eq!(fake.restarts, ["hw:CARD=S3", ""]);
     }
 
     #[test]
     fn a_failing_init_script_is_rolled_back_too() {
-        let (_asound, _env, config) = setup();
-        let mut fake = Fake::new(&config, &[]);
+        let config = setup();
+        let mut fake = Fake::new(&config.setting, &[]);
         fake.restart_fails = true;
-        let err = set_output(&config, &mut fake, "hw:CARD=S3").unwrap_err();
+        let mut setting = FakeSetting::new(&config.setting);
+        let err = set_output(&config, &mut setting, &mut fake, "hw:CARD=S3").unwrap_err();
         assert!(err.contains("hw:CARD=S3"), "{err}");
         assert!(
             err.contains("restart on the previous output failed"),
             "{err}"
         );
-        assert_eq!(std::fs::read_to_string(&config.env_file).unwrap(), ENV);
+        assert_eq!(
+            config.setting.lock().unwrap().as_str(),
+            "hw:CARD=Headphones"
+        );
         assert_eq!(fake.restarts.len(), 2);
     }
 
     #[test]
-    fn a_missing_output_key_is_appended_and_removed_again_on_rollback() {
-        let (_asound, _env, config) = setup();
-        let bare = "NAME=mestro\n";
-        std::fs::write(&config.env_file, bare).unwrap();
-        let mut fake = Fake::new(&config, &["hw:CARD=S3"]);
-        assert!(set_output(&config, &mut fake, "hw:CARD=S3").is_err());
-        assert_eq!(std::fs::read_to_string(&config.env_file).unwrap(), bare);
-        let mut fake = Fake::new(&config, &[]);
-        set_output(&config, &mut fake, "hw:CARD=S3").unwrap();
-        assert_eq!(
-            std::fs::read_to_string(&config.env_file).unwrap(),
-            "NAME=mestro\nOUTPUT=hw:CARD=S3\n"
-        );
+    fn a_setting_that_cannot_be_written_fails_before_squeezelite_is_touched() {
+        let config = setup();
+        let mut fake = Fake::new(&config.setting, &[]);
+        let mut setting = FakeSetting::new(&config.setting);
+        setting.put_fails = true;
+        let err = set_output(&config, &mut setting, &mut fake, "hw:CARD=S3").unwrap_err();
+        assert!(err.contains("read-only"), "{err}");
+        assert!(fake.restarts.is_empty());
     }
 
     /// a squeezelite stand-in that parks inside the restart until released
@@ -657,7 +788,7 @@ mod tests {
 
     #[test]
     fn a_second_switch_fails_fast_while_one_is_in_progress() {
-        let (_asound, _env, config) = setup();
+        let config = setup();
         let (entered_tx, entered_rx) = std::sync::mpsc::channel();
         let (release_tx, release_rx) = std::sync::mpsc::channel();
         std::thread::scope(|scope| {
@@ -666,40 +797,54 @@ mod tests {
                     entered: entered_tx,
                     release: release_rx,
                 };
-                set_output(&config, &mut parked, "hw:CARD=S3")
+                let mut setting = FakeSetting::new(&config.setting);
+                set_output(&config, &mut setting, &mut parked, "hw:CARD=S3")
             });
-            // the first switch is inside its restart: the file is written
+            // the first switch is inside its restart: the setting is written
             entered_rx.recv().unwrap();
-            let mut fake = Fake::new(&config, &[]);
-            let second = set_output(&config, &mut fake, "hw:CARD=vc4hdmi0");
-            let on_disk = current_output(&config.env_file);
+            let mut fake = Fake::new(&config.setting, &[]);
+            let mut setting = FakeSetting::new(&config.setting);
+            let second = set_output(&config, &mut setting, &mut fake, "hw:CARD=vc4hdmi0");
+            let in_flight = config.setting.lock().unwrap().clone();
             // release before asserting: a failed assert must not hang the scope
             release_tx.send(()).unwrap();
             first.join().unwrap().unwrap();
             let err = second.unwrap_err();
             assert!(err.contains("another switch is in progress"), "{err}");
             assert!(fake.restarts.is_empty(), "the busy request touched nothing");
+            assert!(setting.writes.is_empty());
             assert_eq!(
-                on_disk.as_deref(),
-                Some("hw:CARD=S3"),
-                "the running switch's file is intact"
+                in_flight, "hw:CARD=S3",
+                "the running switch's value is intact"
             );
         });
-        assert_eq!(
-            std::fs::read_to_string(&config.env_file).unwrap(),
-            ENV.replace("hw:CARD=Headphones", "hw:CARD=S3")
-        );
+        assert_eq!(config.setting.lock().unwrap().as_str(), "hw:CARD=S3");
         // the lock is free again — also after a rolled-back switch
-        let mut fake = Fake::new(&config, &["hw:CARD=vc4hdmi0"]);
-        assert!(set_output(&config, &mut fake, "hw:CARD=vc4hdmi0").is_err());
-        let mut fake = Fake::new(&config, &[]);
-        set_output(&config, &mut fake, "hw:CARD=Headphones").unwrap();
+        let mut fake = Fake::new(&config.setting, &["hw:CARD=vc4hdmi0"]);
+        let mut setting = FakeSetting::new(&config.setting);
+        assert!(set_output(&config, &mut setting, &mut fake, "hw:CARD=vc4hdmi0").is_err());
+        let mut fake = Fake::new(&config.setting, &[]);
+        set_output(&config, &mut setting, &mut fake, "hw:CARD=Headphones").unwrap();
     }
 
     #[test]
-    fn switches_of_different_env_files_do_not_block_each_other() {
-        let (_asound_a, _env_a, config_a) = setup();
-        let (_asound_b, _env_b, config_b) = setup();
+    fn waiting_for_the_switch_slot_blocks_until_it_is_released() {
+        let env = Path::new("/waiting-for-the-switch-slot/squeezelite.env");
+        let held = SwitchSlot::take(env).unwrap();
+        std::thread::scope(|scope| {
+            let waiter = scope.spawn(|| drop(SwitchSlot::wait(env)));
+            std::thread::sleep(Duration::from_millis(50));
+            assert!(!waiter.is_finished(), "the slot is still held");
+            drop(held);
+            waiter.join().unwrap();
+        });
+        assert!(SwitchSlot::take(env).is_ok(), "released again");
+    }
+
+    #[test]
+    fn switches_of_different_slots_do_not_block_each_other() {
+        let config_a = setup();
+        let config_b = setup();
         let (entered_tx, entered_rx) = std::sync::mpsc::channel();
         let (release_tx, release_rx) = std::sync::mpsc::channel();
         std::thread::scope(|scope| {
@@ -708,11 +853,13 @@ mod tests {
                     entered: entered_tx,
                     release: release_rx,
                 };
-                set_output(&config_a, &mut parked, "hw:CARD=S3")
+                let mut setting = FakeSetting::new(&config_a.setting);
+                set_output(&config_a, &mut setting, &mut parked, "hw:CARD=S3")
             });
             entered_rx.recv().unwrap();
-            let mut fake = Fake::new(&config_b, &[]);
-            set_output(&config_b, &mut fake, "hw:CARD=S3").unwrap();
+            let mut fake = Fake::new(&config_b.setting, &[]);
+            let mut setting = FakeSetting::new(&config_b.setting);
+            set_output(&config_b, &mut setting, &mut fake, "hw:CARD=S3").unwrap();
             release_tx.send(()).unwrap();
             first.join().unwrap().unwrap();
         });

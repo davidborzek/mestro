@@ -23,7 +23,7 @@ export const device = $state({
   wifi: false,
   factoryReset: false,
   // the audio output picker works here (hello capability
-  // `audio_output`: the build has the feature and squeezelite.env exists)
+  // `audio_output`: the build has the feature and squeezelite's init script exists)
   audioOutput: false,
   // the timezone picker works here (hello capability `timezone`)
   timezone: false,

@@ -81,6 +81,16 @@ pub fn plan(
     })
 }
 
+/// the `NAME`/hotspot suffix of this device: from the wifi interface's
+/// MAC (`requested` as in `[wifi] interface`), else the player id
+pub fn name_suffix(roots: &backend::Roots, requested: &str, device_id: &str) -> String {
+    let mac = backend::detect_wireless(roots, requested)
+        .ok()
+        .and_then(|iface| std::fs::read_to_string(roots.net_class.join(iface).join("address")).ok())
+        .unwrap_or_default();
+    crate::remote::web::device_suffix(&mac, device_id)
+}
+
 /// spawn the manager thread: its own tokio runtime, current-thread
 /// like the web endpoint's — the ops and the policy tick run there,
 /// the web thread only ever sends requests. Returns the channel the
@@ -91,6 +101,7 @@ pub fn spawn(
     mdns_gate: Arc<crate::remote::web::MdnsGate>,
     ui: slint::Weak<crate::Mestro>,
     config: crate::config::Wifi,
+    device_id: String,
     web_port: u16,
     shutdown: WifiShutdown,
 ) -> WifiChannel {
@@ -111,7 +122,7 @@ pub fn spawn(
                 }
             };
             runtime.block_on(manager::run(
-                rx, ap_mode, mdns_gate, ui, config, web_port, shutdown,
+                rx, ap_mode, mdns_gate, ui, config, device_id, web_port, shutdown,
             ));
         });
     if let Err(e) = spawned {

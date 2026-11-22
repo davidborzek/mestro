@@ -13,6 +13,7 @@
   import SliderControl from "./SliderControl.svelte";
   import ChipListControl from "./ChipListControl.svelte";
   import TriStateControl from "./TriStateControl.svelte";
+  import TextControl from "./TextControl.svelte";
   import { hasPreviews } from "../../../lib/settingsSchema";
 
   // one settings entry: label + help on the left, the control on
@@ -31,6 +32,7 @@
       field.kind.type === "ordered-subset" ||
       field.kind.type === "permutation" ||
       field.kind.type === "inherit-bool" ||
+      field.kind.type === "text" ||
       hasPreviews(field) ||
       (field.kind.type === "choice" && field.kind.options.length <= 3),
   );
@@ -65,6 +67,8 @@
       <ChipListControl {field} onopen={onopenskin} />
     {:else if field.kind.type === "inherit-bool"}
       <TriStateControl {field} />
+    {:else if field.kind.type === "text"}
+      <TextControl {field} />
     {/if}
   </div>
 </div>

@@ -36,7 +36,6 @@ cp "${BINARIES_DIR}/Image" "${BINARIES_DIR}/Image.a"
 				vfat {
 		label = "MESTRODATA"
 		files = {
-			"mestro-data/squeezelite.env",
 			"mestro-data/wpa_supplicant.conf"
 		}
 				}
@@ -64,12 +63,10 @@ cp "${BINARIES_DIR}/Image" "${BINARIES_DIR}/Image.a"
 	EOF
 } >"${GENIMAGE_CFG}"
 
-# pre-seed the data partition with the editable config templates so
-# a headless setup works: flash, mount the card, fill in wifi creds
-# (and squeezelite.env), boot — no first-boot PC-less bootstrap needed
+# pre-seed the data partition with the wifi template so a headless
+# setup works: flash, mount the card, fill in wifi creds, boot — no
+# first-boot PC-less bootstrap needed
 mkdir -p "${BINARIES_DIR}/mestro-data"
-cp "${TARGET_DIR}/etc/mestro-defaults/squeezelite.env" \
-	"${BINARIES_DIR}/mestro-data/"
 cp "${TARGET_DIR}/etc/mestro-defaults/wpa_supplicant.conf" \
 	"${BINARIES_DIR}/mestro-data/"
 

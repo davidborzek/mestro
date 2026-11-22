@@ -79,7 +79,8 @@ partition you can edit from any computer.
 
 **Hardware:** Raspberry Pi 4 with a DSI touch panel (the official
 7" display or a compatible 5"/7" panel). Audio out through
-squeezelite to a USB DAC or HAT.
+squeezelite to a USB DAC (works out of the box) or an I2S HAT
+(one `dtoverlay` line, see [image/README.md](image/README.md#sound-card--hat)).
 
 1. Flash the image to an SD card and boot.
 2. The screen shows a WiFi QR code: join the hotspot `mestro-XXXX`

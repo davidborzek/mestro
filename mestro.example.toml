@@ -244,6 +244,15 @@ shm_prefix = "squeezelite"
 #enabled = true
 #port = 8787
 
+# squeezelite (the player image, feature `audio-output`): empty = mestro
+# derives the value; written by the web app (Settings → Audio), except
+# `extra`, which is config-file only
+[audio]
+#output = ""   # ALSA device, e.g. hw:CARD=S3; empty = a USB DAC, else a HAT
+#name = ""     # player name; empty = mestro-XXXX
+#server = ""   # Music Assistant host; empty = the host of [music-assistant] url
+#extra = ""    # further squeezelite flags, e.g. "-r -Z 100"
+
 # the timezone picker (the player image, feature `timezone`): the zone
 # is a device setting written by the web app
 [system]

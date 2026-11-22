@@ -517,6 +517,7 @@ const schemaStrings: Record<Locale, Record<string, string>> = {
     "settings.section.home": "Startseite",
     "settings.section.notifications": "Hinweise",
     "settings.section.vu": "VU-Meter",
+    "settings.section.audio": "Audio",
 
     "settings.now-playing.layout": "Layout",
     "settings.now-playing.inline-vu": "Inline-VU",
@@ -543,6 +544,10 @@ const schemaStrings: Record<Locale, Record<string, string>> = {
     "settings.clock.background.dim": "Abdunkeln",
     "settings.clock.background.blur": "Weichzeichner",
     "settings.clock.background.interval": "Minuten pro Bild",
+
+    "settings.audio.output": "Ausgang",
+    "settings.audio.name": "Name",
+    "settings.audio.server": "Server",
 
     "settings.display.brightness": "Helligkeit",
     "settings.display.standby-brightness": "Helligkeit im Standby",

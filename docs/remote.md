@@ -301,10 +301,10 @@ player — the state frame reports the truth.
 The picker behind Settings → Audio → Audio output. Paired only —
 an unpaired hotspot client gets `pairing required`, like for every
 other device op. `hello` reports `capabilities.audio_output`: true
-only when the build has the feature **and** the squeezelite env file
-exists (a build setting, CONTRIBUTING.md "Building for another
+only when the build has the feature **and** squeezelite's restart
+command exists (a build setting, CONTRIBUTING.md "Building for another
 image"); without it both ops answer `audio output not available`
-and no file is touched.
+and nothing is touched.
 
 ```jsonc
 // → {"id": 13, "op": "audio", "action": "outputs"}
@@ -313,7 +313,7 @@ and no file is touched.
     {"id": "hw:CARD=Headphones", "name": "bcm2835 Headphones", "current": false},
     {"id": "hw:CARD=S3", "name": "Topping S3", "current": true}
   ],
-  "current": "hw:CARD=S3"    // OUTPUT in the env file, null when unset
+  "current": "hw:CARD=S3"    // the output squeezelite plays on (the audio.output setting, else the derived one), null when unknown
 }}
 // → {"id": 14, "op": "audio", "action": "set", "output": "hw:CARD=Headphones"}
 {"id": 14, "ok": true, "data": {"output": "hw:CARD=Headphones"}}
@@ -324,16 +324,18 @@ and no file is touched.
 `outputs` lists the ALSA playback devices (`/proc/asound/cards`
 plus `card<N>/pcm<D>p`; capture-only cards are no output). A
 card's first playback device is `hw:CARD=<id>`, further ones
-`hw:CARD=<id>,DEV=<n>`; `current` marks the entry the file's
-`OUTPUT` names (`,DEV=0` is the plain card).
+`hw:CARD=<id>,DEV=<n>`; `current` marks the entry squeezelite plays on
+(`,DEV=0` is the plain card).
 
 `set` accepts only an id from that list (anything else:
-`unknown audio output …`, the file untouched), rewrites only the
-`OUTPUT=` line of the env file (atomic; comments, other keys,
-quoting and CRLF stay) and runs the image's squeezelite restart
-command. If squeezelite is not running 3 s after the restart (or the command
-fails), the previous file is restored byte for byte, squeezelite
-is restarted again and the error names the device that failed —
+`unknown audio output …`, nothing touched) and sets the `audio.output`
+setting through the normal settings write path (the settings push
+follows). mestro then rewrites squeezelite's env file from the settings
+(it owns it, [configuration.md](configuration.md#audio)) and runs the
+image's squeezelite restart command. If squeezelite is not running 3 s
+after the restart (or the command fails), the previous setting value
+(empty = automatic) returns, squeezelite is restarted again and the
+error names the device that failed —
 a bad pick never leaves the player silent. The reply arrives after
 that watch (about 3.5 s). One switch runs at a time: a second
 `set` while one is in flight fails at once with `another switch is
@@ -374,8 +376,8 @@ is written.
   the directory (a symlink out of it is no zone). A rejected zone
   answers an error and writes nothing.
 - A taken zone is stored as the `system.timezone` setting and
-  written as `TZ=<zone>` into mestro's env file (a build setting) — one line, every
-  other line, comment and CRLF kept (atomic write). If the running
+  written as `TZ=<zone>` into mestro's own env file (a build setting; the
+  whole file is mestro's, rewritten atomically, only when it changes — the user's `/data/mestro.env` is never touched). If the running
   zone differs, the reply says `restarting: true` and the player
   **restarts** (the settings-restart exec, with `TZ` set in the new
   process's environment); the socket drops and the web app reconnects. The init

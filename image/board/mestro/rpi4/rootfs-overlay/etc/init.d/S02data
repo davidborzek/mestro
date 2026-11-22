@@ -1,6 +1,5 @@
 #!/bin/sh
-# S02data — mount the data partition (FAT, editable on any OS),
-# seed defaults on first boot.
+# S02data — mount the data partition (FAT, editable on any OS).
 #
 # Everything else runs from RAM (initramfs); /data survives
 # reflashes. mestro itself needs no config file: --kiosk preset
@@ -31,13 +30,11 @@ start)
 		echo "mestro: data partition $DATA_LABEL not found — running volatile" >&2
 		exit 0
 	fi
-	# first boot: seed the player defaults so a plain flash works
-	[ -f "$DATA_DIR/squeezelite.env" ] ||
-		cp /etc/mestro-defaults/squeezelite.env "$DATA_DIR/squeezelite.env"
-	# no wpa_supplicant.conf seeding: without one mestro opens the
-	# setup hotspot; a placeholder would start a pointless supplicant
-	# that holds the radio (the image still ships the template in
-	# /etc/mestro-defaults for hand edits)
+	# nothing is seeded: mestro writes squeezelite's and its own env
+	# files itself (under state/mestro). No wpa_supplicant.conf seeding
+	# either: without one mestro opens the setup hotspot; a placeholder
+	# would start a pointless supplicant that holds the radio (the image
+	# still ships the template in /etc/mestro-defaults for hand edits)
 	# timezone override: a /data/timezone file (IANA name like
 	# "Europe/Berlin", editable on any OS) beats the baked
 	# /etc/localtime default

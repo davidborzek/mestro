@@ -97,6 +97,7 @@ export const MOCK_DEFAULTS: Record<string, unknown> = {
     background: { source: "black", dim: 0.35, blur: true, interval: 15 },
   },
   display: { brightness: 65, "standby-brightness": 20 },
+  audio: { output: "", name: "", server: "", extra: "" },
   hub: { layout: "cards", order: ["library", "search", "settings", "standby"] },
   osd: {
     style: "translucent",

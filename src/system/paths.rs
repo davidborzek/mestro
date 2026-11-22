@@ -14,11 +14,11 @@ const fn setting(from_build: Option<&'static str>, image_default: &'static str) 
     }
 }
 
-/// the env file squeezelite's init script sources; the audio output
-/// picker rewrites its `OUTPUT=` line
+/// the env file mestro owns and writes whole (`OUTPUT`, `NAME`, `SERVER`,
+/// `EXTRA`); the only file squeezelite's init script sources
 pub const SQUEEZELITE_ENV: &str = setting(
     option_env!("MESTRO_SQUEEZELITE_ENV"),
-    "/data/squeezelite.env",
+    "/data/state/mestro/squeezelite.env",
 );
 
 /// the command that restarts squeezelite (split on whitespace, no
@@ -28,9 +28,12 @@ pub const SQUEEZELITE_RESTART: &str = setting(
     "/etc/init.d/S60squeezelite restart",
 );
 
-/// the env file the init script sources before it starts mestro; the
-/// timezone picker writes `TZ=` there
-pub const ENV_FILE: &str = setting(option_env!("MESTRO_ENV_FILE"), "/data/mestro.env");
+/// the env file mestro owns and writes whole (`TZ=`, from the timezone
+/// setting); the init script sources it before it starts mestro
+pub const ENV_FILE: &str = setting(
+    option_env!("MESTRO_ENV_FILE"),
+    "/data/state/mestro/mestro.env",
+);
 
 /// the zoneinfo database a chosen zone must exist in
 pub const ZONEINFO_DIR: &str = setting(option_env!("MESTRO_ZONEINFO_DIR"), "/usr/share/zoneinfo");
@@ -75,7 +78,7 @@ mod tests {
     fn the_audio_settings_follow_their_build_variables() {
         assert_eq!(
             SQUEEZELITE_ENV,
-            option_env!("MESTRO_SQUEEZELITE_ENV").unwrap_or("/data/squeezelite.env")
+            option_env!("MESTRO_SQUEEZELITE_ENV").unwrap_or("/data/state/mestro/squeezelite.env")
         );
         assert_eq!(
             SQUEEZELITE_RESTART,
@@ -100,7 +103,7 @@ mod tests {
     fn the_system_settings_follow_their_build_variables() {
         assert_eq!(
             ENV_FILE,
-            option_env!("MESTRO_ENV_FILE").unwrap_or("/data/mestro.env")
+            option_env!("MESTRO_ENV_FILE").unwrap_or("/data/state/mestro/mestro.env")
         );
         assert_eq!(
             ZONEINFO_DIR,

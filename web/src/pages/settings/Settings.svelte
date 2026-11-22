@@ -50,8 +50,10 @@
 
   const twoPane = $derived(layout.shape === "D");
   const sections = $derived(
-    (settingsStore.schema?.sections ?? []).filter((section) =>
-      sectionVisible(section, fieldValue, caps()),
+    // the Audio section is the hand-built device page's (it reads its
+    // fields from the schema itself)
+    (settingsStore.schema?.sections ?? []).filter(
+      (section) => section.id !== AUDIO_SECTION_ID && sectionVisible(section, fieldValue, caps()),
     ),
   );
   const selectedId = $derived(twoPane ? (route.section ?? sections[0]?.id ?? null) : route.section);

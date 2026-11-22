@@ -930,6 +930,37 @@
           }
         }
       ]
+    },
+    {
+      "id": "audio",
+      "title": "Audio",
+      "icon": "speaker",
+      "fields": [
+        {
+          "key": "audio.output",
+          "label": "Output",
+          "help": "Empty = a USB DAC, else an I2S HAT.",
+          "kind": {
+            "type": "text"
+          }
+        },
+        {
+          "key": "audio.name",
+          "label": "Name",
+          "help": "Empty = mestro-XXXX.",
+          "kind": {
+            "type": "text"
+          }
+        },
+        {
+          "key": "audio.server",
+          "label": "Server",
+          "help": "Empty = the host of the Music Assistant URL.",
+          "kind": {
+            "type": "text"
+          }
+        }
+      ]
     }
   ]
 }

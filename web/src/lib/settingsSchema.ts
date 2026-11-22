@@ -81,6 +81,8 @@ export function formatValue(field: Field, value: unknown, texts: ValueTexts): st
     }
     case "percent":
       return `${percentToShown(value)} %`;
+    case "text":
+      return typeof value === "string" ? value : "";
     default:
       // ordered lists have no short text
       return "";

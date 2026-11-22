@@ -63,6 +63,7 @@ set the device up again on purpose.
 | `[keyboard]` | key bindings for USB remotes and keyboards |
 | `[remote]` | the web app / web endpoint |
 | `[wifi]` | the setup hotspot: interface, address, power save, country (the player image) |
+| `[audio]` | squeezelite: output device, player name, server, extra flags (the player image) |
 | `[system]` | the timezone (a device setting the web app writes) |
 
 Deep dives:
@@ -177,9 +178,11 @@ the first paired browser may still set it (see
 zone, only an explicit choice in the picker changes it. A desktop
 build has no picker and follows the OS timezone.
 
-The picker writes `TZ=<zone>` into the env file the init script
-sources before it starts mestro (one line, the rest of the file
-stays). Where that file, the zoneinfo database and the `/etc/localtime`
+mestro writes `TZ=<zone>` into an env file of its own, `/data/state/mestro/mestro.env`
+(whole file, rewritten only when the zone changes; never edit it), which the
+init script sources before it starts mestro. Your own `/data/mestro.env`
+(`RUST_LOG`, `SLINT_DRM_*`, …) is sourced after it and wins — mestro never
+writes it. Where these files, the zoneinfo database and the `/etc/localtime`
 link live is a build setting of the image, not config
 (CONTRIBUTING.md, "Building for another image"). The capability is
 on only while the zoneinfo database exists.
@@ -194,6 +197,52 @@ seconds and the web app reconnects by itself.
 [system]
 # timezone = "Europe/Berlin"  # written by the web app; empty = never chosen
 ```
+
+### `[audio]`
+
+squeezelite's settings (the player image, built with the `audio-output`
+feature; web app → Settings → Audio). Every value is optional: **empty
+means mestro derives it**. `output`, `name` and `server` are normal
+device settings the web app writes; `extra` is config-file only.
+
+| key | empty means | set |
+|---|---|---|
+| `output` | `hw:CARD=<id>` of a USB DAC (card driver `USB-Audio`), else an I2S/HAT card — never the built-in jack (`bcm2835…`) or HDMI (`vc4-hdmi`); nothing to pick → squeezelite's own default (a warning is logged). A DAC that enumerates slowly gets ~10 s before mestro decides; no hotplug — a DAC plugged in later is chosen in the web app, or found on the next boot | an ALSA device, e.g. `hw:CARD=S3`. The output picker in the web app sets it |
+| `name` | `mestro-XXXX`: the last 4 hex digits of the wifi interface's MAC (the player id when there is no wifi), uppercase — the hotspot's name uses the same digits | the player's name in Music Assistant |
+| `server` | the host of `[music-assistant] url` (`http://192.168.3.13:8095` → `192.168.3.13`; slimproto's port 3483 is squeezelite's default); none without a url → squeezelite discovers the server itself | the Music Assistant host (or `host`) to connect to |
+| `extra` | none | further squeezelite flags, passed verbatim and split on whitespace (`-r -Z 100`); not in the web app |
+
+```toml
+[audio]
+# output = "hw:CARD=S3"
+# name = "HiFi"
+# server = "192.168.3.13"
+# extra = "-r -Z 100"
+```
+
+## squeezelite's env file (image only)
+
+On the player image mestro owns squeezelite's config. It composes
+`/data/state/mestro/squeezelite.env` — `OUTPUT`, `NAME`, `SERVER`, `EXTRA` — from the
+`[audio]` settings (a non-empty setting wins, an empty one falls back to
+the derived value above) and writes it whole, only when its content
+changes. The init script sources **only that file**; without it squeezelite
+runs on its own defaults. Nothing about it is a user file: edit the settings,
+not the env file (mestro would overwrite it).
+
+mestro derives the file at startup and again whenever an `audio.*` or
+`music-assistant.*` setting changes (an info line in the log). When the content
+changed and squeezelite runs, it restarts **once** (after the boot's own start
+has finished); nothing changed, nothing is written and nothing restarts.
+Changes are coalesced: a burst restarts squeezelite once, for the newest
+settings. While an output switch from the web app is in flight, the update
+waits (up to ~60 s) instead of being dropped.
+
+The output picker (Settings → Audio) sets `audio.output` through the normal
+settings path and the file follows. If squeezelite does not stay up on the
+new device, the previous setting value returns and the picker shows an error
+([remote.md](remote.md#audio-output-feature-audio-output)). A factory reset
+clears the settings; the file is derived again.
 
 ## Environment and command line
 
