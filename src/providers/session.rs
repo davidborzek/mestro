@@ -123,7 +123,6 @@ impl PlayerFeed {
 /// results). Consumes the command receiver — the session owns
 /// it. `make` constructs a fresh playback source per attempt
 /// (the factory captures the provider's own config).
-#[allow(clippy::too_many_arguments)]
 pub fn spawn<P, F>(
     make: F,
     mut cmd_rx: tokio::sync::mpsc::UnboundedReceiver<SourceCommand>,
