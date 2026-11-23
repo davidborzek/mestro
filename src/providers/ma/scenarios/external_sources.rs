@@ -4,7 +4,7 @@
 
 use super::harness::{a, b, c, connect, cover_url, fixture, skipped_to, QueueUpdate, Scenario};
 use crate::player::state::{PlayerState, Toast};
-use crate::providers::{RepeatMode, SourceCaps};
+use crate::providers::{ExternalSource, RepeatMode, SourceCaps, SourceEvent, TrackMeta};
 use serde_json::{json, Value};
 
 const SKIP_TITLE: &str = "I Was Made for Lovin’ You";
@@ -42,6 +42,29 @@ fn skipped_fresh_clock() -> Value {
 fn without_artwork(mut frame: Value) -> Value {
     frame["data"]["current_media"]["image_url"] = Value::Null;
     frame
+}
+
+/// the source the AirPlay fixtures translate to — what a scenario-built
+/// `SourceEvent::External` must name to be the SAME source, not a new one
+fn airplay_receiver() -> ExternalSource {
+    ExternalSource {
+        name: "AirPlay Receiver".into(),
+        caps: nothing_can_be_done(),
+        shuffle: false,
+        repeat: RepeatMode::Off,
+    }
+}
+
+/// the track the skip fixture carries, as a scenario-built event
+fn kiss_track() -> TrackMeta {
+    TrackMeta {
+        title: SKIP_TITLE.into(),
+        artist: "KISS".into(),
+        album: "Stand by Me".into(),
+        image_url: AIRPLAY_ART.into(),
+        duration_ms: 179_000,
+        ..Default::default()
+    }
 }
 
 fn powered(mut frame: Value, powered: bool) -> Value {
@@ -222,6 +245,47 @@ fn a_skip_restarts_the_bar_until_the_fresh_clock_arrives() {
 }
 
 #[test]
+fn a_repeated_unchanged_event_without_a_reading_does_not_restart_the_bar() {
+    // MA can repeat the shown track while its clock still lags the
+    // skip; the tracker drops such frames as unchanged, so this event
+    // is fed to the core directly — it must leave the running bar alone
+    let mut s = Scenario::new();
+    connect(&mut s, true, a(), 30.0);
+    s.player_frame(&fixture("airplay_track"), true);
+    s.advance(15_000);
+    s.published();
+
+    s.player_frame(&skipped_title_old_clock(), true);
+    assert_eq!(s.state().title, SKIP_TITLE);
+    assert_eq!(s.state().position_ms, 0, "the skip restarts the bar");
+    s.published();
+    s.advance(3_000);
+    assert_eq!(s.tick().0, 3_000);
+
+    s.send(SourceEvent::External {
+        source: airplay_receiver(),
+        track: Some(kiss_track()),
+        elapsed_sec: None,
+    });
+    let published = s.published();
+    let state = s.state();
+    assert_eq!(state.title, SKIP_TITLE);
+    assert_eq!(
+        state.position_ms, 3_000,
+        "the unchanged track without a reading does not restart the bar"
+    );
+    assert!(
+        published.iter().all(|u| u.toast.is_none()),
+        "same title: no toast"
+    );
+    // nothing new to fetch either
+    assert_eq!(s.cover_requests().len(), 2);
+    // and the bar keeps running on its own
+    s.advance(2_000);
+    assert_eq!(s.tick().0, 5_000);
+}
+
+#[test]
 fn the_queues_events_say_nothing_while_a_source_plays() {
     let mut s = Scenario::new();
     connect(&mut s, true, a(), 30.0);
@@ -302,6 +366,27 @@ fn back_on_the_queue_the_reseed_shows_its_track_at_once() {
     );
     let landed = s.land_cover(&cover_url("a"), true);
     assert!(!landed[0].state.cover_missing);
+}
+
+#[test]
+fn leaving_a_source_that_was_never_active_changes_nothing() {
+    // the tracker settles on the first queue frame and never re-emits
+    // the end; a stray ExternalEnded against a playing queue must be a
+    // no-op, not a wipe of the shown track
+    let mut s = Scenario::new();
+    connect(&mut s, true, a(), 30.0);
+    s.land_cover(&cover_url("a"), true);
+    s.published();
+
+    s.send(SourceEvent::ExternalEnded);
+    let state = s.state();
+    assert_eq!(state.title, "Teardrop", "the queue's track is kept");
+    assert!(state.has_media);
+    assert_eq!(state.external, None);
+    assert!(s.published().is_empty(), "nothing is published");
+    // and the bar keeps running
+    s.advance(2_000);
+    assert_eq!(s.tick().0, 32_000);
 }
 
 #[test]
