@@ -18,12 +18,12 @@ use super::startup::{Startup, StartupGate};
 use super::{PlaybackSource, SourceCommand, SourceEvent};
 use crate::library;
 use crate::library::search::Search;
-use crate::locks;
 use crate::player::shell::Shell;
 use crate::player::state::Event;
 use crate::Mestro;
+use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Instant;
 
 fn set_startup(ui_weak: &slint::Weak<Mestro>, phase: Startup) {
@@ -150,7 +150,7 @@ pub fn spawn<P, F>(
                 let mut shown = None;
                 loop {
                     let network = mestro_os::lan_ip() != "127.0.0.1";
-                    let phase = locks::lock(&startup).phase(Instant::now(), network);
+                    let phase = startup.lock().phase(Instant::now(), network);
                     if shown != Some(phase) {
                         set_startup(&ui_weak, phase);
                         shown = Some(phase);
@@ -168,7 +168,7 @@ pub fn spawn<P, F>(
                     // idle-poll and keep the connected flag honest
                     if !provider.configured() {
                         // first run: the setup screen, not the boot screen
-                        locks::lock(&startup).connected();
+                        startup.lock().connected();
                         if connected_up.swap(false, Ordering::Relaxed) {
                             set_connected(&ui_weak, false);
                         }
@@ -178,9 +178,8 @@ pub fn spawn<P, F>(
                     if let Err(e) = provider.run(&mut cmd_rx, evt_tx.clone()).await {
                         let retry = provider.failure(e);
                         let now = Instant::now();
-                        let booting =
-                            !locks::lock(&startup).show_failure(now, retry.heals_on_retry);
-                        if !booting && locks::lock(&gate).on_failure(now, retry.heals_on_retry) {
+                        let booting = !startup.lock().show_failure(now, retry.heals_on_retry);
+                        if !booting && gate.lock().on_failure(now, retry.heals_on_retry) {
                             set_status(&ui_weak, &retry.message);
                             banner_up.store(true, Ordering::Relaxed);
                         }
@@ -202,8 +201,8 @@ pub fn spawn<P, F>(
                     if !connected_up.swap(true, Ordering::Relaxed) {
                         set_connected(&ui_weak, true);
                     }
-                    locks::lock(&gate).on_connected(Instant::now());
-                    locks::lock(&startup).connected();
+                    gate.lock().on_connected(Instant::now());
+                    startup.lock().connected();
                     match feed.apply(ev, Instant::now()) {
                         None => {}
                         // library events route through the lib module

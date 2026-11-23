@@ -6,7 +6,6 @@
 //! (tests) records calls and answers canned data.
 
 use super::wpa_ctrl::{WpaCtrl, SCAN_FINISHED_EVENTS};
-use crate::locks;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -251,7 +250,7 @@ impl RealBackend {
 /// (the supplicant + the lease client) survives the exec and the
 /// next start adopts it (see manager::ensure_sta)
 pub fn stop_ap_processes(children: &super::Children, ap_up: bool) {
-    let mut children = locks::lock(children);
+    let mut children = children.lock();
     if let Some(mut child) = children.remove("dnsmasq") {
         let _ = child.kill();
         let _ = child.wait();
@@ -331,7 +330,7 @@ impl WifiBackend for RealBackend {
             .spawn()
             .map_err(|e| format!("spawn {program} {args:?}: {e}"))?;
         // a respawn of the same name replaces the old child
-        if let Some(mut old) = locks::lock(&self.children).insert(name.to_string(), child) {
+        if let Some(mut old) = self.children.lock().insert(name.to_string(), child) {
             let _ = old.kill();
             let _ = old.wait();
         }
@@ -339,14 +338,15 @@ impl WifiBackend for RealBackend {
     }
 
     fn kill_owned(&mut self, name: &str) {
-        if let Some(mut child) = locks::lock(&self.children).remove(name) {
+        if let Some(mut child) = self.children.lock().remove(name) {
             let _ = child.kill();
             let _ = child.wait();
         }
     }
 
     fn child_exit_status(&mut self, name: &str) -> Option<String> {
-        locks::lock(&self.children)
+        self.children
+            .lock()
             .get_mut(name)
             .and_then(|child| child.try_wait().ok().flatten())
             .map(|status| format!("exit status {status}"))
@@ -876,14 +876,15 @@ mod shutdown_stop {
                 .arg("30")
                 .spawn()
                 .unwrap();
-            locks::lock(&children).insert((*name).to_string(), child);
+            children.lock().insert((*name).to_string(), child);
         }
         children
     }
 
     /// alive: still present in the registry and not exited
     fn alive(children: &super::super::Children, name: &str) -> bool {
-        locks::lock(children)
+        children
+            .lock()
             .get_mut(name)
             .is_some_and(|child| child.try_wait().unwrap().is_none())
     }
@@ -916,7 +917,7 @@ mod shutdown_stop {
         );
         // cleanup: the survivors must not leak into the test machine
         for registry in [children, ap] {
-            for (_, mut child) in locks::lock(&registry).drain() {
+            for (_, mut child) in registry.lock().drain() {
                 let _ = child.kill();
                 let _ = child.wait();
             }
@@ -936,11 +937,10 @@ mod shutdown_stop {
             shutdown
                 .children_arc()
                 .lock()
-                .unwrap()
                 .insert(name.to_string(), child);
         }
         shutdown.stop_tracked();
-        assert!(shutdown.children_arc().lock().unwrap().is_empty());
+        assert!(shutdown.children_arc().lock().is_empty());
     }
 }
 

@@ -9,8 +9,8 @@
 //! compiled — the announcer runs in every build, the manager
 //! (feature `wifi-setup`) is the other side of the handshake.
 
-use crate::locks;
-use std::sync::{Arc, Condvar, Mutex, PoisonError};
+use parking_lot::{Condvar, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 /// where the announcer stands in the pause handshake
@@ -60,7 +60,7 @@ pub struct AttachedWorker(Arc<MdnsGate>);
 
 impl Drop for AttachedWorker {
     fn drop(&mut self) {
-        locks::lock(&self.0.state).worker_attached = false;
+        self.0.state.lock().worker_attached = false;
         self.0.changed.notify_all();
     }
 }
@@ -73,23 +73,23 @@ impl MdnsGate {
     /// player from its setup hotspot. A request made before the
     /// announcer attaches is honored once it does
     pub fn pause_and_wait(&self, timeout: Duration) -> bool {
-        let mut state = locks::lock(&self.state);
+        let mut state = self.state.lock();
         if state.phase == GatePhase::Running {
             state.phase = GatePhase::PauseRequested;
             self.changed.notify_all();
         }
-        let (_state, waited) = self
-            .changed
-            .wait_timeout_while(state, timeout, |s| {
-                s.phase != GatePhase::Paused && s.worker_attached
-            })
-            .unwrap_or_else(PoisonError::into_inner);
-        !waited.timed_out()
+        self.changed.wait_while_for(
+            &mut state,
+            |s| s.phase != GatePhase::Paused && s.worker_attached,
+            timeout,
+        );
+        // the wait condition negated: false only when it timed out still waiting
+        state.phase == GatePhase::Paused || !state.worker_attached
     }
 
     /// manager side: the hotspot is gone, the announcer may start again
     pub fn resume(&self) {
-        let mut state = locks::lock(&self.state);
+        let mut state = self.state.lock();
         if state.phase != GatePhase::Running {
             state.phase = GatePhase::Running;
             self.changed.notify_all();
@@ -98,33 +98,29 @@ impl MdnsGate {
 
     /// announcer side: register the thread; the guard unregisters it
     pub fn attach(self: &Arc<Self>) -> AttachedWorker {
-        locks::lock(&self.state).worker_attached = true;
+        self.state.lock().worker_attached = true;
         AttachedWorker(self.clone())
     }
 
     /// announcer side: the daemon must not run (requested or confirmed)
     pub fn silenced(&self) -> bool {
-        locks::lock(&self.state).phase != GatePhase::Running
+        self.state.lock().phase != GatePhase::Running
     }
 
     /// announcer side: sleep up to `timeout`; a pause request, a
     /// resume or the timeout ends it. A request already pending
     /// returns at once
     pub fn wait_for_change(&self, timeout: Duration) {
-        let state = locks::lock(&self.state);
+        let mut state = self.state.lock();
         if state.phase == GatePhase::PauseRequested {
             return;
         }
-        drop(
-            self.changed
-                .wait_timeout(state, timeout)
-                .unwrap_or_else(PoisonError::into_inner),
-        );
+        self.changed.wait_for(&mut state, timeout);
     }
 
     /// announcer side: the daemon is shut down — answer a pending request
     pub fn confirm_paused(&self) {
-        let mut state = locks::lock(&self.state);
+        let mut state = self.state.lock();
         if state.phase == GatePhase::PauseRequested {
             state.phase = GatePhase::Paused;
             self.changed.notify_all();
@@ -133,7 +129,7 @@ impl MdnsGate {
 
     /// the current phase (tests on both sides of the handshake)
     pub fn phase(&self) -> GatePhase {
-        locks::lock(&self.state).phase
+        self.state.lock().phase
     }
 }
 

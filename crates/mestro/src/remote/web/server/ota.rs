@@ -410,9 +410,10 @@ fn last_line(text: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use parking_lot::Mutex;
     use std::future::Future;
     use std::path::{Path, PathBuf};
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
     use tokio::net::TcpListener;
     use tokio::sync::mpsc;
 
@@ -496,10 +497,8 @@ mod tests {
                 let (cmds, tx, seen) = (cmds.clone(), tx.clone(), seen.clone());
                 tokio::spawn(async move {
                     let request = http::read_head(&mut stream).await.unwrap();
-                    let result = handle(&mut stream, &request, &cmds, |p| {
-                        seen.lock().unwrap().push(p)
-                    })
-                    .await;
+                    let result =
+                        handle(&mut stream, &request, &cmds, |p| seen.lock().push(p)).await;
                     let _ = tx.send(result);
                 });
             }
@@ -508,7 +507,7 @@ mod tests {
     }
 
     fn run<F: Future>(test: F) -> F::Output {
-        let _turn = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let _turn = SERIAL.lock();
         tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -589,7 +588,7 @@ mod tests {
                 format!("- {sha}")
             );
             assert!(rig.file("rebooted").exists());
-            let phases = server.phases.lock().unwrap().clone();
+            let phases = server.phases.lock().clone();
             assert!(matches!(
                 phases.first(),
                 Some(OtaPhase::Receiving { done: 0, .. })
@@ -614,7 +613,7 @@ mod tests {
             assert!(!rig.file("pid").exists(), "the installer ran");
             assert!(!rig.file("rebooted").exists());
             assert!(
-                server.phases.lock().unwrap().is_empty(),
+                server.phases.lock().is_empty(),
                 "a rejected request must not touch the overlay"
             );
         });
@@ -675,7 +674,7 @@ mod tests {
             );
             assert!(!rig.file("rebooted").exists());
             assert!(matches!(
-                server.phases.lock().unwrap().last(),
+                server.phases.lock().last(),
                 Some(OtaPhase::Failed(_))
             ));
         });
@@ -764,10 +763,7 @@ mod tests {
             drop(client);
             assert_eq!(server.done.recv().await.unwrap(), Ok(()));
             assert!(rig.file("rebooted").exists());
-            assert_eq!(
-                server.phases.lock().unwrap().last(),
-                Some(&OtaPhase::Rebooting)
-            );
+            assert_eq!(server.phases.lock().last(), Some(&OtaPhase::Rebooting));
         });
     }
 
@@ -786,7 +782,7 @@ mod tests {
             assert!(reply.contains("sha256 mismatch: got a, want b"), "{reply}");
             assert!(server.done.recv().await.unwrap().is_err());
             assert!(!rig.file("rebooted").exists());
-            let phases = server.phases.lock().unwrap().clone();
+            let phases = server.phases.lock().clone();
             assert!(
                 matches!(phases.last(), Some(OtaPhase::Failed(m)) if m.contains("sha256 mismatch"))
             );

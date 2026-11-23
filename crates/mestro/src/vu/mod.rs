@@ -7,7 +7,6 @@
 //! levels so the UI side can be exercised without squeezelite.
 
 use crate::config::VuMode;
-use crate::locks;
 use mestro_os::audio::visexport::Poll;
 
 /// The Slint edition of every runtime-compiled skin and face;
@@ -41,8 +40,9 @@ pub mod preview;
 pub mod skin;
 pub mod wire;
 
+use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 /// reader→UI: stereo level 0..1 per channel (already ballistics'd)
@@ -121,8 +121,8 @@ fn shmem_loop(shared: Shared, bands: SharedBands, prefix: &str, reference_dbfs: 
             Poll::Playing { rate, samples } => (rate, samples),
             Poll::NoRing | Poll::Silent => {
                 ballistic.push([0.0; 2]);
-                *locks::lock(&shared) = ballistic.level;
-                *locks::lock(&bands) = ([0.0; BANDS], [0.0; BANDS]);
+                *shared.lock() = ballistic.level;
+                *bands.lock() = ([0.0; BANDS], [0.0; BANDS]);
                 continue;
             }
             Poll::Retry => continue,
@@ -146,9 +146,9 @@ fn shmem_loop(shared: Shared, bands: SharedBands, prefix: &str, reference_dbfs: 
             level[ch] = ((vu + 20.0) / 23.0) as f32;
         }
         ballistic.push(level);
-        *locks::lock(&shared) = ballistic.level;
+        *shared.lock() = ballistic.level;
         let (bands_now, peaks_now) = analyzer.analyze(&samples, rate);
-        *locks::lock(&bands) = (bands_now, peaks_now);
+        *bands.lock() = (bands_now, peaks_now);
     }
 }
 
@@ -170,7 +170,7 @@ fn mock_loop(shared: Shared, bands: SharedBands, playing: &'static AtomicBool) {
             }
         }
         ballistic.push(target);
-        *locks::lock(&shared) = ballistic.level;
+        *shared.lock() = ballistic.level;
         // synthesized spectrum: per-band noise bounce around a
         // tilted hill, so UI work reads like music
         let mut bands_now = [0.0f32; BANDS];
@@ -182,7 +182,7 @@ fn mock_loop(shared: Shared, bands: SharedBands, playing: &'static AtomicBool) {
                 *band = (hill * (0.55 + 0.45 * wob) * (0.8 + 0.2 * shimmer)).clamp(0.03, 1.0);
             }
         }
-        let (mut prev_bands, mut prev_peaks) = *locks::lock(&bands);
+        let (mut prev_bands, mut prev_peaks) = *bands.lock();
         for (p, n) in prev_bands.iter_mut().zip(bands_now) {
             // same ballistics as the real analyzer (fft.rs)
             *p = if n > *p {
@@ -194,6 +194,6 @@ fn mock_loop(shared: Shared, bands: SharedBands, playing: &'static AtomicBool) {
         for (cap, band) in prev_peaks.iter_mut().zip(prev_bands.iter()) {
             *cap = (*band).max(*cap - 0.004);
         }
-        *locks::lock(&bands) = (prev_bands, prev_peaks);
+        *bands.lock() = (prev_bands, prev_peaks);
     }
 }

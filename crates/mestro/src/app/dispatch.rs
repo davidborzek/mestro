@@ -15,9 +15,10 @@ use mestro::settings::{Handle, NpState, VuState};
 use mestro::ui::navigation::Navigation;
 use mestro::vu::wire::Vui;
 use mestro::{player::nowplaying, Mestro};
+use parking_lot::RwLock;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 /// everything a command can touch
 pub struct Dispatch {
@@ -193,8 +194,7 @@ impl Dispatch {
             mestro::settings::sync_connection(ui, effective);
             // the session reconnects with the fresh values (its
             // factory re-reads them per attempt)
-            *mestro::locks::write(&self.ma_cfg) =
-                ma::Config::from_music_assistant(&effective.music_assistant);
+            *self.ma_cfg.write() = ma::Config::from_music_assistant(&effective.music_assistant);
             let _ = self.cmd_tx.send(SourceCommand::Reconnect);
         }
         // squeezelite's env file follows the audio settings and the

@@ -5,7 +5,6 @@
 //! event confirms with the real state, the UI only renders what
 //! MA reports.
 
-use crate::locks;
 use crate::player::shell::{Shared, Shell};
 use crate::player::state::{self, Event};
 use crate::providers::{RepeatMode, SourceCommand};
@@ -139,7 +138,7 @@ fn command(state: &state::PlayerState, action: Action) -> Option<SourceCommand> 
 /// `command` on the shared state; a refusal is logged (the buttons
 /// are greyed, so it only comes from the keyboard, ctl or the web)
 fn route(shared: &Shared, action: Action) -> Option<SourceCommand> {
-    let guard = locks::lock(shared);
+    let guard = shared.lock();
     let state = guard
         .as_ref()
         .map(|live| live.state.clone())
@@ -162,7 +161,9 @@ fn send_transport(shell: &Shell, cmd_tx: &crate::ui::navigation::CmdTx, action: 
     let Some(cmd) = route(shell.shared(), action) else {
         return;
     };
-    let on_queue = locks::lock(shell.shared())
+    let on_queue = shell
+        .shared()
+        .lock()
         .as_ref()
         .is_none_or(|live| live.state.external.is_none());
     if on_queue && cmd != SourceCommand::Pause {

@@ -11,17 +11,17 @@
 use super::state::{
     self, RemoteArt, RemoteContext, RemoteDisplay, RemoteState, RemoteView, Throttle,
 };
-use crate::locks;
 use crate::player::cover::CoverData;
 use crate::player::state::PlayerState;
 use crate::providers::ma;
 use crate::ui::palette::ArtworkPalette;
 use crate::Mestro;
+use parking_lot::{Mutex, RwLock};
 use slint::ComponentHandle as _;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::broadcast;
 
@@ -79,7 +79,7 @@ impl Events {
 
     /// the hub side: publish a frame (broadcast + latest slot)
     pub fn publish(&self, frame: String) {
-        *locks::lock(&self.inner.latest) = frame.clone();
+        *self.inner.latest.lock() = frame.clone();
         let _ = self.inner.tx.send(frame);
     }
 
@@ -93,7 +93,7 @@ impl Events {
     /// the last published frame, for the snapshot a fresh or
     /// lagged socket needs (None before the first state exists)
     pub fn snapshot(&self) -> Option<String> {
-        let latest = locks::lock(&self.inner.latest);
+        let latest = self.inner.latest.lock();
         (!latest.is_empty()).then(|| latest.clone())
     }
 
@@ -104,15 +104,15 @@ impl Events {
     /// the latest cover + its pre-blurred backdrop, both
     /// versioned (0 = none yet)
     pub fn set_cover(&self, version: u64, cover: CoverData, backdrop: Option<CoverData>) {
-        *locks::lock(&self.inner.cover) = Some((version, cover));
-        *locks::lock(&self.inner.backdrop) = backdrop.map(|bg| (version, bg));
+        *self.inner.cover.lock() = Some((version, cover));
+        *self.inner.backdrop.lock() = backdrop.map(|bg| (version, bg));
     }
 
     /// the current cover as JPEG (quality ~85), encoded at most
     /// once per version; None when no cover exists yet
     pub fn cover_jpeg(&self) -> Option<Vec<u8>> {
-        let (version, cover) = locks::lock(&self.inner.cover).clone()?;
-        let mut jpeg = locks::lock(&self.inner.jpeg);
+        let (version, cover) = self.inner.cover.lock().clone()?;
+        let mut jpeg = self.inner.jpeg.lock();
         if let Some((at, bytes)) = jpeg.as_ref() {
             if *at == version {
                 return Some(bytes.clone());
@@ -128,8 +128,8 @@ impl Events {
     /// plain image (iOS recomputes CSS filters on every repaint
     /// above them); None while no cover exists
     pub fn backdrop_jpeg(&self) -> Option<Vec<u8>> {
-        let (version, backdrop) = locks::lock(&self.inner.backdrop).clone()?;
-        let mut jpeg = locks::lock(&self.inner.backdrop_jpeg);
+        let (version, backdrop) = self.inner.backdrop.lock().clone()?;
+        let mut jpeg = self.inner.backdrop_jpeg.lock();
         if let Some((at, bytes)) = jpeg.as_ref() {
             if *at == version {
                 return Some(bytes.clone());
@@ -151,14 +151,14 @@ impl Events {
         render: impl FnOnce() -> Option<Vec<u8>>,
     ) -> Option<Vec<u8>> {
         let key = (kind.to_string(), name.to_string(), version.to_string());
-        if let Some(bytes) = locks::lock(&self.inner.previews).get(&key) {
+        if let Some(bytes) = self.inner.previews.lock().get(&key) {
             return Some(bytes.clone());
         }
         // render outside the lock: the UI-thread roundtrip can
         // take a while, a concurrent request for another preview
         // must not queue behind it
         let bytes = render()?;
-        let mut cache = locks::lock(&self.inner.previews);
+        let mut cache = self.inner.previews.lock();
         if cache.len() >= PREVIEW_CACHE_MAX {
             cache.clear();
         }
@@ -285,7 +285,7 @@ impl Push {
     /// view context sampled from the UI, the player still empty (a
     /// minimal valid frame; the first PlayerUpdate follows normally)
     pub fn publish_initial(&self, ui: &Mestro) {
-        let ctx = context_of(ui, &locks::read(&self.ma_cfg).ws_url);
+        let ctx = context_of(ui, &self.ma_cfg.read().ws_url);
         self.inner.borrow_mut().ctx = ctx;
         self.publish_snapshot();
     }
@@ -402,13 +402,13 @@ impl Push {
         let poll = slint::Timer::default();
         poll.start(slint::TimerMode::Repeated, VIEW_POLL, move || {
             let Some(ui) = weak.upgrade() else { return };
-            push.set_context(context_of(&ui, &locks::read(&push.ma_cfg).ws_url));
+            push.set_context(context_of(&ui, &push.ma_cfg.read().ws_url));
         });
         let push = self.clone();
         let weak = ui.as_weak();
         ui.on_view_changed(move || {
             let Some(ui) = weak.upgrade() else { return };
-            push.set_context(context_of(&ui, &locks::read(&push.ma_cfg).ws_url));
+            push.set_context(context_of(&ui, &push.ma_cfg.read().ws_url));
         });
         std::mem::forget((flush, poll));
     }

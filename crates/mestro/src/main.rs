@@ -17,10 +17,11 @@ use mestro::settings::{Handle, NpState, VuState};
 use mestro::{
     library::search::Search, player::nowplaying, player::queue, ui::navigation, ui::osd, vu, Mestro,
 };
+use parking_lot::{Mutex, RwLock};
 use slint::{ComponentHandle, Timer, TimerMode};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::Arc;
 use std::time::Duration;
 
 #[derive(Parser)]
@@ -377,7 +378,7 @@ fn main() {
     // providers module — the factory reads the shared connection
     // config per attempt, so settings edits take effect live
     mestro::providers::session::spawn(
-        move || MaProvider::new(mestro::locks::read(&ma_cfg).clone()),
+        move || MaProvider::new(ma_cfg.read().clone()),
         cmd_rx,
         shell,
         library.feed_tx().clone(),

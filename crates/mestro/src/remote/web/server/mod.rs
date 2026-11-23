@@ -866,7 +866,7 @@ mod tests {
         // startup order: the initial snapshot is published before the
         // listener accepts — no player update has happened yet
         let events = Events::new();
-        let ma_cfg = std::sync::Arc::new(std::sync::RwLock::new(crate::providers::ma::Config {
+        let ma_cfg = std::sync::Arc::new(parking_lot::RwLock::new(crate::providers::ma::Config {
             ws_url: String::new(),
             token: String::new(),
             player_name: "wohnzimmer".into(),

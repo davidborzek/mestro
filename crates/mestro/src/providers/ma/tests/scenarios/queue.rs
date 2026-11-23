@@ -103,7 +103,7 @@ fn a_track_before_any_other_event_is_dropped() {
     });
     assert!(s.published().is_empty());
     assert!(s.cover_requests().is_empty());
-    assert!(s.shared.lock().unwrap().is_none());
+    assert!(s.shared.lock().is_none());
 }
 
 #[test]

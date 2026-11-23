@@ -186,16 +186,16 @@ pub fn apply(
 /// the zone the next restart must run in: recorded by the timezone
 /// op on the UI thread, handed to the exec by `restart.rs` — the
 /// environment of this process is never touched
-static PENDING_ZONE: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+static PENDING_ZONE: parking_lot::Mutex<Option<String>> = parking_lot::Mutex::new(None);
 
 /// ask the next restart to run in `zone`
 pub fn set_pending_zone(zone: &str) {
-    *crate::locks::lock(&PENDING_ZONE) = Some(zone.to_string());
+    *PENDING_ZONE.lock() = Some(zone.to_string());
 }
 
 /// the zone the restart in progress must carry (once)
 pub fn take_pending_zone() -> Option<String> {
-    crate::locks::lock(&PENDING_ZONE).take()
+    PENDING_ZONE.lock().take()
 }
 /// the capability: a zoneinfo database to validate against
 pub fn available(zoneinfo_dir: &Path) -> bool {

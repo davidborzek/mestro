@@ -2861,6 +2861,7 @@ dependencies = [
  "mdns-sd",
  "mestro-os",
  "mestro-player",
+ "parking_lot",
  "qrcode",
  "rustfft",
  "serde",
@@ -2885,6 +2886,7 @@ version = "0.1.0"
 dependencies = [
  "hmac",
  "libc",
+ "parking_lot",
  "serde",
  "serde_json",
  "sha1",
@@ -2903,6 +2905,7 @@ dependencies = [
  "image",
  "indexmap",
  "material-colors",
+ "parking_lot",
  "tokio",
  "tracing",
 ]

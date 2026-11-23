@@ -1,9 +1,7 @@
-// what mestro does: the lock helpers come from mestro-os
-// under their historical path (crate::locks)
+// what mestro does
 pub mod config;
 pub mod display;
 pub mod library;
-pub use mestro_os::locks;
 pub mod player;
 pub mod settings;
 pub mod standby;

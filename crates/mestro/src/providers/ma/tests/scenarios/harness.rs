@@ -18,8 +18,9 @@ use crate::providers::ma::parse::{parse_active_queue, parse_event, MaEvent};
 use crate::providers::ma::translate;
 use crate::providers::session::PlayerFeed;
 use crate::providers::SourceEvent;
+use parking_lot::Mutex;
 use serde_json::{json, Value};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 pub const BASE: &str = "http://ma.test:8095";
@@ -37,7 +38,7 @@ struct Recorder {
 
 impl CoverFetcher for Recorder {
     fn fetch(&self, url: String, landed: CoverLanded) {
-        self.requests.lock().unwrap().push((url, Some(landed)));
+        self.requests.lock().push((url, Some(landed)));
     }
 }
 
@@ -123,7 +124,7 @@ impl Scenario {
     }
 
     pub fn live<R>(&self, read: impl FnOnce(&Live) -> R) -> R {
-        read(self.shared.lock().unwrap().as_ref().unwrap())
+        read(self.shared.lock().as_ref().unwrap())
     }
 
     /// every cover url the state machine asked for, in order
@@ -131,7 +132,6 @@ impl Scenario {
         self.recorder
             .requests
             .lock()
-            .unwrap()
             .iter()
             .map(|(url, _)| url.clone())
             .collect()
@@ -144,7 +144,6 @@ impl Scenario {
             .recorder
             .requests
             .lock()
-            .unwrap()
             .iter_mut()
             .find(|(requested, landed)| requested == url && landed.is_some())
             .and_then(|(_, landed)| landed.take())
@@ -253,7 +252,7 @@ impl Scenario {
 }
 
 pub fn state_of(shared: &Shared) -> PlayerState {
-    shared.lock().unwrap().as_ref().unwrap().state.clone()
+    shared.lock().as_ref().unwrap().state.clone()
 }
 
 fn picture() -> CoverData {

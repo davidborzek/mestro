@@ -6,7 +6,6 @@
 //! in-memory: five failures close the door for 30 s.
 
 use super::{auth, http};
-use crate::locks;
 use auth::ct_eq;
 use tokio::io::AsyncReadExt;
 use tokio::net::TcpStream;
@@ -22,7 +21,7 @@ const MAX_BODY: usize = 1024;
 pub(crate) struct Pairing {
     pin: String,
     token: String,
-    gate: std::sync::Mutex<Gate>,
+    gate: parking_lot::Mutex<Gate>,
 }
 
 #[derive(Default)]
@@ -37,7 +36,7 @@ impl Pairing {
         Self {
             pin: pin.to_string(),
             token: auth::pair_token(pin),
-            gate: std::sync::Mutex::new(Gate {
+            gate: parking_lot::Mutex::new(Gate {
                 block: BLOCK,
                 ..Gate::default()
             }),
@@ -49,7 +48,7 @@ impl Pairing {
         Self {
             pin: pin.to_string(),
             token: auth::pair_token(pin),
-            gate: std::sync::Mutex::new(Gate {
+            gate: parking_lot::Mutex::new(Gate {
                 block,
                 ..Gate::default()
             }),
@@ -66,7 +65,8 @@ impl Pairing {
 
     /// 429 while the gate is closed
     fn blocked(&self) -> bool {
-        locks::lock(&self.gate)
+        self.gate
+            .lock()
             .blocked_until
             .is_some_and(|until| until > std::time::Instant::now())
     }
@@ -74,11 +74,11 @@ impl Pairing {
     /// one wrong PIN counts; returns true when this failure closed
     /// the gate (the attempt itself is already 429 material)
     fn fail(&self) -> bool {
-        locks::lock(&self.gate).fail()
+        self.gate.lock().fail()
     }
 
     fn clear(&self) {
-        let mut gate = locks::lock(&self.gate);
+        let mut gate = self.gate.lock();
         gate.failures = 0;
         gate.blocked_until = None;
     }

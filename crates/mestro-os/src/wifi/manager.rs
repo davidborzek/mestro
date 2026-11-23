@@ -17,10 +17,10 @@ use super::settings::{ApNet, WifiSettings};
 use super::wpa_ctrl::{self, ScanEntry};
 use super::Plan;
 use super::Portal;
-use crate::locks;
+use parking_lot::Mutex;
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// seconds without a route (and without the wired fallback) in STA
@@ -227,7 +227,7 @@ impl<B: WifiBackend> Manager<B> {
             Phase::Failed(e) => e.clone(),
             _ => self.last_error.clone(),
         };
-        *locks::lock(&self.snapshot) = json!({
+        *self.snapshot.lock() = json!({
             "state": self.state_name(),
             "ap_ssid": self.ap_ssid,
             "ssid": self.ssid,
@@ -852,7 +852,7 @@ impl<B: WifiBackend> Manager<B> {
             }
             // the run loop serves this from the snapshot without
             // the lock — this path stays for the tests
-            WifiOp::Status => Ok(locks::lock(&self.snapshot).clone()),
+            WifiOp::Status => Ok(self.snapshot.lock().clone()),
         }
     }
 
@@ -938,8 +938,8 @@ pub struct Ops<B: WifiBackend> {
 
 impl<B: WifiBackend> Ops<B> {
     pub fn new(manager: Arc<Mutex<Manager<B>>>) -> Self {
-        let snapshot = locks::lock(&manager).snapshot_arc();
-        let ap_mode = locks::lock(&manager).ap_mode_arc();
+        let snapshot = manager.lock().snapshot_arc();
+        let ap_mode = manager.lock().ap_mode_arc();
         Self {
             manager,
             snapshot,
@@ -966,7 +966,7 @@ impl<B: WifiBackend> Ops<B> {
         match op {
             // never behind the op lock, no radio, no credentials —
             // the auth verdict of the HTTP route stands for it
-            WifiOp::Status => Ok(locks::lock(&self.snapshot).clone()),
+            WifiOp::Status => Ok(self.snapshot.lock().clone()),
             WifiOp::Scan | WifiOp::Join { .. } => {
                 // bound the total in-flight work BEFORE queueing for
                 // the lock — no permit, no pile-up
@@ -999,7 +999,7 @@ impl<B: WifiBackend> Ops<B> {
         ap_trusted: bool,
         paired: bool,
     ) -> Result<Value, String> {
-        let mut manager = locks::lock(&self.manager);
+        let mut manager = self.manager.lock();
         if Instant::now() > deadline {
             return Err("wifi op timed out".into());
         }
@@ -1063,7 +1063,7 @@ pub async fn run(
         shutdown.clone(),
     )));
     {
-        let mut mgr = locks::lock(&manager);
+        let mut mgr = manager.lock();
         mgr.boot();
         let status = mgr.op(WifiOp::Status).ok();
         tracing::info!("wifi: boot: {:?}", status);
@@ -1095,9 +1095,7 @@ pub async fn run(
             _ = ticker.tick() => {
                 let tick_manager = tick_manager.clone();
                 tokio::task::spawn_blocking(move || {
-                    if let Ok(mut mgr) = tick_manager.lock() {
-                        mgr.tick();
-                    }
+                    tick_manager.lock().tick();
                 });
             }
             req = rx.recv() => {
@@ -1580,7 +1578,7 @@ mod tests {
         let recorded = Arc::new(Mutex::new(Vec::<HotspotView>::new()));
         let sink: HotspotSink = {
             let recorded = recorded.clone();
-            Arc::new(move |view| recorded.lock().unwrap().push(view))
+            Arc::new(move |view| recorded.lock().push(view))
         };
         let dir = tempfile::tempdir().unwrap();
         let mut mgr = Manager::new(
@@ -1600,7 +1598,7 @@ mod tests {
         );
         std::mem::forget(dir);
         mgr.boot();
-        let panel = recorded.lock().unwrap().last().cloned().unwrap();
+        let panel = recorded.lock().last().cloned().unwrap();
         assert!(panel.active);
         assert_eq!(panel.reason, ApReason::Setup);
         assert_eq!(panel.ssid, "mestro-3456");
@@ -1609,7 +1607,7 @@ mod tests {
         // the join ends the hotspot: the panel says so, naming the
         // network it would fall back to
         mgr.join("FritzBox", Some("password12")).unwrap();
-        let panel = recorded.lock().unwrap().last().cloned().unwrap();
+        let panel = recorded.lock().last().cloned().unwrap();
         assert!(!panel.active);
         assert_eq!(panel.saved_ssid, "FritzBox");
     }
@@ -2231,7 +2229,7 @@ mod tests {
         // another thread holds the op lock for as long as it likes
         let (started, held) = std::sync::mpsc::channel::<()>();
         let blocker = std::thread::spawn(move || {
-            let guard = locks::lock(&manager);
+            let guard = manager.lock();
             started.send(()).unwrap();
             std::thread::sleep(Duration::from_millis(300));
             drop(guard);
@@ -2256,7 +2254,7 @@ mod tests {
             ping_ok: true,
             ..FakeBackend::new(MAC)
         });
-        let before = locks::lock(&manager).backend.log().len();
+        let before = manager.lock().backend.log().len();
         let out = ops.request(
             WifiOp::Scan,
             Instant::now() - Duration::from_secs(1), // already expired
@@ -2265,7 +2263,7 @@ mod tests {
         );
         assert!(out.unwrap_err().contains("timed out"));
         // nothing touched the radio
-        assert_eq!(locks::lock(&manager).backend.log().len(), before);
+        assert_eq!(manager.lock().backend.log().len(), before);
     }
 
     #[test]
@@ -2518,7 +2516,7 @@ mod tests {
         let (started, held) = std::sync::mpsc::channel::<()>();
         let (release, released) = std::sync::mpsc::channel::<()>();
         let blocker = std::thread::spawn(move || {
-            let guard = locks::lock(&manager);
+            let guard = manager.lock();
             started.send(()).unwrap();
             released.recv().unwrap();
             drop(guard);

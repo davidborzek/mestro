@@ -32,7 +32,8 @@ mod tests {
     use crate::player::shell::Shell;
     use crate::player::state::Live;
     use crate::player::state::PlayerState;
-    use std::sync::{Arc, Mutex};
+    use parking_lot::Mutex;
+    use std::sync::Arc;
 
     fn shell(live: Option<Live>) -> Shell {
         let (update_tx, _) = tokio::sync::mpsc::unbounded_channel();
@@ -85,7 +86,7 @@ mod tests {
         let response = handle(1, &PlayerAction::Volume { value: 150 }, &ctx);
         assert!(response.ok);
         assert_eq!(rx.try_recv().unwrap(), SourceCommand::Volume(100));
-        let shared = ctx.shell.shared().lock().unwrap();
+        let shared = ctx.shell.shared().lock();
         let live = shared.as_ref().unwrap();
         assert_eq!(
             live.volume_local.map(|(_, v)| v),

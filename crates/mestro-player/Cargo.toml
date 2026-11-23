@@ -14,6 +14,8 @@ indexmap = "2.3"
 ahash = "0.8"
 # the Material You dynamic scheme (accent, tertiary, harmonized danger)
 material-colors = "0.4.2"
+# the shell's shared-state lock (no poisoning)
+parking_lot = { workspace = true }
 # the shell's publish channel
 tokio = { version = "1", features = ["sync"] }
 tracing = { workspace = true }

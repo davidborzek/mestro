@@ -11,8 +11,8 @@
 use super::outputs::{self, Card, Output, Squeezelite, SwitchSlot};
 use super::AudioSettings;
 use crate::paths::setting;
+use parking_lot::Mutex;
 use std::path::Path;
-use std::sync::Mutex;
 use std::time::Duration;
 
 /// the env file mestro owns and writes whole (`OUTPUT`, `NAME`, `SERVER`,
@@ -347,17 +347,17 @@ fn run(
 ) -> Result<(), String> {
     if let Some(suffix) = startup_suffix {
         let derived = derive(paths.asound_dir, suffix, runner);
-        *crate::locks::lock(&DERIVED) = Some(derived);
+        *DERIVED.lock() = Some(derived);
     }
     // the slot before the turn, like the switch (which holds the slot
     // when it asks for its run)
     let restarted = {
         let _slot = (trigger == Trigger::Background).then(|| SwitchSlot::wait(paths.env_file));
-        let _turn = crate::locks::lock(&RUNS);
-        let Some(derived) = crate::locks::lock(&DERIVED).clone() else {
+        let _turn = RUNS.lock();
+        let Some(derived) = DERIVED.lock().clone() else {
             return Ok(());
         };
-        let inputs = crate::locks::lock(&INPUTS).clone().unwrap_or_default();
+        let inputs = INPUTS.lock().clone().unwrap_or_default();
         apply(paths, &derived, &inputs, trigger, runner)
     }?;
     if startup_suffix.is_some() && !restarted {
@@ -376,9 +376,9 @@ fn confirm_startup(paths: &Paths, runner: &mut dyn Squeezelite) -> Result<(), St
         return Ok(());
     }
     let _slot = SwitchSlot::wait(paths.env_file);
-    let _turn = crate::locks::lock(&RUNS);
-    let derived = crate::locks::lock(&DERIVED).clone().unwrap_or_default();
-    let inputs = crate::locks::lock(&INPUTS).clone().unwrap_or_default();
+    let _turn = RUNS.lock();
+    let derived = DERIVED.lock().clone().unwrap_or_default();
+    let inputs = INPUTS.lock().clone().unwrap_or_default();
     restart_if_arguments_differ(&compose(&derived, &inputs), runner).map(|_| ())
 }
 
@@ -390,7 +390,7 @@ fn device_paths() -> Paths<'static> {
 }
 
 fn set_inputs(audio: &AudioSettings, ma_url: &str) {
-    *crate::locks::lock(&INPUTS) = Some(Inputs {
+    *INPUTS.lock() = Some(Inputs {
         audio: audio.clone(),
         ma_url: ma_url.to_string(),
     });
@@ -443,14 +443,14 @@ pub fn apply_for_switch(runner: &mut dyn Squeezelite) -> Result<(), String> {
 
 /// the output squeezelite plays on: the setting, else the derived one
 pub fn effective_output() -> String {
-    let derived = crate::locks::lock(&DERIVED).clone().unwrap_or_default();
-    let inputs = crate::locks::lock(&INPUTS).clone().unwrap_or_default();
+    let derived = DERIVED.lock().clone().unwrap_or_default();
+    let inputs = INPUTS.lock().clone().unwrap_or_default();
     compose(&derived, &inputs).output
 }
 
 /// the `audio.output` setting as it is now (empty = automatic)
 pub fn output_setting() -> String {
-    let inputs = crate::locks::lock(&INPUTS).clone().unwrap_or_default();
+    let inputs = INPUTS.lock().clone().unwrap_or_default();
     inputs.audio.output
 }
 
@@ -1095,7 +1095,7 @@ mod tests {
 
     #[test]
     fn the_newest_settings_win_on_sequential_runs() {
-        let _serial = crate::locks::lock(&GLOBAL_STATE_TESTS);
+        let _serial = GLOBAL_STATE_TESTS.lock();
         let fx = usb_fixture();
         let mut fake = Fake::new();
         set_inputs(&AudioSettings::default(), "");
@@ -1155,7 +1155,7 @@ mod tests {
 
     #[test]
     fn a_squeezelite_that_started_before_the_file_is_restarted_once() {
-        let _serial = crate::locks::lock(&GLOBAL_STATE_TESTS);
+        let _serial = GLOBAL_STATE_TESTS.lock();
         assert_eq!(first_boot_restarts(Some(3), &["-v"]), 1);
         let matching = ["-v", "-o", "hw:CARD=S3", "-s", "192.168.3.13", "-n", "HiFi"];
         assert_eq!(first_boot_restarts(Some(3), &matching), 0);

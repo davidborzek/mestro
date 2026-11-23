@@ -103,7 +103,7 @@ impl WifiChannel {
 /// mestro's tracked wifi child processes (dnsmasq, udhcpc, the
 /// supplicant it started), name → handle. A separate small lock:
 /// the restart path reads it without the manager's op lock
-pub type Children = std::sync::Mutex<std::collections::HashMap<String, std::process::Child>>;
+pub type Children = parking_lot::Mutex<std::collections::HashMap<String, std::process::Child>>;
 
 /// the app-restart stop signal for the wifi manager: exec keeps
 /// the children (dnsmasq, udhcpc, the supplicant) alive with their
@@ -133,7 +133,7 @@ impl WifiShutdown {
     /// tracked child directly (we know them; the next start's
     /// ensure_sta rebuilds the STA side)
     pub fn stop_tracked(&self) {
-        for (name, mut child) in crate::locks::lock(&self.children).drain() {
+        for (name, mut child) in self.children.lock().drain() {
             let _ = child.kill();
             let _ = child.wait();
             tracing::debug!("wifi: stopped {name} (restart fallback)");

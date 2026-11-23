@@ -6,8 +6,8 @@
 
 #![deny(clippy::indexing_slicing)]
 
+use parking_lot::{Condvar, Mutex};
 use std::path::{Path, PathBuf};
-use std::sync::{Condvar, Mutex};
 use std::time::Duration;
 
 /// the kernel's ALSA proc tree (`cards` plus `card<N>/pcm<D>p`): a
@@ -202,7 +202,7 @@ pub(super) struct SwitchSlot(PathBuf);
 
 impl SwitchSlot {
     pub(super) fn take(env_file: &Path) -> Result<Self, String> {
-        let mut busy = crate::locks::lock(&SWITCHES_IN_FLIGHT);
+        let mut busy = SWITCHES_IN_FLIGHT.lock();
         if busy.iter().any(|path| path == env_file) {
             return Err("another switch is in progress".into());
         }
@@ -213,11 +213,9 @@ impl SwitchSlot {
     /// block until the slot is free, for a background rewrite of the
     /// env file (the web request's `take` still fails fast)
     pub(super) fn wait(env_file: &Path) -> Self {
-        let mut busy = crate::locks::lock(&SWITCHES_IN_FLIGHT);
+        let mut busy = SWITCHES_IN_FLIGHT.lock();
         while busy.iter().any(|path| path == env_file) {
-            busy = SWITCH_DONE
-                .wait(busy)
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            SWITCH_DONE.wait(&mut busy);
         }
         busy.push(env_file.to_path_buf());
         Self(env_file.to_path_buf())
@@ -226,7 +224,7 @@ impl SwitchSlot {
 
 impl Drop for SwitchSlot {
     fn drop(&mut self) {
-        crate::locks::lock(&SWITCHES_IN_FLIGHT).retain(|path| *path != self.0);
+        SWITCHES_IN_FLIGHT.lock().retain(|path| *path != self.0);
         SWITCH_DONE.notify_all();
     }
 }
@@ -384,7 +382,8 @@ fn process_arguments(proc_dir: &Path, name: &str) -> Option<Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Arc, Mutex};
+    use parking_lot::Mutex;
+    use std::sync::Arc;
 
     // a Pi 4 with a USB DAC: the headphone jack, both HDMI ports
     // and the DAC (cards as the kernel prints them)
@@ -605,14 +604,14 @@ mod tests {
 
     impl Squeezelite for Fake {
         fn restart(&mut self) -> Result<(), String> {
-            self.restarts.push(self.setting.lock().unwrap().clone());
+            self.restarts.push(self.setting.lock().clone());
             if self.restart_fails {
                 return Err("init script exited with 1".into());
             }
             Ok(())
         }
         fn running(&mut self) -> bool {
-            !self.broken.contains(&self.setting.lock().unwrap().as_str())
+            !self.broken.contains(&self.setting.lock().as_str())
         }
         fn arguments(&mut self) -> Option<Vec<String>> {
             self.running().then(Vec::new)
@@ -642,17 +641,17 @@ mod tests {
 
     impl OutputSetting for FakeSetting {
         fn get(&self) -> String {
-            self.value.lock().unwrap().clone()
+            self.value.lock().clone()
         }
         fn effective(&self) -> String {
-            self.value.lock().unwrap().clone()
+            self.value.lock().clone()
         }
         fn put(&mut self, value: &str) -> Result<(), String> {
             if self.put_fails {
                 return Err("settings are read-only".into());
             }
             self.writes.push(value.to_string());
-            *self.value.lock().unwrap() = value.to_string();
+            *self.value.lock() = value.to_string();
             Ok(())
         }
         fn apply(&mut self, runner: &mut dyn Squeezelite) -> Result<(), String> {
@@ -699,7 +698,7 @@ mod tests {
         let mut fake = Fake::new(&config.setting, &[]);
         let mut setting = FakeSetting::new(&config.setting);
         set_output(&config, &mut setting, &mut fake, "hw:CARD=S3").unwrap();
-        assert_eq!(config.setting.lock().unwrap().as_str(), "hw:CARD=S3");
+        assert_eq!(config.setting.lock().as_str(), "hw:CARD=S3");
         assert_eq!(setting.writes, ["hw:CARD=S3"]);
         assert_eq!(fake.restarts, ["hw:CARD=S3"]);
         assert!(
@@ -718,10 +717,7 @@ mod tests {
             assert!(err.contains("unknown audio output"), "{bad:?}: {err}");
         }
         assert!(setting.writes.is_empty());
-        assert_eq!(
-            config.setting.lock().unwrap().as_str(),
-            "hw:CARD=Headphones"
-        );
+        assert_eq!(config.setting.lock().as_str(), "hw:CARD=Headphones");
         assert!(fake.restarts.is_empty(), "squeezelite was not touched");
     }
 
@@ -734,7 +730,7 @@ mod tests {
         assert!(setting.writes.is_empty());
         assert!(fake.restarts.is_empty());
         // the same card by its other name
-        *config.setting.lock().unwrap() = "hw:CARD=S3,DEV=0".into();
+        *config.setting.lock() = "hw:CARD=S3,DEV=0".into();
         set_output(&config, &mut setting, &mut fake, "hw:CARD=S3").unwrap();
         assert!(setting.writes.is_empty());
         assert!(fake.restarts.is_empty());
@@ -749,10 +745,7 @@ mod tests {
         assert!(err.contains("hw:CARD=S3"), "{err}");
         assert!(err.contains("previous output"), "{err}");
         // the setting is the old value again
-        assert_eq!(
-            config.setting.lock().unwrap().as_str(),
-            "hw:CARD=Headphones"
-        );
+        assert_eq!(config.setting.lock().as_str(), "hw:CARD=Headphones");
         assert_eq!(setting.writes, ["hw:CARD=S3", "hw:CARD=Headphones"]);
         // restarted on the new output, then again on the old one
         assert_eq!(fake.restarts, ["hw:CARD=S3", "hw:CARD=Headphones"]);
@@ -761,11 +754,11 @@ mod tests {
     #[test]
     fn a_rollback_restores_an_automatic_setting_as_empty() {
         let config = setup();
-        *config.setting.lock().unwrap() = String::new();
+        *config.setting.lock() = String::new();
         let mut fake = Fake::new(&config.setting, &["hw:CARD=S3"]);
         let mut setting = FakeSetting::new(&config.setting);
         assert!(set_output(&config, &mut setting, &mut fake, "hw:CARD=S3").is_err());
-        assert_eq!(config.setting.lock().unwrap().as_str(), "");
+        assert_eq!(config.setting.lock().as_str(), "");
         assert_eq!(fake.restarts, ["hw:CARD=S3", ""]);
     }
 
@@ -781,10 +774,7 @@ mod tests {
             err.contains("restart on the previous output failed"),
             "{err}"
         );
-        assert_eq!(
-            config.setting.lock().unwrap().as_str(),
-            "hw:CARD=Headphones"
-        );
+        assert_eq!(config.setting.lock().as_str(), "hw:CARD=Headphones");
         assert_eq!(fake.restarts.len(), 2);
     }
 
@@ -838,7 +828,7 @@ mod tests {
             let mut fake = Fake::new(&config.setting, &[]);
             let mut setting = FakeSetting::new(&config.setting);
             let second = set_output(&config, &mut setting, &mut fake, "hw:CARD=vc4hdmi0");
-            let in_flight = config.setting.lock().unwrap().clone();
+            let in_flight = config.setting.lock().clone();
             // release before asserting: a failed assert must not hang the scope
             release_tx.send(()).unwrap();
             first.join().unwrap().unwrap();
@@ -851,7 +841,7 @@ mod tests {
                 "the running switch's value is intact"
             );
         });
-        assert_eq!(config.setting.lock().unwrap().as_str(), "hw:CARD=S3");
+        assert_eq!(config.setting.lock().as_str(), "hw:CARD=S3");
         // the lock is free again — also after a rolled-back switch
         let mut fake = Fake::new(&config.setting, &["hw:CARD=vc4hdmi0"]);
         let mut setting = FakeSetting::new(&config.setting);

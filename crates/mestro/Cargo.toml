@@ -28,6 +28,8 @@ slint-interpreter = { version = "=1.19.0", default-features = false, features = 
 i-slint-core = { version = "=1.19.0", default-features = false }
 i-slint-compiler = { version = "=1.19.0", default-features = false }
 spin_on = "0.1"
+# the shared-state locks (VU levels, pairing gate, MA config, cover caches)
+parking_lot = { workspace = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "net", "process"] }
 tokio-tungstenite = "0.30"
 futures-util = "0.3"

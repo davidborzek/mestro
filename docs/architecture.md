@@ -55,7 +55,6 @@ crates/
                     protocol. One OS crate, a module per capability,
                     the fakes beside the real code:
                     - the base: atomic file writes ([atomic_file]),
-                      the poison-tolerant lock helpers ([locks]),
                       the XDG state dir and the shared build-setting
                       helper ([paths]), device identity
                       (MAC/device id/suffix, [identity]), [lan_ip]

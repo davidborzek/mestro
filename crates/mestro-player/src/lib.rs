@@ -10,7 +10,6 @@
 //! and the HTTP cover fetcher.
 
 pub mod cover;
-pub mod locks;
 pub mod palette;
 pub mod shell;
 pub mod source;

@@ -7,9 +7,9 @@
 //! `Event::CoverLanded`.
 
 use crate::cover::{cap_size, make_blur, CoverData, CoverSource};
-use crate::locks;
 use crate::state::{reduce, CoverRequest, Effects, Event, Live, PlayerState, PlayerUpdate};
-use std::sync::{Arc, Mutex};
+use parking_lot::Mutex;
+use std::sync::Arc;
 use std::time::Instant;
 
 pub type Shared = Arc<Mutex<Option<Live>>>;
@@ -47,7 +47,7 @@ impl Shell {
     /// nothing to change.
     pub fn dispatch(&self, event: Event, now: Instant) {
         let fetch = {
-            let mut slot = locks::lock(&self.shared);
+            let mut slot = self.shared.lock();
             match slot.as_mut() {
                 Some(live) => self.reduce_and_carry_out(live, event, now),
                 None => {
@@ -69,7 +69,7 @@ impl Shell {
     /// nothing can change in between. No state yet, no event.
     pub fn dispatch_with(&self, now: Instant, decide: impl FnOnce(&PlayerState) -> Option<Event>) {
         let fetch = {
-            let mut slot = locks::lock(&self.shared);
+            let mut slot = self.shared.lock();
             let Some(live) = slot.as_mut() else { return };
             let Some(event) = decide(&live.state) else {
                 return;
@@ -85,7 +85,7 @@ impl Shell {
     /// interpolation advance, the render values come back
     pub fn tick(&self, now: Instant) -> Option<Beat> {
         let (fetch, beat) = {
-            let mut slot = locks::lock(&self.shared);
+            let mut slot = self.shared.lock();
             let live = slot.as_mut()?;
             let fetch = self.reduce_and_carry_out(live, Event::Tick, now);
             let state = &live.state;
@@ -179,7 +179,7 @@ impl Shell {
                 hex(p.danger)
             );
         }
-        let mut slot = locks::lock(&self.shared);
+        let mut slot = self.shared.lock();
         // a landing has no clock of its own: the reducer ignores the time
         let Some(live) = slot.as_mut() else { return };
         let Effects { publish, .. } = reduce(live, landed, Instant::now());
