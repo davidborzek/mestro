@@ -2,7 +2,7 @@
 //! frames in → published `PlayerState` snapshots and cover requests
 //! out. They pin today's behavior from the outside — the state
 //! machine's guards, the external-source hand-over, the cover rules —
-//! so a refactor of `player/state.rs` can be judged without touching
+//! so a refactor of `player/state` can be judged without touching
 //! them. A `// CHARACTERIZED:` comment marks behavior that looks
 //! wrong but is asserted as it is.
 //!
