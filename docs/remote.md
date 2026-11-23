@@ -84,7 +84,11 @@ with the endpoint. Check with `avahi-browse -rt _mestro._tcp`.
 - A **pairing PIN** (8 chars, alphabet without `0/O/1/I`, from
   `/dev/urandom`) gates the protocol. It is **restart-stable** —
   persisted `0600` in the XDG state dir (`web-pin`) so the URL a
-  phone scanned survives app updates.
+  phone scanned survives app updates. The file is written
+  atomically (tmp file in the same directory, mode `0600` set
+  *before* the rename, fsync, rename): it never exists with wider
+  permissions and a power cut leaves the old or the new PIN, never
+  a torn one.
 - The player URL carries the PIN in the **hash**
   (`http://host:port/#pair=…`): HTTP middlemen never log a
   fragment. The PWA consumes the hash once (drops it from the

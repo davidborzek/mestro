@@ -394,17 +394,10 @@ pub(crate) fn pairing_pin() -> String {
     pin
 }
 
-fn save_pin(path: &std::path::Path, pin: &str) -> std::io::Result<()> {
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    std::fs::write(path, pin)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt as _;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
-    }
-    Ok(())
+/// the PIN is 0600 from the moment it exists under its name: the
+/// mode is set on the tmp file before the rename
+fn save_pin(path: &std::path::Path, pin: &str) -> Result<(), String> {
+    mestro_os::atomic_file::write_atomic_mode(path, pin, 0o600)
 }
 
 #[cfg(test)]
@@ -413,6 +406,23 @@ mod tests {
     use std::net::{Ipv4Addr, SocketAddr};
 
     const PIN: &str = "ABCD2345";
+
+    #[test]
+    fn save_pin_is_0600_replaces_a_wider_file_and_leaves_no_tmp() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state").join("web-pin");
+        save_pin(&path, "OLDPIN23").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        save_pin(&path, PIN).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), PIN);
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+        assert_eq!(
+            std::fs::read_dir(path.parent().unwrap()).unwrap().count(),
+            1
+        );
+    }
 
     fn ap_net(ip: [u8; 4]) -> crate::config::ApNet {
         crate::config::ApNet {

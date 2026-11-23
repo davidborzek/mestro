@@ -1,8 +1,10 @@
 //! Atomic file writes: the one place that knows the crash
 //! discipline (tmp in the same directory, fsync, rename, directory
-//! sync). Used by the wifi confs and the persisted device id.
+//! sync). Used by the wifi confs, the persisted device id and the
+//! device-local state files (settings overlay, pairing PIN).
 
 use std::io::Write as _;
+use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -28,6 +30,14 @@ pub fn write_atomic(path: &Path, text: &str) -> Result<(), String> {
     write_atomic_with(path, text, &sync_dir)
 }
 
+/// [`write_atomic`] with the file mode set on the tmp file before
+/// the rename: a secret never exists with wider permissions, not
+/// even for an instant (the mode is exact — the umask cannot
+/// narrow it)
+pub fn write_atomic_mode(path: &Path, text: &str, mode: u32) -> Result<(), String> {
+    write_atomic_inner(path, text, Some(mode), &sync_dir)
+}
+
 /// [`write_atomic`] with the directory-sync seam injected — the
 /// wifi conf tests pin the failure discipline
 pub fn write_atomic_with(
@@ -35,15 +45,20 @@ pub fn write_atomic_with(
     text: &str,
     dir_sync: &dyn Fn(&Path) -> std::io::Result<()>,
 ) -> Result<(), String> {
+    write_atomic_inner(path, text, None, dir_sync)
+}
+
+fn write_atomic_inner(
+    path: &Path,
+    text: &str,
+    mode: Option<u32>,
+    dir_sync: &dyn Fn(&Path) -> std::io::Result<()>,
+) -> Result<(), String> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("mkdir {}: {e}", dir.display()))?;
     }
     let tmp = tmp_path(path);
-    let mut file =
-        std::fs::File::create(&tmp).map_err(|e| format!("create {}: {e}", tmp.display()))?;
-    file.write_all(text.as_bytes())
-        .and_then(|()| file.sync_all())
-        .map_err(|e| format!("write {}: {e}", tmp.display()))
+    write_tmp(&tmp, text, mode)
         .and_then(|()| {
             std::fs::rename(&tmp, path).map_err(|e| format!("rename to {}: {e}", path.display()))
         })
@@ -62,6 +77,27 @@ pub fn write_atomic_with(
         }
     }
     Ok(())
+}
+
+/// create the tmp file (created with `mode`, then fchmod'ed to the
+/// exact mode — the umask only narrows the create), write and fsync
+/// it; the caller renames
+fn write_tmp(tmp: &Path, text: &str, mode: Option<u32>) -> Result<(), String> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    if let Some(mode) = mode {
+        options.mode(mode);
+    }
+    let mut file = options
+        .open(tmp)
+        .map_err(|e| format!("create {}: {e}", tmp.display()))?;
+    if let Some(mode) = mode {
+        file.set_permissions(std::fs::Permissions::from_mode(mode))
+            .map_err(|e| format!("chmod {}: {e}", tmp.display()))?;
+    }
+    file.write_all(text.as_bytes())
+        .and_then(|()| file.sync_all())
+        .map_err(|e| format!("write {}: {e}", tmp.display()))
 }
 
 /// fsync the directory a rename happened in — the rename must
@@ -86,6 +122,42 @@ mod tests {
             .map(|e| e.unwrap().file_name())
             .collect();
         assert_eq!(names, [std::ffi::OsString::from("state")]);
+    }
+
+    fn mode_of(path: &Path) -> u32 {
+        std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+    }
+
+    #[test]
+    fn the_tmp_file_has_the_mode_before_the_rename() {
+        let dir = tempfile::tempdir().unwrap();
+        let tmp = dir.path().join("secret.tmp");
+        write_tmp(&tmp, "pin", Some(0o600)).unwrap();
+        assert_eq!(mode_of(&tmp), 0o600);
+        assert_eq!(std::fs::read_to_string(&tmp).unwrap(), "pin");
+    }
+
+    #[test]
+    fn write_atomic_mode_sets_the_exact_mode_and_replaces_a_wider_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("web-pin");
+        std::fs::write(&file, "old").unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+        write_atomic_mode(&file, "new", 0o600).unwrap();
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "new");
+        assert_eq!(mode_of(&file), 0o600);
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn a_failed_write_removes_the_tmp_and_keeps_the_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("target");
+        std::fs::create_dir(&target).unwrap();
+        std::fs::write(target.join("keep"), "x").unwrap();
+        assert!(write_atomic_mode(&target, "text", 0o600).is_err());
+        assert!(target.join("keep").exists());
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
     }
 
     #[test]

@@ -14,7 +14,6 @@
 //! the device still boots.
 
 use std::cell::RefCell;
-use std::io::Write as _;
 use std::rc::Rc;
 
 mod schema;
@@ -290,20 +289,16 @@ impl Overlay {
         }
     }
 
-    /// persist (atomic: tmp + rename). The caller debounces — no
-    /// fsync per keystroke
+    /// persist crash-safely ([`mestro_os::atomic_file::write_atomic`]:
+    /// unique tmp, fsync, rename). The caller debounces — no fsync
+    /// per keystroke
     pub fn save(&self) -> std::io::Result<()> {
         let Some(tree) = &self.tree else {
             return Ok(());
         };
-        if let Some(dir) = self.path.parent() {
-            std::fs::create_dir_all(dir)?;
-        }
         let text = toml::to_string_pretty(tree)
             .map_err(|e| std::io::Error::other(format!("settings serialize: {e}")))?;
-        let tmp = self.path.with_extension("toml.tmp");
-        std::fs::File::create(&tmp)?.write_all(text.as_bytes())?;
-        std::fs::rename(&tmp, &self.path)
+        mestro_os::atomic_file::write_atomic(&self.path, &text).map_err(std::io::Error::other)
     }
 
     /// set one key (dotted path through the tables), creating
@@ -448,6 +443,51 @@ mod tests {
             .set("clock.background.source", "sparkles".into())
             .is_err());
         assert!(!handle.is_overridden("clock.background.source"));
+    }
+
+    fn overlay_at(path: std::path::PathBuf) -> Overlay {
+        let tree = toml::from_str::<toml::Value>("[theme]\npalette = \"cover\"\n").unwrap();
+        Overlay {
+            tree: Some(tree),
+            path,
+        }
+    }
+
+    #[test]
+    fn save_writes_the_overlay_and_leaves_no_tmp_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state").join("settings.toml");
+        let overlay = overlay_at(path.clone());
+        overlay.save().unwrap();
+        overlay.save().unwrap();
+        let saved = toml::from_str::<toml::Value>(&std::fs::read_to_string(&path).unwrap());
+        assert_eq!(saved.unwrap(), overlay.tree.unwrap());
+        let names: Vec<_> = std::fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(names, [std::ffi::OsString::from("settings.toml")]);
+    }
+
+    #[test]
+    fn a_failing_save_keeps_the_old_file_intact_and_leaves_no_tmp() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.toml");
+        let old = "[theme]\npalette = \"amber\"\n";
+        std::fs::write(&path, old).unwrap();
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+        let probe = dir.path().join("probe");
+        let writable_anyway = std::fs::File::create(&probe).is_ok();
+        let result = overlay_at(path.clone()).save();
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+        if writable_anyway {
+            // root ignores directory permissions: the failure cannot be provoked
+            return;
+        }
+        assert!(result.is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), old);
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
     }
 
     #[test]
