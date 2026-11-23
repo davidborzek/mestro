@@ -43,8 +43,10 @@ impl CoverFetcher for Recorder {
 
 pub struct Scenario {
     pub shared: Shared,
-    /// what the UI thread holds: same state, its updates go nowhere here
+    /// what the UI thread holds: same state — its updates are what
+    /// `press_transport` asserts on
     ui_shell: Shell,
+    ui_updates: tokio::sync::mpsc::UnboundedReceiver<PlayerUpdate>,
     feed: PlayerFeed,
     tracker: ExternalTracker,
     recorder: Arc<Recorder>,
@@ -66,12 +68,13 @@ impl Scenario {
             fetcher: recorder.clone(),
             variant: crate::ui::palette::Variant::TonalSpot,
         };
-        let (ui_tx, _) = tokio::sync::mpsc::unbounded_channel();
+        let (ui_tx, ui_updates) = tokio::sync::mpsc::unbounded_channel();
         let ui_shell = Shell::new(shared.clone(), ui_tx, covers());
         let feed = PlayerFeed::new(Shell::new(shared.clone(), tx, covers()));
         Self {
             shared,
             ui_shell,
+            ui_updates,
             feed,
             tracker: ExternalTracker::default(),
             recorder,
@@ -235,6 +238,12 @@ impl Scenario {
 
     pub fn press_transport(&mut self) {
         self.ui_shell.dispatch(Event::MarkLoading, self.now());
+        let mut published = Vec::new();
+        while let Ok(update) = self.ui_updates.try_recv() {
+            published.push(update);
+        }
+        assert_eq!(published.len(), 1, "the press publishes one snapshot");
+        assert!(published[0].state.loading);
     }
 
     /// one ticker beat (the 500 ms timer in main): position, duration, loading
