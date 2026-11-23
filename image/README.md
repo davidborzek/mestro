@@ -45,7 +45,7 @@ system that runs entirely from RAM — piCorePlayer-style.
     from Windows editors are handled
 - Squeezelite: the **upstream Buildroot package** with
   `BR2_PACKAGE_SQUEEZELITE_VISEXPORT` (the shm ring mestro's VU
-  reads, src/vu/mod.rs) and **no resampler**: `hw:` output stays
+  reads, crates/mestro/src/vu/mod.rs) and **no resampler**: `hw:` output stays
   bit-perfect.
 
 ## Build
@@ -179,7 +179,7 @@ Without `--reboot` the trial starts at the next
 
 ## WiFi setup (hotspot)
 
-mestro owns the radio (feature `wifi-setup`, `src/system/wifi/`):
+mestro owns the radio (feature `wifi-setup`, `crates/mestro/src/system/wifi/`):
 without a usable `wpa_supplicant.conf` — or after 60 s without a
 route on a configured player — it runs wpa_supplicant in AP mode
 as the open hotspot `mestro-XXXX` (last four hex digits of the

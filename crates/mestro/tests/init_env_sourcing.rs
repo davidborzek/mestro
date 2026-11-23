@@ -16,7 +16,7 @@ use std::process::Command;
 
 const BOM: &str = "\u{feff}";
 
-const SCRIPTS: &str = "image/board/mestro/rpi4/rootfs-overlay/etc/init.d";
+const SCRIPTS: &str = "../../image/board/mestro/rpi4/rootfs-overlay/etc/init.d";
 
 /// the marked block of `script`, `/data/` and `/tmp/` redirected into subdirectories of `dir`
 fn env_source_block(script: &str, dir: &Path) -> String {

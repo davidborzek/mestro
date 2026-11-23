@@ -68,8 +68,9 @@ fn main() {
     .unwrap();
 
     // the short git hash next to the crate version (empty without
-    // git, e.g. in the nix sandbox)
-    println!("cargo:rerun-if-changed=.git/HEAD");
+    // git, e.g. in the nix sandbox) — the crate lives under crates/,
+    // the repository root is two levels up
+    println!("cargo:rerun-if-changed=../../.git/HEAD");
     let git = std::process::Command::new("git")
         .args(["describe", "--always", "--dirty"])
         .output()
@@ -112,10 +113,16 @@ fn main() {
     // The dev loop uses `bun run dev` (Vite + ws proxy) and never
     // rebuilds this.
     println!("cargo:rerun-if-env-changed=MESTRO_WEB_DIST");
-    println!("cargo:rerun-if-changed=web/dist");
-    let dist = std::env::var("MESTRO_WEB_DIST")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| std::path::PathBuf::from("web/dist"));
+    println!("cargo:rerun-if-changed=../../web/dist");
+    // the web app is a repository sibling of the crate: web/ stays
+    // at the workspace root, the crate lives under crates/mestro.
+    // A relative $MESTRO_WEB_DIST is taken from the workspace root
+    // like the default, not from this script's cwd (crates/mestro);
+    // join leaves an absolute path as it is
+    let workspace_root =
+        std::path::Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("../..");
+    let dist = workspace_root
+        .join(std::env::var("MESTRO_WEB_DIST").unwrap_or_else(|_| "web/dist".to_string()));
     let out = std::path::PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
     let table = match embed_table(&dist) {
         Ok(table) => table,

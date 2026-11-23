@@ -1,9 +1,9 @@
 # Custom VUs
 
 Every VU faceplate in mestro is data: a small manifest plus SVG
-art, rendered by one generic engine (`ui/vu/svgskin.slint`,
-driven by `src/vu/manifest.rs`). The built-ins under
-`skins/` — `night`, `cream`, `round`, `wall`, `wall-light`, `arc`, `orbit`, `modern` —
+art, rendered by one generic engine (`crates/mestro/ui/vu/svgskin.slint`
+driven by `crates/mestro/src/vu/manifest.rs`). The built-ins under
+`crates/mestro/skins/` — `night`, `cream`, `round`, `wall`, `wall-light`, `arc`, `orbit`, `modern` —
 take exactly the same path as your own: ship a directory with
 a `manifest.toml` and the art it references, and register it.
 The default cycle also includes the two analyzer views,
@@ -142,7 +142,7 @@ their tick exactly belong on the tick's angle, centered.
 - **Avoid `gradientUnits="userSpaceOnUse"` with centers pinned
   to the tile edge** (slint's SVG pipeline renders them as flat
   fill). Express such gradients in bounding-box percentages
-  instead — `skins/wall/bg-l.svg` vs `bg-r.svg` show a
+  instead — `crates/mestro/skins/wall/bg-l.svg` vs `bg-r.svg` show a
   window-wide plate radial split across two 50:50 dial tiles,
   with `cx="100%"` / `cx="0%"` keeping the seam invisible.
 - **`feGaussianBlur` filter regions clip** relative to the
@@ -152,7 +152,7 @@ their tick exactly belong on the tick's angle, centered.
 - A hairline between two tiled dials rides the seam: draw it at
   the facing edge of one tile, as its own **layer above the
   glow**, so the lamp wash cannot bury it
-  (`skins/wall*/separator.svg`).
+  (`crates/mestro/skins/wall*/separator.svg`).
 
 ## The glow dial
 
@@ -195,7 +195,7 @@ export component MyVu inherits Rectangle {
 Properties are optional (implement a subset); everything
 unknown is ignored. `[vu.skin-options]` key-value pairs pass
 through as properties, so a slint skin can expose its own
-knobs through the config file. `skins/minimal.slint` is a
+knobs through the config file. `crates/mestro/skins/minimal.slint` is a
 documented example.
 
 ## Testing
@@ -204,7 +204,7 @@ Add the skin to `[vu] cycle`, swipe through the views. A broken
 manifest or unreadable art logs a warning and drops the skin
 from the cycle.
 
-No squeezelite on the dev machine? `tools/vu-feed.rs` writes a
+No squeezelite on the dev machine? `crates/mestro/tools/vu-feed.rs` writes a
 modulated stereo sine in squeezelite's visualizer format, so the
 needles move without real audio:
 
@@ -219,14 +219,14 @@ a 32-band LED-segment matrix (the classic receiver analyzer —
 discrete blocks, ghost matrix, red zone, ~1s peak caps), fed
 by the shmem reader's spectrum analyzer.
 
-It is **native-compiled on purpose** (`ui/vu/spectrum.slint`):
+It is **native-compiled on purpose** (`crates/mestro/ui/vu/spectrum.slint`):
 its 32×24 segment grid touches thousands of properties per
 frame, and runtime skins evaluate through the interpreter —
 a runtime version of it burned a whole core. The manifest VUs
 animate ~10 properties and are fine interpreted; the spectrum
 is the one built-in that draws a grid.
 
-The analyzer lives in `src/vu/fft.rs`: rustfft over a
+The analyzer lives in `crates/mestro/src/vu/fft.rs`: rustfft over a
 Hann-windowed 4096-frame mono tail (~93ms — shorter windows
 flicker), log-spaced bands from 50Hz to 10kHz (cava-aligned),
 per-band peak magnitudes mapped onto a compressed dBFS scale

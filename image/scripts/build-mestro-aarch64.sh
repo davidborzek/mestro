@@ -48,7 +48,9 @@ if [ ! -x "$BR/host/bin/aarch64-linux-gcc" ] ||
 		make -C "$BR_SRC" O="$BR" BR2_EXTERNAL="$PWD/image" mestro-depends
 fi
 
-nix develop .#pi -c cargo build --profile "${PROFILE}" \
+# the feature flags live on the binary crate (crates/mestro): -p
+# scopes them there while the workspace gains more members
+nix develop .#pi -c cargo build -p mestro --profile "${PROFILE}" \
 	--no-default-features --features linuxkms,ota,wifi-setup,audio-output,timezone
 
 # fonts: Inter (text) + Material Symbols (icons), both OFL — the

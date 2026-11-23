@@ -128,7 +128,7 @@ MESTRO_MA_URL=ws://my-ma-server:8095/ws cargo run -- --kiosk
 Most things are set on the device (Settings) or from the phone.
 Everything is also a TOML file — see
 [docs/configuration.md](docs/configuration.md) and the commented
-[`mestro.example.toml`](mestro.example.toml).
+[`mestro.example.toml`](crates/mestro/mestro.example.toml).
 
 ## Contributing
 

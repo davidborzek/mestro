@@ -12,11 +12,13 @@ Run everything through the dev shell (`nix develop -c …`); deps are
 not on the host.
 
 ```sh
-# Rust: both feature sets — CI-equivalent
+# Rust: both feature sets — CI-equivalent. The feature flags
+# live on the binary crate (crates/mestro): -p scopes them
+# there while the workspace gains more members
 nix develop -c cargo test
-nix develop -c cargo test --features ota,wifi-setup,audio-output,timezone
+nix develop -c cargo test -p mestro --features ota,wifi-setup,audio-output,timezone
 nix develop -c cargo clippy --all-targets
-nix develop -c cargo clippy --no-default-features --features linuxkms,ota,wifi-setup,audio-output,timezone --all-targets
+nix develop -c cargo clippy -p mestro --no-default-features --features linuxkms,ota,wifi-setup,audio-output,timezone --all-targets
 nix develop -c cargo test --test np_layout          # one integration test
 nix develop -c cargo deny check                     # advisories, licenses, bans, sources
 nix develop -c cargo machete                        # unused dependencies
@@ -51,7 +53,7 @@ The binary embeds `web/dist/` at compile time: after a web change,
 - format with `nix develop -c treefmt`; the pre-commit hook
   (installed by the dev shell) refuses unformatted commits
 - no new runtime dependencies (Rust or web) without asking
-- don't edit generated files: `web/dist/`, `src/settings/schema-golden.json`
+- don't edit generated files: `web/dist/`, `crates/mestro/src/settings/schema-golden.json`
   (regenerate: `UPDATE_GOLDEN=1 cargo test default_schema_matches_the_golden_json`,
   then rerun without it and copy the file to `web/src/lib/mockSchema.json`
   — both must stay identical)
@@ -65,7 +67,7 @@ The binary embeds `web/dist/` at compile time: after a web change,
 - **device logic lives in Rust**, not shell scripts; init scripts only
   start things. No hard-wired board paths: detect hardware at runtime
   (one binary for every board); where the *image* keeps files or how
-  it runs commands is a build setting (`src/system/paths.rs`,
+  it runs commands is a build setting (`crates/mestro/src/system/paths.rs`,
   `MESTRO_*` at build time), never a user config key
 - **user-facing text says "player"**, never "kiosk"
 - **web**: Svelte 5 runes, TypeScript strict, small components, own
@@ -74,7 +76,7 @@ The binary embeds `web/dist/` at compile time: after a web change,
 - **web dev without a device**: `bun run dev`, then open `/?mock`
   (`&lang=de` for German); routes are paths (`/settings/vu`), not query
   params
-- **settings** come from the Rust schema (`src/settings/schema.rs`);
+- **settings** come from the Rust schema (`crates/mestro/src/settings/schema.rs`);
   the web app renders whatever the schema serves — add a setting there,
   not in Svelte
 - **the MA event stream is incoherent during transitions**; guards live
@@ -88,7 +90,7 @@ The binary embeds `web/dist/` at compile time: after a web change,
 
 Changes here need a test for the auth matrix and a note in `docs/remote.md`:
 
-- `src/remote/web/` — pairing cookie, unpaired hotspot access
+- `crates/mestro/src/remote/web/` — pairing cookie, unpaired hotspot access
   (`Ingress::of_peer`), the captive portal
-- `src/system/wifi/` — credentials, hotspot, factory reset
+- `crates/mestro/src/system/wifi/` — credentials, hotspot, factory reset
 - `image/` — root has no password and no console login; SSH is key-only

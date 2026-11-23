@@ -5,7 +5,7 @@ device in a second one. Everything has a working default — a
 fresh device needs nothing but the connection to Music Assistant,
 and the web app's setup wizard writes that.
 
-[`mestro.example.toml`](../mestro.example.toml) lists every key
+[`mestro.example.toml`](../crates/mestro/mestro.example.toml) lists every key
 with its default and an explanation. This page is the map.
 
 ## Where things live

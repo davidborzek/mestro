@@ -27,8 +27,8 @@ impl Platform for Headless {
 #[test]
 #[ignore = "repo export: cargo test --test preview_export -- --ignored"]
 fn exports_the_mock_preview_pngs() {
-    let dir =
-        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("web/src/lib/mock-previews");
+    let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../web/src/lib/mock-previews");
     std::fs::create_dir_all(&dir).unwrap();
 
     // slint 1.19 requires a platform context before any component

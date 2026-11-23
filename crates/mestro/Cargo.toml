@@ -1,0 +1,107 @@
+[package]
+name = "mestro"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+# never published to crates.io
+publish = false
+
+[dependencies]
+# the Pi firmware mailbox ioctl (backlight without touching the
+# display i2c bus the firmware owns) and the wifi backend's
+# signal-send path
+libc = "0.2"
+# exact pin: all slint crates move as one (renovate.json groups
+# them); a bump needs the snapshot tests re-run (CONTRIBUTING.md)
+slint = { version = "=1.19.0", default-features = false, features = ["std", "compat-1-2", "accessibility", "renderer-femtovg", "renderer-software"] }
+# runtime-compiled VU skins (ComponentContainer embedding)
+slint-interpreter = { version = "=1.19.0", default-features = false, features = ["std", "compat-1-2", "renderer-femtovg", "internal"] }
+# only to name InternalToken + ComponentSelection for the
+# interpreter's component selection (embedded skins are
+# non-Window exports; see vu/manifest.rs) — internal crates, so
+# they must be pinned to the exact same version as slint
+i-slint-core = { version = "=1.19.0", default-features = false }
+i-slint-compiler = { version = "=1.19.0", default-features = false }
+spin_on = "0.1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "net", "process"] }
+tokio-tungstenite = "0.30"
+futures-util = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "1"
+ureq = { version = "2", features = ["json"] }
+chrono = "0.4"
+clap = { version = "4", features = ["derive", "env"] }
+tracing.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+rustfft = "6.4.1"
+material-colors = "0.4.2"
+indexmap = "2.3"
+ahash = "0.8"
+qrcode = { version = "0.15", default-features = false }
+# the pairing cookie token (web/): hex sha256 over the pairing PIN
+sha2 = "0.11"
+# the wpa PSK hash (PBKDF2-HMAC-SHA1, system/wifi): the sha1
+# sibling of sha2 plus hmac — the tiny RustCrypto pair, pulled
+# in only where the kiosk needs them
+sha1 = { version = "0.11", optional = true }
+hmac = { version = "0.13", optional = true }
+mdns-sd = "0.22.0"
+
+[features]
+# default = dev/desktop: the winit backend under a compositor.
+# The linuxkms feature adds the straight-on-DRM kiosk backend
+# (the Pi image) and with it the --output flag (SLINT_DRM_OUTPUT
+# per process — a second process with --output drives the second
+# screen). Kiosk: --no-default-features --features linuxkms.
+default = ["desktop"]
+# skia alongside femtovg: femtovg (glutin) doesn't work on plain
+# wayland compositors (glutin built without wayland EGL — slint
+# #3312), so desktop dev runs on skia via SLINT_BACKEND=winit-skia.
+# The kiosk (linuxkms/GBM) stays on femtovg.
+desktop = ["slint/backend-winit", "slint/renderer-skia"]
+linuxkms = ["slint/backend-linuxkms", "slint-interpreter/backend-linuxkms"]
+# the web endpoint's POST /ota: streams an uploaded system image
+# into mestro-upgrade (the Pi image enables it)
+ota = []
+# the wifi setup lane (src/system): wpa_supplicant ctrl client,
+# AP mode + captive portal policy, factory reset. Kiosk builds
+# enable it next to `ota`; desktop builds stay without it
+wifi-setup = ["dep:sha1", "dep:hmac"]
+# the web app's audio output picker: lists the ALSA playback
+# devices, sets the audio.* settings and writes squeezelite's env
+# file from them (image only)
+audio-output = []
+# the web app's timezone picker: writes TZ into mestro's env file and
+# restarts the player (image only; a desktop follows the OS zone)
+timezone = []
+
+# developer tools, not shipped (cargo run --example <name>)
+[[example]]
+name = "wscap"
+path = "tools/wscap.rs"
+
+[[example]]
+name = "vu-feed"
+path = "tools/vu-feed.rs"
+
+[build-dependencies]
+slint-build = { version = "=1.19.0" }
+
+[dev-dependencies]
+# temp-dir state for the conf-writer and factory-reset tests
+tempfile = "3"
+
+[lints.rust]
+# unsafe only at the two audited sites (backlight ioctl, wifi signal
+# handling), each with a local allow and a SAFETY comment
+unsafe_code = "deny"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
