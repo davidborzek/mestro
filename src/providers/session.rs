@@ -16,11 +16,11 @@
 use super::banner::BannerGate;
 use super::startup::{Startup, StartupGate};
 use super::{PlaybackSource, SourceCommand, SourceEvent};
-use crate::config::ThemeVariant;
 use crate::library;
 use crate::library::search::Search;
 use crate::locks;
-use crate::player::state::{self, Shared, UpdateTx};
+use crate::player::shell::Shell;
+use crate::player::state::Event;
 use crate::Mestro;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -62,19 +62,72 @@ fn set_connected(ui_weak: &slint::Weak<Mestro>, connected: bool) {
     });
 }
 
+/// The player half of the core loop: a provider event becomes a state
+/// `Event` for the shell. Library and search events are not the
+/// player's — `apply` hands them back to the caller.
+pub struct PlayerFeed {
+    shell: Shell,
+}
+
+impl PlayerFeed {
+    pub fn new(shell: Shell) -> Self {
+        Self { shell }
+    }
+
+    /// apply one event at `now`; None when the player consumed it
+    pub fn apply(&mut self, ev: SourceEvent, now: Instant) -> Option<SourceEvent> {
+        let event = match ev {
+            SourceEvent::Transport {
+                playing,
+                volume,
+                powered,
+            } => Event::Transport {
+                playing,
+                volume,
+                powered,
+            },
+            SourceEvent::Track { track, elapsed_sec } => Event::Track { track, elapsed_sec },
+            SourceEvent::QueueSeed { track, elapsed_sec } => {
+                Event::QueueSeed { track, elapsed_sec }
+            }
+            SourceEvent::External {
+                source,
+                track,
+                elapsed_sec,
+            } => Event::External {
+                source,
+                track,
+                elapsed_sec,
+            },
+            SourceEvent::ExternalEnded => Event::ExternalEnded,
+            SourceEvent::Position(secs) => Event::Position(secs),
+            SourceEvent::Queue {
+                items,
+                current_index,
+            } => Event::Queue {
+                items,
+                current_index,
+            },
+            SourceEvent::Options { shuffle, repeat } => Event::Options { shuffle, repeat },
+            other @ (SourceEvent::Browse { .. }
+            | SourceEvent::SubjectImage { .. }
+            | SourceEvent::Search { .. }) => return Some(other),
+        };
+        self.shell.dispatch(event, now);
+        None
+    }
+}
+
 /// spawn the provider thread: connection retry loop + core
 /// event dispatch (state machine, library routing, search
 /// results). Consumes the command receiver — the session owns
 /// it. `make` constructs a fresh playback source per attempt
 /// (the factory captures the provider's own config).
-#[allow(clippy::too_many_arguments)]
 pub fn spawn<P, F>(
     make: F,
     mut cmd_rx: tokio::sync::mpsc::UnboundedReceiver<SourceCommand>,
-    shared: Shared,
-    update_tx: UpdateTx,
+    shell: Shell,
     lib_feed: library::LibTx,
-    theme_variant: ThemeVariant,
     ui_weak: slint::Weak<Mestro>,
 ) where
     P: PlaybackSource + Send + 'static,
@@ -139,7 +192,7 @@ pub fn spawn<P, F>(
                 }
             };
             let core = async {
-                let mut last_cover = String::new();
+                let mut feed = PlayerFeed::new(shell);
                 while let Some(ev) = evt_rx.recv().await {
                     // the first event proves auth + subscription —
                     // drop the banner before applying it
@@ -151,67 +204,19 @@ pub fn spawn<P, F>(
                     }
                     locks::lock(&gate).on_connected(Instant::now());
                     locks::lock(&startup).connected();
-                    match ev {
-                        SourceEvent::Transport {
-                            playing,
-                            volume,
-                            powered,
-                        } => state::apply_transport(&shared, &update_tx, playing, volume, powered),
-                        SourceEvent::Track { track, elapsed_sec } => state::apply_track(
-                            &shared,
-                            &update_tx,
-                            &mut last_cover,
-                            &track,
-                            elapsed_sec,
-                            theme_variant.raw().clone(),
-                        ),
-                        SourceEvent::QueueSeed { track, elapsed_sec } => state::apply_queue_seed(
-                            &shared,
-                            &update_tx,
-                            &mut last_cover,
-                            &track,
-                            elapsed_sec,
-                            theme_variant.raw().clone(),
-                        ),
-                        SourceEvent::External {
-                            source,
-                            track,
-                            elapsed_sec,
-                        } => state::apply_external(
-                            &shared,
-                            &update_tx,
-                            &mut last_cover,
-                            &source,
-                            track.as_ref(),
-                            elapsed_sec,
-                            theme_variant.raw().clone(),
-                        ),
-                        SourceEvent::ExternalEnded => {
-                            state::apply_external_ended(&shared, &update_tx, &mut last_cover)
-                        }
-                        SourceEvent::Position(secs) => {
-                            state::apply_position(&shared, &update_tx, secs)
-                        }
-                        SourceEvent::Queue {
-                            items,
-                            current_index,
-                        } => state::apply_queue(
-                            &shared,
-                            &update_tx,
-                            &mut last_cover,
-                            items,
-                            current_index,
-                        ),
-                        SourceEvent::Options { shuffle, repeat } => {
-                            state::apply_options(&shared, &update_tx, shuffle, repeat)
-                        }
+                    match feed.apply(ev, Instant::now()) {
+                        None => {}
                         // library events route through the lib module
-                        ev @ (SourceEvent::Browse { .. } | SourceEvent::SubjectImage { .. }) => {
+                        Some(
+                            ev @ (SourceEvent::Browse { .. } | SourceEvent::SubjectImage { .. }),
+                        ) => {
                             library::route(&lib_feed, ev);
                         }
-                        SourceEvent::Search { key, entries } => {
+                        Some(SourceEvent::Search { key, entries }) => {
                             Search::apply_results(&ui_weak, &key, entries);
                         }
+                        // `apply` hands back only the library and search events
+                        Some(_) => {}
                     }
                 }
             };

@@ -26,6 +26,9 @@ mod external;
 mod parse;
 mod session;
 mod shuffle;
+#[cfg(test)]
+mod tests;
+mod translate;
 
 use super::PlaybackSource;
 

@@ -5,7 +5,7 @@
 //! lives in the shared state, guarded there.
 
 use super::super::PlayerCtx;
-use crate::player::state;
+use crate::player::state::Event;
 use crate::providers::SourceCommand;
 use crate::remote::web::protocol::PlayerAction;
 use crate::remote::web::Response;
@@ -16,7 +16,8 @@ pub(crate) fn handle(id: u64, action: &PlayerAction, ctx: &PlayerCtx) -> Respons
     let value = (*value).clamp(0, 100);
     // local origin: the transport echo of THIS change must
     // not pop the remote-volume OSD (same as the slider)
-    state::mark_volume_local(&ctx.shared, value);
+    ctx.shell
+        .dispatch(Event::MarkVolumeLocal(value), std::time::Instant::now());
     if ctx.cmd_tx.send(SourceCommand::Volume(value)).is_ok() {
         Response::ack(id)
     } else {
@@ -27,9 +28,23 @@ pub(crate) fn handle(id: u64, action: &PlayerAction, ctx: &PlayerCtx) -> Respons
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::player::cover::{CoverSource, HttpCovers};
+    use crate::player::shell::Shell;
     use crate::player::state::Live;
     use crate::player::state::PlayerState;
     use std::sync::{Arc, Mutex};
+
+    fn shell(live: Option<Live>) -> Shell {
+        let (update_tx, _) = tokio::sync::mpsc::unbounded_channel();
+        Shell::new(
+            Arc::new(Mutex::new(live)),
+            update_tx,
+            CoverSource {
+                fetcher: Arc::new(HttpCovers),
+                variant: crate::ui::palette::Variant::TonalSpot,
+            },
+        )
+    }
 
     fn ctx() -> (
         PlayerCtx,
@@ -38,7 +53,7 @@ mod tests {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         (
             PlayerCtx {
-                shared: Arc::new(Mutex::new(None)),
+                shell: shell(None),
                 cmd_tx: tx,
             },
             rx,
@@ -50,14 +65,17 @@ mod tests {
         tokio::sync::mpsc::UnboundedReceiver<SourceCommand>,
     ) {
         let (mut ctx, rx) = ctx();
-        let live = Live::new(PlayerState {
-            has_media: true,
-            powered: true,
-            duration_ms: 120_000,
-            volume: 20,
-            ..Default::default()
-        });
-        ctx.shared = Arc::new(Mutex::new(Some(live)));
+        let live = Live::new(
+            PlayerState {
+                has_media: true,
+                powered: true,
+                duration_ms: 120_000,
+                volume: 20,
+                ..Default::default()
+            },
+            std::time::Instant::now(),
+        );
+        ctx.shell = shell(Some(live));
         (ctx, rx)
     }
 
@@ -67,7 +85,7 @@ mod tests {
         let response = handle(1, &PlayerAction::Volume { value: 150 }, &ctx);
         assert!(response.ok);
         assert_eq!(rx.try_recv().unwrap(), SourceCommand::Volume(100));
-        let shared = ctx.shared.lock().unwrap();
+        let shared = ctx.shell.shared().lock().unwrap();
         let live = shared.as_ref().unwrap();
         assert_eq!(
             live.volume_local.map(|(_, v)| v),
@@ -80,13 +98,15 @@ mod tests {
     fn a_dead_command_channel_answers_player_gone() {
         let (tx, dead) = tokio::sync::mpsc::unbounded_channel();
         drop(dead);
-        let shared: crate::player::state::Shared =
-            Arc::new(Mutex::new(Some(Live::new(PlayerState {
+        let shell = shell(Some(Live::new(
+            PlayerState {
                 has_media: true,
                 duration_ms: 60_000,
                 ..Default::default()
-            }))));
-        let ctx = PlayerCtx { shared, cmd_tx: tx };
+            },
+            std::time::Instant::now(),
+        )));
+        let ctx = PlayerCtx { shell, cmd_tx: tx };
         let response = handle(5, &PlayerAction::Volume { value: 40 }, &ctx);
         assert!(!response.ok);
         assert_eq!(response.error.as_deref(), Some("player gone"));

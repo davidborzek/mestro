@@ -1,47 +1,41 @@
 //! Transport wiring for the now-playing surface: play/pause,
 //! next/prev, shuffle, repeat, volume, power. Kept beside the np
 //! update pipeline — the callbacks flip optimistic loading dots
-//! (state::mark_loading) and speak SourceCommands; the queue
+//! (Event::MarkLoading) and speak SourceCommands; the queue
 //! event confirms with the real state, the UI only renders what
 //! MA reports.
 
 use crate::locks;
-use crate::player::state::{self, Shared, UpdateTx};
+use crate::player::shell::{Shared, Shell};
+use crate::player::state::{self, Event};
 use crate::providers::{RepeatMode, SourceCommand};
 use crate::Mestro;
 
 /// all transport callbacks (np overlay + queue header). Needs
-/// the state shared slot for the optimistic loading dots and the
-/// local-volume origin mark, and the command channel to MA.
-pub fn wire(
-    ui: &Mestro,
-    cmd_tx: &crate::ui::navigation::CmdTx,
-    update_tx: &UpdateTx,
-    shared: &Shared,
-) {
+/// the player shell for the optimistic loading dots, the seek
+/// bookkeeping and the local-volume origin mark, and the command
+/// channel to MA.
+pub fn wire(ui: &Mestro, cmd_tx: &crate::ui::navigation::CmdTx, shell: &Shell) {
     ui.on_toggle_play({
-        let shared = shared.clone();
-        let update_tx = update_tx.clone();
+        let shell = shell.clone();
         let cmd_tx = cmd_tx.clone();
-        move || send_transport(&shared, &update_tx, &cmd_tx, Action::PlayPause)
+        move || send_transport(&shell, &cmd_tx, Action::PlayPause)
     });
     ui.on_next_track({
-        let shared = shared.clone();
-        let update_tx = update_tx.clone();
+        let shell = shell.clone();
         let cmd_tx = cmd_tx.clone();
-        move || send_transport(&shared, &update_tx, &cmd_tx, Action::Next)
+        move || send_transport(&shell, &cmd_tx, Action::Next)
     });
     ui.on_prev_track({
-        let shared = shared.clone();
-        let update_tx = update_tx.clone();
+        let shell = shell.clone();
         let cmd_tx = cmd_tx.clone();
-        move || send_transport(&shared, &update_tx, &cmd_tx, Action::Prev)
+        move || send_transport(&shell, &cmd_tx, Action::Prev)
     });
     // playback options: shuffle toggles, repeat cycles
     // off → all → one → off (the event confirms with the new
     // state — the UI only renders what MA reports)
     ui.on_shuffle_toggle({
-        let shared = shared.clone();
+        let shared = shell.shared().clone();
         let cmd_tx = cmd_tx.clone();
         move || {
             if let Some(cmd) = route(&shared, Action::Shuffle) {
@@ -50,7 +44,7 @@ pub fn wire(
         }
     });
     ui.on_repeat_cycle({
-        let shared = shared.clone();
+        let shared = shell.shared().clone();
         let cmd_tx = cmd_tx.clone();
         move || {
             if let Some(cmd) = route(&shared, Action::Repeat) {
@@ -59,31 +53,26 @@ pub fn wire(
         }
     });
     ui.on_seek({
-        let shared = shared.clone();
+        let shell = shell.clone();
         let cmd_tx = cmd_tx.clone();
         move |fraction, track_key| {
-            let mut guard = locks::lock(&shared);
-            let Some(live) = guard.as_mut() else { return };
-            let Some(seconds) = seek_position(&live.state, fraction, track_key.as_str()) else {
-                return;
-            };
-            let Some(cmd) = command(&live.state, Action::Seek(seconds)) else {
-                return;
-            };
-            let queue = live.state.external.is_none();
-            if cmd_tx.send(cmd).is_ok() && queue {
-                live.pending_seek = Some((std::time::Instant::now(), seconds * 1000));
-                live.pending_pos = None;
-            }
+            shell.dispatch_with(std::time::Instant::now(), |state| {
+                let seconds = seek_position(state, fraction, track_key.as_str())?;
+                let cmd = command(state, Action::Seek(seconds))?;
+                cmd_tx
+                    .send(cmd)
+                    .is_ok()
+                    .then_some(Event::SeekRequested { seconds })
+            });
         }
     });
     ui.on_volume_set({
         let cmd_tx = cmd_tx.clone();
-        let shared = shared.clone();
+        let shell = shell.clone();
         move |v| {
             // local origin: the transport echo of THIS change must
             // not pop the remote-volume OSD
-            state::mark_volume_local(&shared, v);
+            shell.dispatch(Event::MarkVolumeLocal(v), std::time::Instant::now());
             let _ = cmd_tx.send(crate::providers::SourceCommand::Volume(v));
         }
     });
@@ -169,20 +158,15 @@ fn route(shared: &Shared, action: Action) -> Option<SourceCommand> {
 /// buttons show the optimistic loading dots until MA confirms (an
 /// external source may keep "playing" through a skip — nothing would
 /// clear them there)
-fn send_transport(
-    shared: &Shared,
-    update_tx: &UpdateTx,
-    cmd_tx: &crate::ui::navigation::CmdTx,
-    action: Action,
-) {
-    let Some(cmd) = route(shared, action) else {
+fn send_transport(shell: &Shell, cmd_tx: &crate::ui::navigation::CmdTx, action: Action) {
+    let Some(cmd) = route(shell.shared(), action) else {
         return;
     };
-    let on_queue = locks::lock(shared)
+    let on_queue = locks::lock(shell.shared())
         .as_ref()
         .is_none_or(|live| live.state.external.is_none());
     if on_queue && cmd != SourceCommand::Pause {
-        state::mark_loading(shared, update_tx);
+        shell.dispatch(Event::MarkLoading, std::time::Instant::now());
     }
     let _ = cmd_tx.send(cmd);
 }

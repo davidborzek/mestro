@@ -127,7 +127,7 @@ WebSocket API elsewhere:
 - the event stream is incoherent during transitions: `queue_updated`
   replays the previous `current_item` for ~1.5s after a skip and
   replays the old clock on `queue_time`; natural advances surface
-  seconds late. The state machine (`src/player/state.rs`) guards all of
+  seconds late. The state machine (`src/player/state/`) guards all of
   this — providers only emit resolved events, guards never live in
   a provider
 - an external source (AirPlay receiver, Spotify Connect, ...) is

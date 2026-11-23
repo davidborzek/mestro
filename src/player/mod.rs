@@ -4,4 +4,5 @@
 pub mod cover;
 pub mod nowplaying;
 pub mod queue;
+pub mod shell;
 pub mod state;
