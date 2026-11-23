@@ -10,12 +10,12 @@
 //! `session::run_session`; only the matching of a frame to the display's
 //! player and queue (which needs the websocket session) is the rig's own.
 
-use super::super::external::ExternalTracker;
-use super::super::parse::{parse_active_queue, parse_event, MaEvent};
-use super::super::translate;
 use crate::player::cover::{CoverData, CoverFetcher, CoverLanded, CoverSource};
 use crate::player::shell::{Shared, Shell};
 use crate::player::state::{Event, Live, PlayerState, PlayerUpdate};
+use crate::providers::ma::external::ExternalTracker;
+use crate::providers::ma::parse::{parse_active_queue, parse_event, MaEvent};
+use crate::providers::ma::translate;
 use crate::providers::session::PlayerFeed;
 use crate::providers::SourceEvent;
 use serde_json::{json, Value};
@@ -269,10 +269,10 @@ fn picture() -> CoverData {
 pub fn fixture(name: &str) -> Value {
     let text = match name {
         "airplay_placeholder" => {
-            include_str!("../../../../tests/fixtures/ma/airplay_placeholder.json")
+            include_str!("../../../../../tests/fixtures/ma/airplay_placeholder.json")
         }
-        "airplay_track" => include_str!("../../../../tests/fixtures/ma/airplay_track.json"),
-        "queue_back" => include_str!("../../../../tests/fixtures/ma/queue_back.json"),
+        "airplay_track" => include_str!("../../../../../tests/fixtures/ma/airplay_track.json"),
+        "queue_back" => include_str!("../../../../../tests/fixtures/ma/queue_back.json"),
         other => panic!("no fixture {other}"),
     };
     serde_json::from_str(text).unwrap()

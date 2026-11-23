@@ -1,5 +1,5 @@
 //! `reduce` on its own: what the end-to-end scenarios
-//! (`providers::ma::scenarios`) do not pin down.
+//! (`providers::ma::tests::scenarios`) do not pin down.
 
 use super::*;
 

@@ -24,10 +24,10 @@ pub mod auth;
 mod command;
 mod external;
 mod parse;
-#[cfg(test)]
-mod scenarios;
 mod session;
 mod shuffle;
+#[cfg(test)]
+mod tests;
 mod translate;
 
 use super::PlaybackSource;
