@@ -14,8 +14,8 @@ use super::super::external::ExternalTracker;
 use super::super::parse::{parse_active_queue, parse_event, MaEvent};
 use super::super::translate;
 use crate::player::cover::{CoverData, CoverFetcher, CoverLanded, CoverSource};
-use crate::player::shell::Shared;
-use crate::player::state::{self, Live, PlayerState, PlayerUpdate};
+use crate::player::shell::{Shared, Shell};
+use crate::player::state::{Event, Live, PlayerState, PlayerUpdate};
 use crate::providers::session::PlayerFeed;
 use crate::providers::SourceEvent;
 use serde_json::{json, Value};
@@ -43,6 +43,8 @@ impl CoverFetcher for Recorder {
 
 pub struct Scenario {
     pub shared: Shared,
+    /// what the UI thread holds: same state, its updates go nowhere here
+    ui_shell: Shell,
     feed: PlayerFeed,
     tracker: ExternalTracker,
     recorder: Arc<Recorder>,
@@ -60,16 +62,16 @@ impl Scenario {
         let (tx, updates) = tokio::sync::mpsc::unbounded_channel();
         let recorder = Arc::new(Recorder::default());
         let shared: Shared = Arc::new(Mutex::new(None));
-        let feed = PlayerFeed::new(
-            shared.clone(),
-            tx,
-            CoverSource {
-                fetcher: recorder.clone(),
-                variant: crate::ui::palette::Variant::TonalSpot,
-            },
-        );
+        let covers = || CoverSource {
+            fetcher: recorder.clone(),
+            variant: crate::ui::palette::Variant::TonalSpot,
+        };
+        let (ui_tx, _) = tokio::sync::mpsc::unbounded_channel();
+        let ui_shell = Shell::new(shared.clone(), ui_tx, covers());
+        let feed = PlayerFeed::new(Shell::new(shared.clone(), tx, covers()));
         Self {
             shared,
+            ui_shell,
             feed,
             tracker: ExternalTracker::default(),
             recorder,
@@ -222,26 +224,22 @@ impl Scenario {
     /// the seek bookkeeping of a tap on the progress bar (the queue's
     /// branch of `transport::on_seek`)
     pub fn request_seek(&mut self, seconds: u64) {
-        let now = self.now();
-        let mut guard = self.shared.lock().unwrap();
-        let live = guard.as_mut().unwrap();
-        live.pending_seek = Some((now, seconds * 1000));
-        live.pending_pos = None;
+        self.ui_shell
+            .dispatch(Event::SeekRequested { seconds }, self.now());
     }
 
     pub fn set_volume_locally(&mut self, volume: i32) {
-        state::mark_volume_local(&self.shared, volume, self.now());
+        self.ui_shell
+            .dispatch(Event::MarkVolumeLocal(volume), self.now());
     }
 
     pub fn press_transport(&mut self) {
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-        state::mark_loading(&self.shared, &tx, self.now());
-        assert!(rx.try_recv().is_ok());
+        self.ui_shell.dispatch(Event::MarkLoading, self.now());
     }
 
     /// one ticker beat (the 500 ms timer in main): position, duration, loading
     pub fn tick(&self) -> (u64, u64, bool) {
-        state::advance(&self.shared, self.now()).unwrap()
+        self.ui_shell.tick(self.now()).unwrap()
     }
 }
 

@@ -43,13 +43,12 @@ pub fn own_player_id() -> Option<String> {
 use crate::locks;
 use crate::providers::SourceCommand;
 
-/// what the `player` op touches on the UI thread: the shared
-/// live state (seek and volume bookkeeping) and the provider
-/// command channel. Built in main.rs before the web endpoint
-/// wires up
+/// what the `player` op touches on the UI thread: the player
+/// shell (volume bookkeeping) and the provider command channel.
+/// Built in main.rs before the web endpoint wires up
 #[derive(Clone)]
 pub struct PlayerCtx {
-    pub shared: crate::player::shell::Shared,
+    pub shell: crate::player::shell::Shell,
     pub cmd_tx: tokio::sync::mpsc::UnboundedSender<SourceCommand>,
 }
 

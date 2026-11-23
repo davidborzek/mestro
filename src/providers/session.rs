@@ -16,13 +16,11 @@
 use super::banner::BannerGate;
 use super::startup::{Startup, StartupGate};
 use super::{PlaybackSource, SourceCommand, SourceEvent};
-use crate::config::ThemeVariant;
 use crate::library;
 use crate::library::search::Search;
 use crate::locks;
-use crate::player::cover::{CoverSource, HttpCovers};
-use crate::player::shell::{Shared, UpdateTx};
-use crate::player::state;
+use crate::player::shell::Shell;
+use crate::player::state::Event;
 use crate::Mestro;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -64,67 +62,58 @@ fn set_connected(ui_weak: &slint::Weak<Mestro>, connected: bool) {
     });
 }
 
-/// The player half of the core loop: what a provider event does to the
-/// shared state and the update channel. Library and search events are
-/// not the player's — `apply` hands them back to the caller.
+/// The player half of the core loop: a provider event becomes a state
+/// `Event` for the shell. Library and search events are not the
+/// player's — `apply` hands them back to the caller.
 pub struct PlayerFeed {
-    shared: Shared,
-    update_tx: UpdateTx,
-    covers: CoverSource,
+    shell: Shell,
 }
 
 impl PlayerFeed {
-    pub fn new(shared: Shared, update_tx: UpdateTx, covers: CoverSource) -> Self {
-        Self {
-            shared,
-            update_tx,
-            covers,
-        }
+    pub fn new(shell: Shell) -> Self {
+        Self { shell }
     }
 
     /// apply one event at `now`; None when the player consumed it
     pub fn apply(&mut self, ev: SourceEvent, now: Instant) -> Option<SourceEvent> {
-        let shared = &self.shared;
-        let update_tx = &self.update_tx;
-        let covers = &self.covers;
-        match ev {
+        let event = match ev {
             SourceEvent::Transport {
                 playing,
                 volume,
                 powered,
-            } => state::apply_transport(shared, update_tx, playing, volume, powered, now),
-            SourceEvent::Track { track, elapsed_sec } => {
-                state::apply_track(shared, update_tx, &track, elapsed_sec, covers, now)
-            }
+            } => Event::Transport {
+                playing,
+                volume,
+                powered,
+            },
+            SourceEvent::Track { track, elapsed_sec } => Event::Track { track, elapsed_sec },
             SourceEvent::QueueSeed { track, elapsed_sec } => {
-                state::apply_queue_seed(shared, update_tx, &track, elapsed_sec, covers, now)
+                Event::QueueSeed { track, elapsed_sec }
             }
             SourceEvent::External {
                 source,
                 track,
                 elapsed_sec,
-            } => state::apply_external(
-                shared,
-                update_tx,
-                &source,
-                track.as_ref(),
+            } => Event::External {
+                source,
+                track,
                 elapsed_sec,
-                covers,
-                now,
-            ),
-            SourceEvent::ExternalEnded => state::apply_external_ended(shared, update_tx, now),
-            SourceEvent::Position(secs) => state::apply_position(shared, update_tx, secs, now),
+            },
+            SourceEvent::ExternalEnded => Event::ExternalEnded,
+            SourceEvent::Position(secs) => Event::Position(secs),
             SourceEvent::Queue {
                 items,
                 current_index,
-            } => state::apply_queue(shared, update_tx, items, current_index, now),
-            SourceEvent::Options { shuffle, repeat } => {
-                state::apply_options(shared, update_tx, shuffle, repeat, now)
-            }
+            } => Event::Queue {
+                items,
+                current_index,
+            },
+            SourceEvent::Options { shuffle, repeat } => Event::Options { shuffle, repeat },
             other @ (SourceEvent::Browse { .. }
             | SourceEvent::SubjectImage { .. }
             | SourceEvent::Search { .. }) => return Some(other),
-        }
+        };
+        self.shell.dispatch(event, now);
         None
     }
 }
@@ -138,10 +127,8 @@ impl PlayerFeed {
 pub fn spawn<P, F>(
     make: F,
     mut cmd_rx: tokio::sync::mpsc::UnboundedReceiver<SourceCommand>,
-    shared: Shared,
-    update_tx: UpdateTx,
+    shell: Shell,
     lib_feed: library::LibTx,
-    theme_variant: ThemeVariant,
     ui_weak: slint::Weak<Mestro>,
 ) where
     P: PlaybackSource + Send + 'static,
@@ -206,14 +193,7 @@ pub fn spawn<P, F>(
                 }
             };
             let core = async {
-                let mut feed = PlayerFeed::new(
-                    shared,
-                    update_tx,
-                    CoverSource {
-                        fetcher: Arc::new(HttpCovers),
-                        variant: theme_variant.raw(),
-                    },
-                );
+                let mut feed = PlayerFeed::new(shell);
                 while let Some(ev) = evt_rx.recv().await {
                     // the first event proves auth + subscription —
                     // drop the banner before applying it

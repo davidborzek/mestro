@@ -7,7 +7,8 @@ use app::theme::{self, PaletteCell};
 use clap::Parser;
 use mestro::display::Display;
 use mestro::library::Library;
-use mestro::player::shell::Shared;
+use mestro::player::cover::{CoverSource, HttpCovers};
+use mestro::player::shell::{Shared, Shell};
 use mestro::player::state::{self, PlayerUpdate};
 use mestro::providers::ma::MaProvider;
 use mestro::providers::SourceCommand;
@@ -238,7 +239,15 @@ fn main() {
         &library,
         config.ui.auto_open_now_playing,
     );
-    nowplaying::transport::wire(&ui, &cmd_tx, &update_tx, &shared);
+    let shell = Shell::new(
+        shared.clone(),
+        update_tx,
+        CoverSource {
+            fetcher: Arc::new(HttpCovers),
+            variant: config.theme.variant.raw(),
+        },
+    );
+    nowplaying::transport::wire(&ui, &cmd_tx, &shell);
     queue::wire(&ui, &cmd_tx, &nav, &library);
 
     if args.mock {
@@ -344,7 +353,7 @@ fn main() {
         &events,
         &push,
         &mestro::remote::web::PlayerCtx {
-            shared: shared.clone(),
+            shell: shell.clone(),
             cmd_tx: cmd_tx.clone(),
         },
         &vui,
@@ -362,7 +371,7 @@ fn main() {
     mestro::settings::sync_overlay_state(&ui, &settings);
     announce_config_problems(&ui);
 
-    start_ticker(&ui, &shared, &config.music_assistant.player, &clock);
+    start_ticker(&ui, &shell, &config.music_assistant.player, &clock);
 
     // provider session: retry loop + event dispatch live in the
     // providers module — the factory reads the shared connection
@@ -370,10 +379,8 @@ fn main() {
     mestro::providers::session::spawn(
         move || MaProvider::new(mestro::locks::read(&ma_cfg).clone()),
         cmd_rx,
-        shared,
-        update_tx,
+        shell,
         library.feed_tx().clone(),
-        config.theme.variant,
         ui_weak.clone(),
     );
 
@@ -761,8 +768,8 @@ fn announce_config_problems(ui: &Mestro) {
 /// the 500ms ticker: standby clock, hub greeting, the progress bar
 /// and the loading dots. Mutation runs through the state machine,
 /// rendering happens here
-fn start_ticker(ui: &Mestro, shared: &Shared, player: &str, clock: &Rc<StandbyClock>) {
-    let shared = shared.clone();
+fn start_ticker(ui: &Mestro, shell: &Shell, player: &str, clock: &Rc<StandbyClock>) {
+    let shell = shell.clone();
     let ui_weak = ui.as_weak();
     let hub_player = player.to_string();
     let clock = clock.clone();
@@ -781,7 +788,7 @@ fn start_ticker(ui: &Mestro, shared: &Shared, player: &str, clock: &Rc<StandbyCl
             ui.set_hub_greeting(greeting.into());
             ui.set_hub_sub(sub.into());
         }
-        let Some((pos, dur, loading)) = state::advance(&shared, std::time::Instant::now()) else {
+        let Some((pos, dur, loading)) = shell.tick(std::time::Instant::now()) else {
             return;
         };
         if let Some(ui) = ui_weak.upgrade() {
