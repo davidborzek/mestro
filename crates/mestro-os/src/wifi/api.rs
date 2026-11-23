@@ -1,31 +1,12 @@
-//! The web endpoint's contract with the wifi manager: the ops
-//! vocabulary and the request channel ([`WifiOp`],
-//! [`WifiChannel`]), the tracked-children registry ([`Children`])
-//! and the restart stop signal ([`WifiShutdown`]). Always
-//! compiled — the protocol, the web endpoint and the restart path
-//! name these types even in a build without the setup lane
-//! (feature `wifi-setup`): a build without the lane wires no
-//! manager, and every request answers "unavailable" instead.
+//! The web endpoint's contract with the wifi manager: the request
+//! channel ([`WifiChannel`]) carrying `mestro_ipc::web::WifiOp`s, the
+//! tracked-children registry ([`Children`]) and the restart stop
+//! signal ([`WifiShutdown`]). Always compiled — the web endpoint and
+//! the restart path name these types even in a build without the
+//! setup lane (feature `wifi-setup`): a build without the lane wires
+//! no manager, and every request answers "unavailable" instead.
 
-use serde::{Deserialize, Serialize};
-
-/// the wifi setup verbs (the web protocol's `Request::Wifi`).
-/// `join` takes no `psk` for open networks — the device hashes the
-/// passphrase itself (PBKDF2-SHA1), the cleartext never leaves this
-/// request
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
-#[serde(tag = "action", rename_all = "kebab-case")]
-pub enum WifiOp {
-    /// scan and return the visible networks, strongest first,
-    /// one entry per SSID (hidden networks join by hand)
-    Scan,
-    /// join a network: write the credentials, leave AP mode when
-    /// in it, wait for an address — a failure restores the previous
-    /// configuration and returns to AP mode
-    Join { ssid: String, psk: Option<String> },
-    /// the current mode, SSIDs and the last error
-    Status,
-}
+use mestro_ipc::web::WifiOp;
 
 /// the request path to the wifi manager thread: one op and the slot
 /// for its reply. A build without the setup lane wires no manager —

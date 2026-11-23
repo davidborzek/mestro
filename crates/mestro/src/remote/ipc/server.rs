@@ -1,10 +1,10 @@
 //! the ctl socket listener: one thread for the life of the
 //! process, one line per connection. Validation happens here
-//! (`proto::answer_for`), the work happens on the UI thread
+//! (`mestro_ipc::ctl::answer_for`), the work happens on the UI thread
 //! through the `control-command` callback — the same crossing
 //! the keyboard and the web endpoint use.
 
-use super::proto;
+use mestro_ipc::ctl;
 use std::io::{BufRead, Write};
 use std::os::unix::fs::PermissionsExt;
 
@@ -39,7 +39,7 @@ fn handle(stream: std::os::unix::net::UnixStream, ui_weak: &slint::Weak<crate::M
     };
     for line in std::io::BufReader::new(stream).lines() {
         let Ok(line) = line else { break };
-        let answer = match proto::answer_for(&line) {
+        let answer = match ctl::answer_for(&line) {
             // validated: the UI thread runs parse + dispatch
             Ok(ok) => {
                 let line = line.trim().to_string();

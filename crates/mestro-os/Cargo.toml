@@ -26,6 +26,8 @@ audio-output = []
 timezone = []
 
 [dependencies]
+# the wifi ops vocabulary (WifiOp) is part of the wire protocol
+mestro-ipc = { path = "../mestro-ipc", version = "0.1.0" }
 # the EINVAL/ENOTSUP checks of the atomic write, the signal
 # wrapper's kill(2), the wifi lane's foreign-kill constants
 libc = { workspace = true }

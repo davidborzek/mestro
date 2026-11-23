@@ -41,7 +41,7 @@ palette = "amber"
 # monochrome | neutral | rainbow | vibrant
 #variant = "tonal-spot"
 
-# [keyboard]: key name -> control command (src/remote/control.rs),
+# [keyboard]: key name -> control command (src/remote/keyboard.rs),
 # overriding the built-in defaults. Key names: up, down, left,
 # right, escape, backspace, enter, tab, delete, space, home,
 # end, pageup, pagedown, f1..f12, or any single character.

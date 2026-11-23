@@ -2,16 +2,16 @@
 //! the process-internal ops. Runs on the UI thread (through the
 //! `web-op` callback via [`crate::remote::web::Bridge`]) — MA calls never
 //! arrive here (they would block the UI). Writes map 1:1 onto
-//! `control::Command`, the same vocabulary the touch UI and the
+//! `mestro_ipc::command::Command`, the same vocabulary the touch UI and the
 //! text protocol use.
 
 use super::Dispatch;
-use crate::remote::control::Command;
-use crate::remote::web::protocol::InternalOp;
 use crate::remote::web::PlayerCtx;
-use crate::remote::web::{Envelope, PreviewRenderer, Request, Response, SettingsOp, WebInfo};
+use crate::remote::web::{PreviewRenderer, WebInfo};
 use crate::settings::Handle;
 use crate::Mestro;
+use mestro_ipc::command::Command;
+use mestro_ipc::web::{Envelope, InternalOp, Request, Response, SettingsOp};
 
 /// one round on the UI thread. `dispatch` is the shared command
 /// path (it owns the UI resync after a write), `previews` renders
@@ -168,7 +168,7 @@ pub(crate) fn handle_ui(
 /// setting; the new `TZ` is exported just before the exec)
 fn timezone_response(
     id: u64,
-    action: crate::remote::web::TimezoneOp,
+    action: mestro_ipc::web::TimezoneOp,
     ui: &Mestro,
     settings: &Handle,
     dispatch: &Dispatch,
@@ -210,7 +210,7 @@ fn state_payload(ui: &Mestro, settings: &Handle, info: &WebInfo) -> serde_json::
         tracing::warn!("web: effective config: {e}");
         crate::config::Config::default()
     });
-    crate::remote::web::protocol::state_data(
+    super::state_data::state_data(
         &settings.merged(),
         &effective,
         &settings.override_keys(),

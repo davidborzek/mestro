@@ -550,7 +550,7 @@ per key. A custom skin whose art files changed on disk without
 a config edit stays stale until the day-long browser cache
 expires.
 
-Settings writes map 1:1 onto the player's `control::Command`
+Settings writes map 1:1 onto the player's `mestro_ipc::command::Command`
 vocabulary (`SetSetting`/`ResetSetting`/`ResetAllSettings`) — one
 dispatch path for touch UI, keyboard and web.
 

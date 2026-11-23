@@ -9,9 +9,9 @@
 
 use super::Handle;
 use crate::config::{self, QualityPart, TransportControl};
-use crate::remote::control::Command;
 use crate::ui::navigation::Navigation;
 use crate::{player::nowplaying, Mestro};
+use mestro_ipc::command::Command;
 use slint::Model as _;
 use std::cell::RefCell;
 use std::rc::Rc;

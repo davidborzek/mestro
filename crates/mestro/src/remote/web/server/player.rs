@@ -7,8 +7,7 @@
 use super::super::PlayerCtx;
 use crate::player::state::Event;
 use crate::providers::SourceCommand;
-use crate::remote::web::protocol::PlayerAction;
-use crate::remote::web::Response;
+use mestro_ipc::web::{PlayerAction, Response};
 
 /// one player round on the UI thread: dispatch + ack
 pub(crate) fn handle(id: u64, action: &PlayerAction, ctx: &PlayerCtx) -> Response {

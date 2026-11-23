@@ -1,6 +1,6 @@
 //! the local IPC (ctl socket): `mestro ctl <command>` talks to
 //! the running instance. A deliberately dumb transport in the
-//! `control.rs` sense — the vocabulary is the pure
+//! `mestro_ipc::command` sense — the vocabulary is the pure
 //! control/navigation commands ("play-pause", "volume-up",
 //! "back", "home", …), the answer is one line: `ok` or
 //! `err <reason>`. Settings writes are NOT part of this surface:
@@ -12,7 +12,6 @@
 //! crossing the web endpoint and the keyboard use.
 
 pub mod client;
-pub mod proto;
 pub mod server;
 
 pub use client::client;

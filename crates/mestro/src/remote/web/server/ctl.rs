@@ -1,8 +1,8 @@
 //! UI-thread control dispatch. Settings writes use their own op.
 
 use super::Dispatch;
-use crate::remote::control::Command;
-use crate::remote::web::Response;
+use mestro_ipc::command::Command;
+use mestro_ipc::web::Response;
 
 /// one ctl round on the UI thread. `vu_views` is the size of the VU
 /// cycle: a `vu-select` outside it is an error reply, never a dispatch.

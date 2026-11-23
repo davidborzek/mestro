@@ -13,6 +13,9 @@ publish = false
 # factory reset — the workspace's two audited unsafe sites
 # live here
 mestro-os = { path = "../mestro-os", version = "0.1.0" }
+# the wire protocol: the control vocabulary, the web endpoint's JSON
+# requests/responses and the ctl socket's line framing
+mestro-ipc = { path = "../mestro-ipc", version = "0.1.0" }
 # the player domain: source contract, state machine, shell, cover
 # seam, artwork palette (RGB)
 mestro-player = { path = "../mestro-player", version = "0.1.0" }

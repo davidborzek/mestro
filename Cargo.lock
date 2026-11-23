@@ -2859,6 +2859,7 @@ dependencies = [
  "i-slint-core",
  "image",
  "mdns-sd",
+ "mestro-ipc",
  "mestro-os",
  "mestro-player",
  "parking_lot",
@@ -2881,11 +2882,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "mestro-ipc"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "toml",
+]
+
+[[package]]
 name = "mestro-os"
 version = "0.1.0"
 dependencies = [
  "hmac",
  "libc",
+ "mestro-ipc",
  "parking_lot",
  "serde",
  "serde_json",

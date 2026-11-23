@@ -23,7 +23,7 @@ crates/
       ui/              navigation stack, OSD, accent palette
       providers/       the Music Assistant client (the PlaybackSource
                        contract lives in mestro-player)
-      remote/          control vocabulary, ctl socket, web endpoint, QR
+      remote/          keyboard map, ctl socket, web endpoint, QR
       restart.rs       self-restart after a settings change or update
     ui/                the slint views (mestro.slint is the root)
     tools/             dev tools: wscap (MA protocol capture), vu-feed
@@ -34,6 +34,10 @@ crates/
                        squeezelite's audio lane (audio), the timezone
                        picker and the factory reset of the device
                        state — see docs/architecture.md
+  mestro-ipc/         the wire protocol: the control vocabulary
+                       (command), the web endpoint's JSON requests and
+                       responses (web), the ctl socket's line framing
+                       (ctl) — pure data, no sibling crate
   mestro-player/      the playback domain: source contract, state
                        machine, shell, cover seam, artwork palette
 web/               the companion web app (Svelte PWA)

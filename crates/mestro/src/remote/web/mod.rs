@@ -19,7 +19,6 @@
 mod identity;
 pub use identity::device_suffix;
 mod mdns;
-mod protocol;
 pub mod push;
 mod server;
 mod state;
@@ -28,12 +27,7 @@ mod state;
 // registry, the mDNS pause gate) live in `mestro-os`;
 // re-exported here under the paths the web modules historically
 // use
-pub use mestro_os::wifi::{
-    Children, MdnsGate, WifiChannel, WifiOp, WifiRequest, WifiShutdown, WIFI_QUEUE,
-};
-pub use protocol::{
-    AudioOp, Envelope, MaOp, PlayerAction, Request, Response, SettingsOp, TimezoneOp,
-};
+pub use mestro_os::wifi::{Children, MdnsGate, WifiChannel, WifiRequest, WifiShutdown, WIFI_QUEUE};
 pub use push::{Events, Push};
 
 /// MA's player id of this device's own squeezelite (see
@@ -53,9 +47,9 @@ pub struct PlayerCtx {
     pub cmd_tx: tokio::sync::mpsc::UnboundedSender<SourceCommand>,
 }
 
-use crate::remote::control::Command;
 use crate::settings::Handle;
 use crate::Mestro;
+use mestro_ipc::command::Command;
 use slint::ComponentHandle as _;
 use std::rc::Rc;
 use std::sync::mpsc;

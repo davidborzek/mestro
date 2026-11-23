@@ -23,9 +23,8 @@
 use super::http;
 use super::http::json;
 use super::pair::Pairing;
-use crate::remote::web::{
-    Bridge, Envelope, Request, Response, SettingsOp, WebInfo, WifiChannel, WifiOp,
-};
+use crate::remote::web::{Bridge, WebInfo, WifiChannel};
+use mestro_ipc::web::{Envelope, Request, Response, SettingsOp, WifiOp};
 use mestro_os::paths::setting;
 use serde_json::{json, Map, Value};
 use std::path::Path;

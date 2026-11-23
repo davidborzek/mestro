@@ -12,11 +12,11 @@ use mestro::player::shell::{Shared, Shell};
 use mestro::player::state::{self, PlayerUpdate};
 use mestro::providers::ma::MaProvider;
 use mestro::providers::SourceCommand;
-use mestro::remote::control::Command;
 use mestro::settings::{Handle, NpState, VuState};
 use mestro::{
     library::search::Search, player::nowplaying, player::queue, ui::navigation, ui::osd, vu, Mestro,
 };
+use mestro_ipc::command::Command;
 use parking_lot::{Mutex, RwLock};
 use slint::{ComponentHandle, Timer, TimerMode};
 use std::cell::{Cell, RefCell};
@@ -102,9 +102,9 @@ enum CtlCmd {
     CycleBack,
 }
 
-impl From<CtlCmd> for mestro::remote::control::Command {
+impl From<CtlCmd> for mestro_ipc::command::Command {
     fn from(cmd: CtlCmd) -> Self {
-        use mestro::remote::control::Command;
+        use mestro_ipc::command::Command;
         match cmd {
             CtlCmd::PlayPause => Command::PlayPause,
             CtlCmd::NextTrack => Command::NextTrack,
@@ -316,7 +316,7 @@ fn main() {
     // the [osd] placement + show/hide wiring
     osd::wire(&ui);
 
-    // the abstract control channel (src/remote/control.rs): keyboard, ctl
+    // the abstract control channel (mestro_ipc::command): keyboard, ctl
     // socket, web endpoint and the settings page all speak it
     let dispatch = Rc::new(Dispatch {
         ui: ui_weak.clone(),
@@ -766,7 +766,7 @@ fn wire_remote(
 
 /// the text protocol (ctl socket, web) and the keyboard with its
 /// configurable key map ([keyboard] overrides the defaults in
-/// control.rs) both land in the dispatch
+/// remote/keyboard.rs) both land in the dispatch
 fn wire_input(ui: &Mestro, config: &mestro::config::Config, dispatch: &Rc<dyn Fn(&Command)>) {
     ui.on_control_command({
         let dispatch = dispatch.clone();
@@ -776,7 +776,7 @@ fn wire_input(ui: &Mestro, config: &mestro::config::Config, dispatch: &Rc<dyn Fn
             }
         }
     });
-    let keymap = mestro::remote::control::keymap(&config.keyboard);
+    let keymap = mestro::remote::keyboard::keymap(&config.keyboard);
     ui.on_key_event({
         let dispatch = dispatch.clone();
         move |text| {

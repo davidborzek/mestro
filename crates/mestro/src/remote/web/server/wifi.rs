@@ -7,7 +7,8 @@
 //! went down).
 
 use super::http::json;
-use crate::remote::web::{Ingress, Response, WebInfo, WifiChannel, WifiOp};
+use crate::remote::web::{Ingress, WebInfo, WifiChannel};
+use mestro_ipc::web::{Response, WifiOp};
 use std::time::Duration;
 
 /// the op budgets: scan polls the radio, join also waits for an

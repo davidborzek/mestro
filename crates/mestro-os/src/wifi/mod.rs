@@ -10,13 +10,13 @@
 //! instead.
 //!
 //! Layout:
-//! - [`api`]: the web endpoint's contract — the ops vocabulary
-//!   ([`WifiOp`]), the request channel ([`WifiChannel`]), the
+//! - [`api`]: the web endpoint's contract — the request channel
+//!   ([`WifiChannel`], carrying `mestro_ipc::web::WifiOp`), the
 //!   tracked children ([`Children`]) and the restart stop signal
-//!   ([`WifiShutdown`]). Always compiled: the protocol, the web
-//!   endpoint and the restart path name these types in every
-//!   build; a build without the lane wires no manager and every
-//!   request answers "unavailable"
+//!   ([`WifiShutdown`]). Always compiled: the web endpoint and
+//!   the restart path name these types in every build; a build
+//!   without the lane wires no manager and every request answers
+//!   "unavailable"
 //! - [`gate`]: the mDNS pause handshake with the web endpoint's
 //!   announcer (always compiled — the announcer side runs in
 //!   every build)
@@ -63,7 +63,7 @@ pub mod reset;
 #[cfg(feature = "wifi-setup")]
 mod wpa_ctrl;
 
-pub use api::{Children, WifiChannel, WifiOp, WifiRequest, WifiShutdown, WIFI_QUEUE};
+pub use api::{Children, WifiChannel, WifiRequest, WifiShutdown, WIFI_QUEUE};
 pub use gate::{AttachedWorker, GatePhase, MdnsGate};
 #[cfg(feature = "wifi-setup")]
 pub use manager::{ApReason, HotspotSink, HotspotView, Phase};

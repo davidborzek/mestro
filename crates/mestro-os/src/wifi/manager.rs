@@ -9,7 +9,7 @@
 //! (a usable conf exists, the route was lost) retries the saved
 //! network periodically unless a phone is using the portal.
 
-use super::api::{WifiOp, WifiRequest, WifiShutdown};
+use super::api::{WifiRequest, WifiShutdown};
 use super::backend::{RealBackend, WifiBackend, BUSYBOX, DNSMASQ, LEASES, WPA_SUPPLICANT};
 use super::conf;
 use super::gate::MdnsGate;
@@ -17,6 +17,7 @@ use super::settings::{ApNet, WifiSettings};
 use super::wpa_ctrl::{self, ScanEntry};
 use super::Plan;
 use super::Portal;
+use mestro_ipc::web::WifiOp;
 use parking_lot::Mutex;
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicBool, Ordering};

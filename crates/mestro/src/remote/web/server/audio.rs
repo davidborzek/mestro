@@ -7,7 +7,8 @@
 //! on the blocking pool, never on the async worker.
 
 use super::http::json;
-use crate::remote::web::{AudioOp, Bridge, Response};
+use crate::remote::web::Bridge;
+use mestro_ipc::web::{AudioOp, Response};
 
 pub(super) async fn handle(id: u64, action: AudioOp, bridge: &Bridge) -> String {
     let bridge = bridge.clone();
@@ -52,7 +53,7 @@ impl mestro_os::audio::outputs::OutputSetting for BridgeSetting<'_> {
     }
 
     fn put(&mut self, value: &str) -> Result<(), String> {
-        use crate::remote::web::{Envelope, Request, SettingsOp};
+        use mestro_ipc::web::{Envelope, Request, SettingsOp};
         let envelope = Envelope {
             id: 0,
             request: Request::Settings {

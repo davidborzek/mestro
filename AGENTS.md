@@ -19,6 +19,7 @@ not on the host.
 nix develop -c cargo test
 nix develop -c cargo test -p mestro --features ota,wifi-setup,audio-output,timezone
 nix develop -c cargo test -p mestro-os --features wifi-setup,audio-output,timezone
+nix develop -c cargo test -p mestro-ipc              # the wire protocol + its golden
 nix develop -c cargo clippy --all-targets
 nix develop -c cargo clippy -p mestro --no-default-features --features linuxkms,ota,wifi-setup,audio-output,timezone --all-targets
 nix develop -c cargo clippy -p mestro-os --features wifi-setup,audio-output,timezone --all-targets
@@ -59,7 +60,11 @@ The binary embeds `web/dist/` at compile time: after a web change,
 - don't edit generated files: `web/dist/`, `crates/mestro/src/settings/schema-golden.json`
   (regenerate: `UPDATE_GOLDEN=1 cargo test default_schema_matches_the_golden_json`,
   then rerun without it and copy the file to `web/src/lib/mockSchema.json`
-  — both must stay identical)
+  — both must stay identical),
+  `crates/mestro-ipc/tests/protocol-golden.json` (the wire shapes;
+  regenerate: `UPDATE_GOLDEN=1 cargo test -p mestro-ipc`, then rerun
+  without it; a change there is a protocol change — update
+  `docs/remote.md` and `web/src/lib/protocol.ts` with it)
 - don't open desktop windows to look at the UI; render offscreen:
   `MESTRO_SNAPSHOT_DIR=/tmp/shots cargo test --test settings_snapshot -- --ignored`
 - the Pi image build and anything touching a real device

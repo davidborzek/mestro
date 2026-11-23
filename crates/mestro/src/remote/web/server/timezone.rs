@@ -6,7 +6,7 @@
 //! record and whether to restart; `settings::handle_ui` carries it
 //! out.
 
-use crate::remote::web::{Response, TimezoneOp};
+use mestro_ipc::web::{Response, TimezoneOp};
 
 /// what an op decided
 #[derive(Debug)]

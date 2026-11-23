@@ -45,7 +45,7 @@ export component Mestro inherits Window {
     callback nav-go(Page);
     callback nav-back();
     callback restart-app();
-    // the abstract control channel (src/control.rs): the
+    // the abstract control channel (mestro_ipc::command): the
     // keyboard speaks it today, a WebSocket/IR/USB-remote
     // transport can push the same vocabulary from Rust tomorrow.
     // Raw keys land here as KeyEvent.text; Rust owns the

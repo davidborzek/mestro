@@ -2,7 +2,8 @@
 
 mestro grows towards a Cargo workspace: the binary and UI in
 `crates/mestro`, the playback domain in `crates/mestro-player`,
-everything that touches the device in `crates/mestro-os`. This
+everything that touches the device in `crates/mestro-os`, the
+wire protocol in `crates/mestro-ipc`. This
 document is the target picture and the staged path there —
 what exists today, what moves later, and what has to be true
 before the later stages can happen.
@@ -13,11 +14,12 @@ Not structure for its own sake:
 
 - **compiler-enforced boundaries.** `unsafe` is allowed only in
   the two audited leaf sites (the Pi firmware ioctl and the
-  `kill(2)` wrapper, both in `mestro-os`); the domain crate
-  `#![forbid]`s it, the binary crate denies it — slint's generated
-  code carries its own local `allow`. Dependency direction is
-  checked by cargo, not review: `mestro → {player, os}`, and
-  neither crate ever reaches back into the app.
+  `kill(2)` wrapper, both in `mestro-os`); the domain and the
+  protocol crates `#![forbid]` it, the binary crate denies it —
+  slint's generated code carries its own local `allow`.
+  Dependency direction is checked by cargo, not review:
+  `mestro → {player, os, ipc}` and `os → ipc`; `ipc` depends on
+  no sibling crate, and no crate ever reaches back into the app.
 - **tests without Slint.** The player domain (state machine, shell,
   the source contract) is pure logic plus tokio channels; its tests
   used to drag in the whole UI build. In the workspace they compile
@@ -33,6 +35,8 @@ Not structure for its own sake:
 graph TD
   mestro["mestro — binary + UI + web endpoint"] --> player["mestro-player — playback domain"]
   mestro --> os["mestro-os — device: OS + hardware"]
+  mestro --> ipc["mestro-ipc — wire protocol"]
+  os --> ipc
 ```
 
 ```
@@ -50,6 +54,21 @@ crates/
                     stays in the binary) and the artwork palette as
                     plain RGB (ui/palette without the slint::Color
                     conversions)
+  mestro-ipc/       the wire protocol, the public crate (serde,
+                    serde_json, toml's value type; no sibling
+                    crate, `#![forbid(unsafe_code)]`):
+                    - [command]: the control vocabulary (`Command`,
+                      its kebab-case wire form)
+                    - [web]: the web endpoint's JSON requests,
+                      responses and ops (`Envelope`, `Request`,
+                      `Response`, `SettingsOp`, `WifiOp`, …)
+                    - [ctl]: the ctl socket's line framing (`ok` /
+                      `err <reason>`, `answer_for`)
+                    The sockets (ctl server/client, the web server),
+                    the keyboard map, and everything that needs the
+                    effective config (`state_data`) stay in the
+                    binary; a JSON golden test
+                    (`tests/protocol-golden.json`) pins the shapes
   mestro-os/         everything that talks to the device's OS or
                     hardware; nothing about MA, the UI or the web
                     protocol. One OS crate, a module per capability,
@@ -62,8 +81,9 @@ crates/
                     - [display]: the backlight backends (Pi firmware
                       mailbox ioctl, sysfs) — the only unsafe site
                       beside the signal wrapper
-                    - [wifi]: the web↔wifi contract (the ops channel,
-                      the shutdown/children registry, the mDNS pause
+                    - [wifi]: the web↔wifi contract (the ops channel
+                      carrying mestro-ipc's `WifiOp`, the
+                      shutdown/children registry, the mDNS pause
                       gate, the [wifi] settings, the image's wpa
                       build settings) always compiled — the web
                       endpoint and the restart path name it in every
@@ -95,9 +115,9 @@ device capability is not a domain boundary — the omicron
 per system it talks to, the fakes beside the real code), and
 librespot/spotifyd keep alternative backends as features of one
 crate rather than as crates. Separate crates pay off for a domain
-(player), a reusable protocol (the later web/protocol/ma stages)
-— not per device seam, where they only multiply manifests and
-build-matrix entries for code that always moves together.
+(player), a reusable protocol (mestro-ipc) — not per device
+seam, where they only multiply manifests and build-matrix
+entries for code that always moves together.
 
 The 60 MA scenarios stay in the binary for now: they need the
 private MA parser, which is a later stage. The slint-facing
@@ -115,24 +135,34 @@ wifi-setup,audio-output,timezone`.
 
 ## Later stages
 
-The end picture, in rough order — each stage keeps the tree green
-and shippable:
+The end picture, in order — each stage keeps the tree green and
+shippable:
 
-- **mestro-web**: the embedded web endpoint (`remote/web`) minus
-  the UI-bound bridge; the push pipeline becomes an event feed the
-  crate owns. Prerequisite: `remote/web` stops reaching into
-  `crate::Mestro` for previews — an injected renderer seam already
-  exists (`PreviewRenderer`).
-- **mestro-ma**: the Music Assistant client (`providers/ma`) as a
-  PlaybackSource implementation, then the scenarios move out of
-  the binary into that crate. Prerequisite: the private parser
-  types (`parse`) settle behind the crate's public API.
-- **mestro-settings**: the schema + overlay engine behind the web
-  endpoint (`settings/schema.rs` today), so the web app contract
-  and the Rust schema can be tested together without the UI.
-- **mestro-protocol**: `remote/web/protocol.rs` + the ctl vocabulary
-  (`remote/control.rs`, `remote/ipc`) — the wire surface of the
-  player, shared by the kiosk, the web app and external tools.
+1. **Mestro out of the domain logic.** `nowplaying`, `osd` and
+   `vu/wire` take `&Mestro` deep into rendering helpers; narrow
+   ports (an update sink, a model handle) replace it.
+2. **config as a leaf.** The config types stop reaching into the
+   app, so the schema and the protocol can name them without the
+   binary.
+3. **The settings schema into mestro-ipc** (`settings/schema.rs`
+   and its golden): the web app contract and the Rust schema are
+   tested together without the UI. The schema golden then moves
+   with it.
+4. **mestro-web**: the embedded web endpoint (`remote/web`: the
+   server, auth, pairing, the captive portal, the OTA endpoint,
+   diagnostics) without Slint; the push pipeline becomes an event
+   feed the crate owns. Prerequisite: `remote/web` stops reaching
+   into `crate::Mestro` for previews — an injected renderer seam
+   already exists (`PreviewRenderer`) — and `state_data` takes
+   config as data.
+5. **mestro-ma**, later: the Music Assistant client
+   (`providers/ma`) as a PlaybackSource implementation, then the
+   scenarios move out of the binary into that crate. Prerequisite:
+   the private parser types (`parse`) settle behind the crate's
+   public API.
+
+Beside that line, without a fixed slot:
+
 - **mestro-testkit**: the scenario harness (fixtures, the scripted
   MA server) for out-of-tree provider tests.
 - **mestro-ota**: the update lane (`remote/web/server/ota.rs`,

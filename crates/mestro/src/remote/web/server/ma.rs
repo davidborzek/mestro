@@ -6,7 +6,8 @@
 
 use super::http::json;
 use crate::providers::ma::auth as ma_auth;
-use crate::remote::web::{Bridge, Envelope, MaOp, Request, Response, SettingsOp, WebInfo};
+use crate::remote::web::{Bridge, WebInfo};
+use mestro_ipc::web::{Envelope, MaOp, Request, Response, SettingsOp};
 use serde_json::{json as sj, Value};
 
 pub(super) async fn handle(id: u64, action: MaOp, info: &WebInfo, bridge: &Bridge) -> String {
@@ -108,7 +109,7 @@ pub(super) async fn handle(id: u64, action: MaOp, info: &WebInfo, bridge: &Bridg
 /// public [`Request`] vocabulary, this shape is rejected there.
 pub(super) async fn fetch_conn(bridge: &Bridge) -> Result<(String, String), String> {
     let body = bridge
-        .op_async(&json(&crate::remote::web::protocol::InternalOp::MaToken))
+        .op_async(&json(&mestro_ipc::web::InternalOp::MaToken))
         .await?;
     let value: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
     if value["ok"] != sj!(true) {

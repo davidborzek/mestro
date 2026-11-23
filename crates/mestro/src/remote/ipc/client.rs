@@ -16,7 +16,7 @@ pub fn client(cmd: &str) -> i32 {
     let mut answer = String::new();
     let _ = std::io::BufReader::new(&stream).read_line(&mut answer);
     let answer = answer.trim();
-    if answer == super::proto::OK {
+    if answer == mestro_ipc::ctl::OK {
         0
     } else {
         eprintln!("{}", answer.strip_prefix("err ").unwrap_or(answer));

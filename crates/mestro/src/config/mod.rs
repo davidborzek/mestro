@@ -64,7 +64,7 @@ pub struct Config {
     pub window: Window,
     pub display: Display,
     pub theme: Theme,
-    /// [keyboard]: key name -> control command (src/remote/control.rs);
+    /// [keyboard]: key name -> control command (src/remote/keyboard.rs);
     /// overrides the built-in defaults, e.g. right = "cycle-forward"
     #[serde(default)]
     pub keyboard: std::collections::BTreeMap<String, String>,

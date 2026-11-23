@@ -28,15 +28,17 @@ mod ota;
 mod pair;
 mod player;
 pub(crate) mod settings;
+mod state_data;
 mod timezone;
 mod wifi;
 mod ws;
 
 /// the shared command path onto the UI thread (owned by the
 /// wiring in main.rs; used by the UI-bound op handlers)
-pub(crate) type Dispatch = std::rc::Rc<dyn Fn(&crate::remote::control::Command)>;
+pub(crate) type Dispatch = std::rc::Rc<dyn Fn(&mestro_ipc::command::Command)>;
 
-use super::{Bridge, Envelope, Ingress, Request, Response, WebInfo, WifiChannel};
+use super::{Bridge, Ingress, WebInfo, WifiChannel};
+use mestro_ipc::web::{Envelope, Request, Response};
 use pair::Pairing;
 use serde_json::json;
 use std::io::Cursor;
@@ -445,8 +447,8 @@ pub(crate) async fn dispatch(
 mod tests {
     use super::*;
     use crate::remote::web::Events;
-    use crate::remote::web::WifiOp;
     use futures_util::{SinkExt, StreamExt};
+    use mestro_ipc::web::WifiOp;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     const PIN: &str = "ABCD2345";
