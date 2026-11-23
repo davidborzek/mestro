@@ -1,5 +1,5 @@
 //! [display]: screen backlight settings. Actual control is
-//! best-effort — see src/display.rs; if no backlight device
+//! best-effort — see `display` (the module); if no backlight device
 //! exists, the values are silently ignored.
 
 use serde::{Deserialize, Serialize};
@@ -16,7 +16,7 @@ pub struct Display {
     /// which backend sets it: "auto" (detect), "firmware" (Pi
     /// mailbox), "sysfs", "none". Auto picks the firmware when it
     /// drives the panel's touch (it owns the display i2c bus then)
-    pub backlight: crate::display::backlight::BacklightChoice,
+    pub backlight: crate::display::BacklightChoice,
 }
 
 impl Default for Display {
@@ -24,7 +24,7 @@ impl Default for Display {
         Self {
             brightness: None,
             standby_brightness: 15,
-            backlight: crate::display::backlight::BacklightChoice::Auto,
+            backlight: crate::display::BacklightChoice::Auto,
         }
     }
 }

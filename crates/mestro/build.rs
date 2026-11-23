@@ -23,21 +23,18 @@ fn year_of(epoch_seconds: i64) -> i64 {
     }
 }
 
-/// the build variables src/system/paths.rs reads (a test there checks
-/// that every one is listed here)
-const IMAGE_VARS: &[&str] = &[
-    "MESTRO_SQUEEZELITE_ENV",
-    "MESTRO_SQUEEZELITE_RESTART",
-    "MESTRO_ENV_FILE",
-    "MESTRO_ZONEINFO_DIR",
-    "MESTRO_LOCALTIME",
-    "MESTRO_DIAG_LOGS",
-    "MESTRO_DIAG_STATUS",
-    "MESTRO_WPA_CTRL_DIR",
-    "MESTRO_WPA_CONF",
-];
-
 fn main() {
+    // the image's diagnostics build-time variables are read with
+    // option_env! (src/remote/web/server/diagnostics.rs); a
+    // changed variable must recompile.
+    // Listed in CONTRIBUTING.md "Building for another image"
+    for var in ["MESTRO_DIAG_LOGS", "MESTRO_DIAG_STATUS"] {
+        println!("cargo:rerun-if-env-changed={var}");
+    }
+
+    // the image's timezone build-time variables moved with the
+    // timezone module into mestro-os: its build.rs reruns on them
+
     // component-container is experimental and gates ComponentContainer
     // + component-factory, which the runtime VU skins (ui/vu/page.slint)
     // are built on. slint 1.19 names the features instead of accepting "1"
@@ -96,13 +93,6 @@ fn main() {
         format!("pub const BUILD_YEAR: i32 = {};\n", year_of(epoch)),
     )
     .unwrap();
-
-    // the image's paths and commands (src/system/paths.rs reads them
-    // with option_env!): a changed variable must recompile. Listed in
-    // CONTRIBUTING.md "Building for another image"
-    for var in IMAGE_VARS {
-        println!("cargo:rerun-if-env-changed={var}");
-    }
 
     // ── the embedded web app (PWA) ──
     // pattern: the build/release process runs the Vite build first

@@ -35,7 +35,10 @@ pub(super) async fn handle(
         WifiOp::Join { ssid, psk } => (WifiOp::Join { ssid, psk }, JOIN),
         WifiOp::Status => (WifiOp::Status, STATUS),
     };
-    match wifi.request(op, ingress, paired, timeout).await {
+    match wifi
+        .request(op, ingress == Ingress::Ap, paired, timeout)
+        .await
+    {
         Ok(data) => json(&Response::ok(id, data)),
         Err(e) => json(&Response::err(id, e)),
     }

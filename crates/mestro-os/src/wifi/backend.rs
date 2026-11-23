@@ -2,7 +2,7 @@
 //! device — the wireless interface detection, the wpa_supplicant
 //! ctrl socket, process lifecycle (wpa_supplicant, dnsmasq,
 //! udhcpc — owned by mestro), interface queries and waiting.
-//! [`RealBackend`] runs against the device, [`FakeBackend`]
+//! [`RealBackend`] runs against the device, `FakeBackend`
 //! (tests) records calls and answers canned data.
 
 use super::wpa_ctrl::{WpaCtrl, SCAN_FINISHED_EVENTS};
@@ -42,7 +42,7 @@ impl Default for Roots {
 /// the mestro-started supplicant (the boot scripts' one differs:
 /// see [`WifiBackend::kill_foreign`])
 pub const WPA_SUPPLICANT: &str = "/usr/sbin/wpa_supplicant";
-/// busybox's udhcpc — an applet, /proc/<pid>/exe resolves to the
+/// busybox's udhcpc — an applet, `/proc/<pid>/exe` resolves to the
 /// busybox binary
 pub const BUSYBOX: &str = "/bin/busybox";
 /// the dnsmasq mestro spawns (its identity for the startup stray
@@ -88,9 +88,9 @@ pub fn detect_wireless(roots: &Roots, requested: &str) -> Result<String, String>
 
 /// every pid that runs `exe` — matched EXACTLY, never by a
 /// substring scan:
-/// - the /proc/<pid>/exe symlink resolves to `exe` (busybox
+/// - the `/proc/<pid>/exe` symlink resolves to `exe` (busybox
 ///   applets share one exe — the applet rides in argv)
-/// - argv[0]'s basename is `applet` (so `busybox ifplugd` never
+/// - `argv[0]`'s basename is `applet` (so `busybox ifplugd` never
 ///   dies for `udhcpc`)
 /// - every group in `argv` appears as CONSECUTIVE separate argv
 ///   entries (`["-i", "wlan0"]` matches two arguments; a glued
@@ -183,11 +183,11 @@ pub trait WifiBackend {
     fn count_foreign(&mut self, exe: &str, applet: &str, argv: &[&[&str]]) -> usize;
     /// stop processes mestro did not start (the boot scripts', a
     /// previous life's): the exact [`foreign_pids`] match — exe
-    /// link, argv[0] applet basename, argv groups as separate
+    /// link, `argv[0]` applet basename, argv groups as separate
     /// consecutive entries. The call RETURNS ONLY WHEN THEY ARE
-    /// GONE: SIGTERM, then SIGKILL after [`FOREIGN_TERM_WAIT`]
+    /// GONE: SIGTERM, then SIGKILL after `FOREIGN_TERM_WAIT`
     /// (logged), gone (or abandoned as a zombie) after
-    /// [`FOREIGN_KILL_WAIT`] — a fresh supplicant needs the iface
+    /// `FOREIGN_KILL_WAIT` — a fresh supplicant needs the iface
     /// and the ctrl socket free. The fake kills instantly
     fn kill_foreign(&mut self, exe: &str, applet: &str, argv: &[&[&str]]);
     /// remove the ctrl socket file `<ctrl dir>/<iface>` when no
@@ -212,7 +212,7 @@ pub struct RealBackend {
     ctrl: Option<WpaCtrl>,
     /// mestro's tracked children in the registry the restart paths
     /// share — a separate small lock, never the manager's op lock
-    children: std::sync::Arc<crate::remote::web::Children>,
+    children: std::sync::Arc<super::Children>,
     /// the resolved wireless interface, the ctrl socket dir and
     /// the netdev tree — `[wifi]` resolved once at spawn, no board
     /// paths in code
@@ -228,7 +228,7 @@ impl RealBackend {
         ctrl_dir: &str,
         net_class: &Path,
         proc: &Path,
-        children: std::sync::Arc<crate::remote::web::Children>,
+        children: std::sync::Arc<super::Children>,
     ) -> Self {
         Self {
             ctrl: None,
@@ -241,7 +241,7 @@ impl RealBackend {
     }
 
     /// the shared registry (the manager's shutdown path)
-    pub fn children_arc(&self) -> std::sync::Arc<crate::remote::web::Children> {
+    pub fn children_arc(&self) -> std::sync::Arc<super::Children> {
         self.children.clone()
     }
 }
@@ -250,7 +250,7 @@ impl RealBackend {
 /// dnsmasq, and the supplicant while the AP is up. A working STA
 /// (the supplicant + the lease client) survives the exec and the
 /// next start adopts it (see manager::ensure_sta)
-pub fn stop_ap_processes(children: &crate::remote::web::Children, ap_up: bool) {
+pub fn stop_ap_processes(children: &super::Children, ap_up: bool) {
     let mut children = locks::lock(children);
     if let Some(mut child) = children.remove("dnsmasq") {
         let _ = child.kill();
@@ -362,7 +362,7 @@ impl WifiBackend for RealBackend {
             .filter(|pid| *pid != std::process::id())
             .collect();
         for pid in &pids {
-            let _ = kill(*pid as i32, libc::SIGTERM);
+            let _ = crate::signal(*pid as i32, libc::SIGTERM);
         }
         if pids.is_empty() || wait_for_exit(&self.proc, &pids, FOREIGN_TERM_WAIT) {
             return;
@@ -376,7 +376,7 @@ impl WifiBackend for RealBackend {
             .collect();
         tracing::warn!("wifi: {applet} pids {stuck:?} ignored SIGTERM — SIGKILL");
         for pid in &stuck {
-            let _ = kill(*pid as i32, libc::SIGKILL);
+            let _ = crate::signal(*pid as i32, libc::SIGKILL);
         }
         wait_for_exit(&self.proc, &stuck, FOREIGN_KILL_WAIT);
     }
@@ -399,7 +399,7 @@ impl WifiBackend for RealBackend {
     }
 
     fn routable(&mut self) -> bool {
-        crate::remote::web::lan_ip() != "127.0.0.1"
+        crate::lan_ip() != "127.0.0.1"
     }
 
     fn eth_up(&mut self) -> bool {
@@ -425,26 +425,6 @@ impl WifiBackend for RealBackend {
     fn sleep(&mut self, duration: Duration) {
         std::thread::sleep(duration);
     }
-}
-
-#[cfg(unix)]
-fn kill(pid: i32, signal: i32) -> std::io::Result<()> {
-    // SAFETY: a plain kill(2) on a pid we own; no invariants to
-    // uphold beyond libc's own signature
-    // (unsafe_code is denied crate-wide — this is the audited
-    // signal-send path of the wifi backend)
-    #[allow(unsafe_code)]
-    let ret = unsafe { libc::kill(pid, signal) };
-    if ret == 0 {
-        Ok(())
-    } else {
-        Err(std::io::Error::last_os_error())
-    }
-}
-
-#[cfg(not(unix))]
-fn kill(_pid: i32, _signal: i32) -> std::io::Result<()> {
-    Ok(())
 }
 
 /// gone: /proc/<pid> is missing, or the process is a zombie — a
@@ -530,8 +510,8 @@ pub(crate) mod fake {
         pub mac: String,
         /// the mDNS gate to sample on every `run`/`spawn`, and the
         /// phase it showed each time
-        pub watch: Option<std::sync::Arc<crate::remote::web::MdnsGate>>,
-        pub watched: Vec<crate::remote::web::GatePhase>,
+        pub watch: Option<std::sync::Arc<super::super::gate::MdnsGate>>,
+        pub watched: Vec<super::super::gate::GatePhase>,
     }
 
     impl FakeBackend {
@@ -877,7 +857,7 @@ mod foreign_kills {
             "/run/wpa_supplicant",
             &net,
             Path::new("/proc"),
-            std::sync::Arc::new(crate::remote::web::Children::default()),
+            std::sync::Arc::new(super::super::Children::default()),
         );
         assert_eq!(backend.mac().unwrap(), "d8:3a:dd:77:34:56");
     }
@@ -889,8 +869,8 @@ mod shutdown_stop {
 
     /// one registry with `sleep` children under the given names —
     /// real processes, so the kill semantics are real too
-    fn registry(names: &[&str]) -> std::sync::Arc<crate::remote::web::Children> {
-        let children = std::sync::Arc::new(crate::remote::web::Children::default());
+    fn registry(names: &[&str]) -> std::sync::Arc<super::super::Children> {
+        let children = std::sync::Arc::new(super::super::Children::default());
         for name in names {
             let child = std::process::Command::new("sleep")
                 .arg("30")
@@ -902,7 +882,7 @@ mod shutdown_stop {
     }
 
     /// alive: still present in the registry and not exited
-    fn alive(children: &crate::remote::web::Children, name: &str) -> bool {
+    fn alive(children: &super::super::Children, name: &str) -> bool {
         locks::lock(children)
             .get_mut(name)
             .is_some_and(|child| child.try_wait().unwrap().is_none())
@@ -947,7 +927,7 @@ mod shutdown_stop {
     fn the_exec_fallback_kills_every_tracked_child() {
         // no confirmation in time: the restart path kills them all
         // by handle — the next start's ensure_sta rebuilds the STA
-        let shutdown = crate::remote::web::WifiShutdown::default();
+        let shutdown = super::super::WifiShutdown::default();
         for name in ["dnsmasq", "wpa_supplicant", "udhcpc"] {
             let child = std::process::Command::new("sleep")
                 .arg("30")
@@ -978,7 +958,7 @@ mod kill_waits {
             "/run/wpa_supplicant",
             Path::new("/sys/class/net"),
             proc_root,
-            Arc::new(crate::remote::web::Children::default()),
+            Arc::new(super::super::Children::default()),
         )
     }
 
@@ -1110,7 +1090,7 @@ mod kill_waits {
             &ctrl.to_string_lossy(),
             Path::new("/sys/class/net"),
             &proc,
-            Arc::new(crate::remote::web::Children::default()),
+            Arc::new(super::super::Children::default()),
         );
         backend.clear_stale_ctrl_socket();
         assert!(!socket.exists(), "no owner — the stale socket is gone");

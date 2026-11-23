@@ -32,7 +32,7 @@ impl Outcome {
 pub(super) fn capable() -> bool {
     #[cfg(feature = "timezone")]
     {
-        crate::system::timezone::available(std::path::Path::new(crate::system::paths::ZONEINFO_DIR))
+        mestro_os::timezone::available(std::path::Path::new(mestro_os::timezone::ZONEINFO_DIR))
     }
     #[cfg(not(feature = "timezone"))]
     {
@@ -52,13 +52,13 @@ struct Paths<'a> {
 /// `TZ`
 #[cfg(feature = "timezone")]
 pub(super) fn run(id: u64, action: TimezoneOp, chosen: &str, tz_env: Option<&str>) -> Outcome {
-    use crate::system::paths;
+    use mestro_os::timezone::{ENV_FILE, LOCALTIME, ZONEINFO_DIR};
     use std::path::Path;
     run_in(
         &Paths {
-            zoneinfo_dir: Path::new(paths::ZONEINFO_DIR),
-            env_file: Path::new(paths::ENV_FILE),
-            localtime: Path::new(paths::LOCALTIME),
+            zoneinfo_dir: Path::new(ZONEINFO_DIR),
+            env_file: Path::new(ENV_FILE),
+            localtime: Path::new(LOCALTIME),
         },
         id,
         action,
@@ -75,7 +75,7 @@ fn run_in(
     chosen: &str,
     tz_env: Option<&str>,
 ) -> Outcome {
-    use crate::system::timezone as tz;
+    use mestro_os::timezone as tz;
     use serde_json::json;
     if !tz::available(paths.zoneinfo_dir) {
         return Outcome::reply(Response::err(id, "timezone not available"));

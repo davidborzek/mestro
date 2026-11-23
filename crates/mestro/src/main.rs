@@ -152,7 +152,7 @@ fn run_ui(
             }
         }
         #[cfg(feature = "timezone")]
-        let timezone = mestro::system::timezone::take_pending_zone();
+        let timezone = mestro_os::timezone::take_pending_zone();
         #[cfg(not(feature = "timezone"))]
         let timezone = None::<String>;
         restart::restart(timezone.as_deref());
@@ -654,8 +654,8 @@ fn wire_remote(
     };
     mestro::remote::web::wire(ui, settings, dispatch, &web_info, player, &previews);
     #[cfg(all(feature = "audio-output", feature = "wifi-setup"))]
-    let name_suffix = mestro::system::wifi::name_suffix(
-        &mestro::system::wifi::backend::Roots::default(),
+    let name_suffix = mestro_os::wifi::name_suffix(
+        &mestro_os::wifi::backend::Roots::default(),
         &config.wifi.interface,
         &web_info.id,
     );
@@ -665,20 +665,57 @@ fn wire_remote(
     // written on a thread of its own (the wait for a slow DAC and the
     // restart take seconds)
     #[cfg(feature = "audio-output")]
-    mestro::system::squeezelite::start(&name_suffix, &config.audio, &config.music_assistant.url);
+    mestro_os::audio::squeezelite::start(
+        &name_suffix,
+        &config.audio.settings(),
+        &config.music_assistant.url,
+    );
     // the wifi manager thread (feature `wifi-setup`): AP-mode flag,
-    // the first-run panel and the ops channel. Without the feature
-    // every wifi op answers "unavailable"
+    // the hotspot panel through the view sink and the ops channel.
+    // Without the feature every wifi op answers "unavailable"
     #[cfg(feature = "wifi-setup")]
     let (wifi, wifi_stop) = {
         let shutdown = mestro::remote::web::WifiShutdown::default();
-        let channel = mestro::system::wifi::spawn(
+        // the hotspot panel: the manager publishes pure data, the
+        // binary renders it — the slint properties and the QR image
+        // stay on the UI thread
+        let ui_weak = ui.as_weak();
+        let view: mestro_os::wifi::HotspotSink = std::sync::Arc::new(move |panel| {
+            let weak = ui_weak.clone();
+            let _ = slint::invoke_from_event_loop(move || {
+                let Some(ui) = weak.upgrade() else { return };
+                ui.set_hotspot_active(panel.active);
+                ui.set_hotspot_reason(match panel.reason {
+                    mestro_os::wifi::ApReason::Setup => mestro::HotspotReason::Setup,
+                    mestro_os::wifi::ApReason::Fallback => mestro::HotspotReason::Fallback,
+                });
+                ui.set_hotspot_ssid(panel.ssid.clone().into());
+                ui.set_hotspot_saved_ssid(panel.saved_ssid.clone().into());
+                ui.set_hotspot_portal(panel.portal_url.clone().into());
+                if panel.active {
+                    ui.set_hotspot_qr(mestro::remote::qr::image(
+                        &format!("WIFI:T:nopass;S:{};;", panel.ssid),
+                        260,
+                    ));
+                }
+            });
+        });
+        // the hotspot's URLs are the web endpoint's concern — the
+        // manager never formats one: the RFC 8910 portal URI DHCP
+        // option 114 advertises and the setup address the overlay
+        // names, both with the web port spelled out unless it is 80
+        let port = mestro::remote::web::url_port_suffix(config.remote.port);
+        let portal = mestro_os::wifi::Portal {
+            uri: format!("http://{}{port}/setup/wifi", config.wifi.ap_net().ip),
+            address: format!("mestro.setup{port}"),
+        };
+        let channel = mestro_os::wifi::spawn(
             web_info.ap_mode.clone(),
             web_info.mdns_gate.clone(),
-            ui.as_weak(),
+            view,
             config.wifi.clone(),
             web_info.id.clone(),
-            config.remote.port,
+            portal,
             shutdown.clone(),
         );
         (channel, Some(shutdown))

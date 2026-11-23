@@ -1,7 +1,7 @@
 //! [audio]: the squeezelite settings (feature `audio-output` writes
 //! them into the env file mestro owns). `output`, `name` and `server`
 //! are device settings the web app edits; `extra` is config-file only.
-//! Empty = derived by mestro (`crate::system::squeezelite`).
+//! Empty = derived by mestro (`mestro_os::audio::squeezelite`).
 
 use serde::{Deserialize, Serialize};
 
@@ -19,6 +19,19 @@ pub struct Audio {
     /// further squeezelite flags, passed verbatim (the init script
     /// splits them on whitespace)
     pub extra: String,
+}
+
+impl Audio {
+    /// the settings as the squeezelite crate takes them: plain data
+    /// that crosses the crate edge (the config types stay here)
+    pub fn settings(&self) -> mestro_os::audio::AudioSettings {
+        mestro_os::audio::AudioSettings {
+            output: self.output.clone(),
+            name: self.name.clone(),
+            server: self.server.clone(),
+            extra: self.extra.clone(),
+        }
+    }
 }
 
 #[cfg(test)]

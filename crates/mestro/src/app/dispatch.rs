@@ -201,8 +201,8 @@ impl Dispatch {
         // url its SERVER derives from
         #[cfg(feature = "audio-output")]
         if touched.audio || touched.connection {
-            mestro::system::squeezelite::settings_changed(
-                &effective.audio,
+            mestro_os::audio::squeezelite::settings_changed(
+                &effective.audio.settings(),
                 &effective.music_assistant.url,
             );
         }

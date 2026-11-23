@@ -1445,7 +1445,7 @@ mod tests {
                     let out = wifi
                         .request(
                             WifiOp::Scan,
-                            Ingress::Ap,
+                            true,
                             false,
                             std::time::Duration::from_millis(30),
                         )
@@ -1459,7 +1459,7 @@ mod tests {
                             ssid: "Home".into(),
                             psk: Some("password12".into()),
                         },
-                        Ingress::Ap,
+                        true,
                         false,
                         std::time::Duration::from_secs(45),
                     )

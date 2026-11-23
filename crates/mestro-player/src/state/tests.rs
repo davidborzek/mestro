@@ -1,5 +1,5 @@
-//! `reduce` on its own: what the end-to-end scenarios
-//! (`providers::ma::tests::scenarios`) do not pin down.
+//! `reduce` on its own: what the end-to-end MA scenarios (in the
+//! binary crate) do not pin down.
 
 use super::*;
 

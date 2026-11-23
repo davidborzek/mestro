@@ -3,7 +3,7 @@
 //! being single-threaded.
 
 use super::*;
-use crate::player::cover::{CoverFetcher, CoverLanded};
+use crate::cover::{CoverFetcher, CoverLanded};
 use std::sync::{Arc, Barrier};
 use std::thread;
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -19,7 +19,7 @@ fn shell() -> (Shell, UnboundedReceiver<PlayerUpdate>) {
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
     let covers = CoverSource {
         fetcher: Arc::new(NoFetch),
-        variant: crate::ui::palette::Variant::TonalSpot,
+        variant: crate::palette::Variant::TonalSpot,
     };
     (Shell::new(Arc::new(Mutex::new(None)), tx, covers), rx)
 }

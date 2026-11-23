@@ -1,5 +1,5 @@
 //! Where a brightness level goes: the platform backends behind
-//! [`crate::display::Display`].
+//! mestro's `display::Display` (the slint-facing throttle).
 //!
 //! - **Pi firmware**: the VideoCore mailbox (`SET_BACKLIGHT` via
 //!   `/dev/vcio`). Chosen when the firmware already drives the
@@ -198,11 +198,12 @@ impl FirmwareMailbox {
     }
 }
 
-pub(crate) fn percent_of(raw: u32, max: u32) -> u8 {
+fn percent_of(raw: u32, max: u32) -> u8 {
     (raw * 100 / max.max(1)).min(100) as u8
 }
 
-pub(crate) fn read_u32(path: &Path) -> Option<u32> {
+/// read a plain-integer sysfs file (brightness/max_brightness)
+pub fn read_u32(path: &Path) -> Option<u32> {
     fs::read_to_string(path).ok()?.trim().parse().ok()
 }
 

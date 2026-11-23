@@ -9,7 +9,22 @@
 
 #![deny(clippy::indexing_slicing)]
 
+use crate::paths::setting;
 use std::path::Path;
+
+/// the env file mestro owns and writes whole (`TZ=`, from the timezone
+/// setting); the init script sources it before it starts mestro
+pub const ENV_FILE: &str = setting(
+    option_env!("MESTRO_ENV_FILE"),
+    "/data/state/mestro/mestro.env",
+);
+
+/// the zoneinfo database a chosen zone must exist in
+pub const ZONEINFO_DIR: &str = setting(option_env!("MESTRO_ZONEINFO_DIR"), "/usr/share/zoneinfo");
+
+/// the system zone link, read to learn the running zone when `TZ` is
+/// not set
+pub const LOCALTIME: &str = setting(option_env!("MESTRO_LOCALTIME"), "/etc/localtime");
 
 /// longest zone name accepted (the longest real one is 32)
 const MAX_ZONE_LEN: usize = 64;
@@ -182,7 +197,6 @@ pub fn set_pending_zone(zone: &str) {
 pub fn take_pending_zone() -> Option<String> {
     crate::locks::lock(&PENDING_ZONE).take()
 }
-
 /// the capability: a zoneinfo database to validate against
 pub fn available(zoneinfo_dir: &Path) -> bool {
     zoneinfo_dir.is_dir()
@@ -191,6 +205,41 @@ pub fn available(zoneinfo_dir: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_timezone_settings_follow_their_build_variables() {
+        assert_eq!(
+            ENV_FILE,
+            option_env!("MESTRO_ENV_FILE").unwrap_or("/data/state/mestro/mestro.env")
+        );
+        assert_eq!(
+            ZONEINFO_DIR,
+            option_env!("MESTRO_ZONEINFO_DIR").unwrap_or("/usr/share/zoneinfo")
+        );
+        assert_eq!(
+            LOCALTIME,
+            option_env!("MESTRO_LOCALTIME").unwrap_or("/etc/localtime")
+        );
+    }
+
+    #[test]
+    fn build_rs_reruns_on_every_variable_read_here() {
+        let build_rs = include_str!("../build.rs");
+        let source = include_str!("timezone.rs");
+        let vars: Vec<&str> = source
+            .split("option_env!(\"")
+            .skip(1)
+            .filter_map(|rest| rest.split('"').next())
+            .filter(|var| var.starts_with("MESTRO_"))
+            .collect();
+        assert!(!vars.is_empty());
+        for var in vars {
+            assert!(
+                build_rs.contains(&format!("\"{var}\"")),
+                "build.rs must emit rerun-if-env-changed for {var}"
+            );
+        }
+    }
 
     /// a fake zoneinfo: real zones are TZif files (the magic is all
     /// the code looks at), plus the entries a real tree also holds

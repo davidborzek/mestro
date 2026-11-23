@@ -26,7 +26,7 @@ pub(super) async fn handle(id: u64, action: AudioOp, bridge: &Bridge) -> String 
 pub(super) fn capable() -> bool {
     #[cfg(feature = "audio-output")]
     {
-        crate::system::audio::available(crate::system::paths::SQUEEZELITE_RESTART)
+        mestro_os::audio::outputs::available(mestro_os::audio::squeezelite::SQUEEZELITE_RESTART)
     }
     #[cfg(not(feature = "audio-output"))]
     {
@@ -42,13 +42,13 @@ struct BridgeSetting<'a> {
 }
 
 #[cfg(feature = "audio-output")]
-impl crate::system::audio::OutputSetting for BridgeSetting<'_> {
+impl mestro_os::audio::outputs::OutputSetting for BridgeSetting<'_> {
     fn get(&self) -> String {
-        crate::system::squeezelite::output_setting()
+        mestro_os::audio::squeezelite::output_setting()
     }
 
     fn effective(&self) -> String {
-        crate::system::squeezelite::effective_output()
+        mestro_os::audio::squeezelite::effective_output()
     }
 
     fn put(&mut self, value: &str) -> Result<(), String> {
@@ -71,19 +71,23 @@ impl crate::system::audio::OutputSetting for BridgeSetting<'_> {
         }
     }
 
-    fn apply(&mut self, runner: &mut dyn crate::system::audio::Squeezelite) -> Result<(), String> {
-        crate::system::squeezelite::apply_for_switch(runner)
+    fn apply(
+        &mut self,
+        runner: &mut dyn mestro_os::audio::outputs::Squeezelite,
+    ) -> Result<(), String> {
+        mestro_os::audio::squeezelite::apply_for_switch(runner)
     }
 }
 
 #[cfg(feature = "audio-output")]
 fn run(action: AudioOp, bridge: &Bridge) -> Result<serde_json::Value, String> {
-    use crate::system::{audio, paths};
+    use mestro_os::audio::outputs;
+    use mestro_os::audio::squeezelite::{SQUEEZELITE_ENV, SQUEEZELITE_RESTART};
     run_in(
         &Paths {
-            asound_dir: std::path::Path::new(audio::ASOUND_DIR),
-            slot_key: std::path::Path::new(paths::SQUEEZELITE_ENV),
-            restart_command: paths::SQUEEZELITE_RESTART,
+            asound_dir: std::path::Path::new(outputs::ASOUND_DIR),
+            slot_key: std::path::Path::new(SQUEEZELITE_ENV),
+            restart_command: SQUEEZELITE_RESTART,
         },
         action,
         &mut BridgeSetting { bridge },
@@ -103,17 +107,17 @@ struct Paths<'a> {
 fn run_in(
     paths: &Paths,
     action: AudioOp,
-    setting: &mut dyn crate::system::audio::OutputSetting,
+    setting: &mut dyn mestro_os::audio::outputs::OutputSetting,
 ) -> Result<serde_json::Value, String> {
-    use crate::system::audio;
+    use mestro_os::audio::outputs;
     use serde_json::json;
-    if !audio::available(paths.restart_command) {
+    if !outputs::available(paths.restart_command) {
         return Err("audio output not available".into());
     }
     match action {
         AudioOp::Outputs => {
             let (outputs, current) =
-                audio::outputs_with_current(&setting.effective(), paths.asound_dir);
+                outputs::outputs_with_current(&setting.effective(), paths.asound_dir);
             Ok(json!({
                 "outputs": outputs
                     .iter()
@@ -127,8 +131,8 @@ fn run_in(
             }))
         }
         AudioOp::Set { output } => {
-            let mut service = audio::SqueezeliteService::new(paths.restart_command);
-            audio::set_output(
+            let mut service = outputs::SqueezeliteService::new(paths.restart_command);
+            outputs::set_output(
                 paths.slot_key,
                 paths.asound_dir,
                 setting,
@@ -149,7 +153,7 @@ fn run(_action: AudioOp, _bridge: &Bridge) -> Result<serde_json::Value, String> 
 #[cfg(feature = "audio-output")]
 mod tests {
     use super::*;
-    use crate::system::audio::OutputSetting;
+    use mestro_os::audio::outputs::OutputSetting;
 
     /// a setting that reports one output in use and must never be written
     struct Untouchable(&'static str);
@@ -166,7 +170,7 @@ mod tests {
         }
         fn apply(
             &mut self,
-            _runner: &mut dyn crate::system::audio::Squeezelite,
+            _runner: &mut dyn mestro_os::audio::outputs::Squeezelite,
         ) -> Result<(), String> {
             Err("squeezelite was restarted".into())
         }

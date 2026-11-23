@@ -185,7 +185,7 @@ fn timezone_response(
         // the new zone, or the restart comes back in the old one
         #[cfg(feature = "timezone")]
         if outcome.restart {
-            crate::system::timezone::set_pending_zone(&zone);
+            mestro_os::timezone::set_pending_zone(&zone);
         }
         let key = "system.timezone".to_string();
         let value = toml::Value::String(zone);
@@ -234,23 +234,24 @@ fn preview_response(previews: &PreviewRenderer, kind: &str, name: &str) -> Respo
 }
 
 /// factory reset (pairing is enforced at the route): the state
-/// files go (settings overlay, web-pin — every phone re-pairs),
-/// the wifi credentials return to the template — or, without a
-/// template, are removed (the returned outcome says which) — and
-/// the fresh overlay keeps only the empty MA keys — first run
-/// shows even when config.toml carries a connection. The restart
-/// that follows persists the overlay and starts over
+/// files go (settings overlay, web-pin — every phone re-pairs;
+/// the state half is `system::reset`, right below), then the wifi
+/// credentials return to the template — or, without a template,
+/// are removed (the returned outcome says which; the wifi half
+/// lives in `mestro_os::wifi::reset`) — and the fresh overlay keeps only
+/// the empty MA keys — first run shows even when config.toml
+/// carries a connection. The restart that follows persists the
+/// overlay and starts over
 #[cfg(feature = "wifi-setup")]
 fn factory_reset(
     settings: &Handle,
     dispatch: &Dispatch,
     wifi: bool,
-) -> Result<crate::system::reset::WifiReset, String> {
-    use crate::system::reset::ResetPaths;
-    let outcome = crate::system::reset::factory_reset(
-        &ResetPaths::device(crate::system::paths::WPA_CONF),
-        wifi,
-    )?;
+) -> Result<mestro_os::wifi::reset::WifiReset, String> {
+    // the state half first — on its failure the wifi half never
+    // runs (today's behavior)
+    mestro_os::reset::factory_reset(&mestro_os::reset::ResetPaths::device())?;
+    let outcome = wifi_reset(&mestro_os::wifi::reset::WifiResetPaths::device(), wifi)?;
     // clears the in-memory overlay too; the dispatch owns the
     // UI resync (the restart redraws everything anyway)
     dispatch(&Command::ResetAllSettings);
@@ -264,6 +265,20 @@ fn factory_reset(
             .map_err(|e| format!("could not clear {key}: {e}"))?;
     }
     Ok(outcome)
+}
+
+/// the wifi half of the reset: the op's `wifi` flag decides —
+/// `false` leaves the credentials (and their sidecars) alone
+#[cfg(feature = "wifi-setup")]
+fn wifi_reset(
+    paths: &mestro_os::wifi::reset::WifiResetPaths,
+    wifi: bool,
+) -> Result<mestro_os::wifi::reset::WifiReset, String> {
+    if wifi {
+        mestro_os::wifi::reset::reset_credentials(paths)
+    } else {
+        Ok(mestro_os::wifi::reset::WifiReset::Kept)
+    }
 }
 
 #[cfg(test)]
@@ -299,5 +314,25 @@ mod tests {
         let value: serde_json::Value = serde_json::from_str(&text).unwrap();
         assert_eq!(value["ok"], false);
         assert!(value["error"].as_str().unwrap().contains("missing"));
+    }
+
+    #[cfg(feature = "wifi-setup")]
+    #[test]
+    fn no_wifi_reset_keeps_the_credentials() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = mestro_os::wifi::reset::WifiResetPaths {
+            wpa_conf: dir.path().join("wpa_supplicant.conf"),
+            wpa_template: dir.path().join("template.conf"),
+        };
+        std::fs::write(&p.wpa_conf, "network={\n\tssid=\"Real\"\n}\n").unwrap();
+        std::fs::write(p.wpa_conf.with_extension("conf.good"), "last good").unwrap();
+        assert_eq!(
+            wifi_reset(&p, false).unwrap(),
+            mestro_os::wifi::reset::WifiReset::Kept
+        );
+        assert!(p.wpa_conf.exists());
+        // the sidecars belong to the credentials: without the
+        // wifi reset they stay
+        assert!(p.wpa_conf.with_extension("conf.good").exists());
     }
 }

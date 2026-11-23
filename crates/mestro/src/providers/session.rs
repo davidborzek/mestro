@@ -149,7 +149,7 @@ pub fn spawn<P, F>(
             let boot_screen = async {
                 let mut shown = None;
                 loop {
-                    let network = crate::remote::web::lan_ip() != "127.0.0.1";
+                    let network = mestro_os::lan_ip() != "127.0.0.1";
                     let phase = locks::lock(&startup).phase(Instant::now(), network);
                     if shown != Some(phase) {
                         set_startup(&ui_weak, phase);

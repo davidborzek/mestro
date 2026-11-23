@@ -25,5 +25,5 @@ pub use server::serve;
 pub fn socket_path() -> std::path::PathBuf {
     std::env::var_os("MESTRO_CTL_SOCK")
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| crate::settings::state_dir().join("ctl.sock"))
+        .unwrap_or_else(|| mestro_os::paths::state_dir().join("ctl.sock"))
 }

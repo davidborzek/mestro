@@ -6,8 +6,8 @@
 //! event streams live here (stale replays, seek confirmation, loading
 //! timeouts); the provider only supplies resolved events.
 
-use crate::player::cover::CoverData;
-use crate::providers::{ExternalSource, QueueItem, RepeatMode, SourceCaps, TrackMeta};
+use crate::cover::CoverData;
+use crate::source::{ExternalSource, QueueItem, RepeatMode, SourceCaps, TrackMeta};
 use std::time::{Duration, Instant};
 
 /// Full UI snapshot — the only struct the UI renders from.
@@ -93,14 +93,14 @@ pub struct PlayerUpdate {
     pub cover: Option<CoverData>,
     pub bg: Option<CoverData>,
     /// the cover's dominant color, for skins that tint by
-    /// artwork colors ([theme] palette = "cover"), the M3
+    /// artwork colors (`[theme]` palette = "cover"), the M3
     /// tonalized accent/tertiary/danger trio
-    pub palette: Option<crate::ui::palette::ArtworkPalette>,
+    pub palette: Option<crate::palette::ArtworkPalette>,
     /// transient notification for the OSD layer; Transport and
     /// Track toasts are suppressed while the now-playing overlay
     /// is open (its UI already shows the state), Queue always
     /// shows
-    pub toast: Option<crate::player::state::Toast>,
+    pub toast: Option<crate::state::Toast>,
     /// a REMOTE volume change (transport-reported, not the echo
     /// of our own command) — the update loop shows the volume OSD
     pub osd_volume: Option<i32>,
@@ -155,7 +155,8 @@ pub struct Live {
 }
 
 impl Live {
-    pub(crate) fn new(state: PlayerState, now: Instant) -> Self {
+    /// from a snapshot — the web server's tests construct one
+    pub fn new(state: PlayerState, now: Instant) -> Self {
         Self {
             state,
             at: now,

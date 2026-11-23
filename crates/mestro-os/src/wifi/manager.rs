@@ -9,13 +9,15 @@
 //! (a usable conf exists, the route was lost) retries the saved
 //! network periodically unless a phone is using the portal.
 
+use super::api::{WifiOp, WifiRequest, WifiShutdown};
 use super::backend::{RealBackend, WifiBackend, BUSYBOX, DNSMASQ, LEASES, WPA_SUPPLICANT};
 use super::conf;
+use super::gate::MdnsGate;
+use super::settings::{ApNet, WifiSettings};
 use super::wpa_ctrl::{self, ScanEntry};
 use super::Plan;
+use super::Portal;
 use crate::locks;
-use crate::remote::web::{Ingress, MdnsGate, WifiOp, WifiRequest, WifiShutdown};
-use crate::HotspotReason;
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -47,7 +49,7 @@ const SCAN_POLL: Duration = Duration::from_secs(2);
 const SCAN_EVENT_SLICE: Duration = Duration::from_secs(1);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ApReason {
+pub enum ApReason {
     /// nothing to connect to — the first-run hotspot (never retried)
     Setup,
     /// a usable conf exists, the route was lost — the saved network
@@ -68,6 +70,30 @@ pub enum Phase {
     Failed(String),
 }
 
+/// the hotspot overlay's panel as pure data: what the manager
+/// publishes through the [`HotspotSink`] given at spawn. The
+/// binary renders it — the slint properties and the QR image
+/// stay on the UI thread
+#[derive(Debug, Clone, PartialEq)]
+pub struct HotspotView {
+    /// the hotspot is confirmed up — the overlay follows it
+    pub active: bool,
+    /// why it is up: the fallback retries, the setup does not
+    pub reason: ApReason,
+    /// the hotspot's name (from the interface's MAC)
+    pub ssid: String,
+    /// the network the fallback keeps retrying
+    pub saved_ssid: String,
+    /// the setup address the overlay names (the configured web
+    /// port spelled out unless it is the URL default 80)
+    pub portal_url: String,
+}
+
+/// where the manager publishes [`HotspotView`] — given at spawn.
+/// Called on the manager's thread; the sink hands off to the UI
+/// thread itself
+pub type HotspotSink = Arc<dyn Fn(HotspotView) + Send + Sync>;
+
 pub struct Manager<B: WifiBackend> {
     backend: B,
     plan: Plan,
@@ -79,7 +105,7 @@ pub struct Manager<B: WifiBackend> {
     mdns_gate: Arc<MdnsGate>,
     /// how long a hotspot start waits for the announcer's confirmation
     mdns_pause_wait: Duration,
-    ui: slint::Weak<crate::Mestro>,
+    view: HotspotSink,
     phase: Phase,
     /// the trust flag, explicit: true ONLY once the hotspot is
     /// confirmed up (supplicant answering, address on, dnsmasq
@@ -91,10 +117,10 @@ pub struct Manager<B: WifiBackend> {
     ap_secs: u32,
     /// the setup hotspot's name (from the interface's MAC)
     ap_ssid: String,
-    /// the configured web port — the portal URI the hotspot
-    /// advertises (option 114) and the overlay's setup address
-    /// name it
-    web_port: u16,
+    /// the hotspot's URLs as the caller built them: the portal URI
+    /// the hotspot advertises (option 114) and the setup address
+    /// the overlay's panel names
+    portal: Portal,
     /// the current (or joining) STA network
     ssid: String,
     /// the last failure, reported by the status op
@@ -124,28 +150,28 @@ impl<B: WifiBackend> Manager<B> {
         plan: Plan,
         ap_mode: Arc<AtomicBool>,
         mdns_gate: Arc<MdnsGate>,
-        ui: slint::Weak<crate::Mestro>,
+        view: HotspotSink,
         mac: &str,
         device_id: &str,
-        web_port: u16,
+        portal: Portal,
         shutdown: WifiShutdown,
     ) -> Self {
         // mestro-XXXX: the same suffix as squeezelite's NAME, so every
         // device names its hotspot differently without state
-        let suffix = crate::remote::web::device_suffix(mac, device_id);
+        let suffix = crate::identity::device_suffix(mac, device_id);
         let manager = Self {
             backend,
             plan,
             ap_mode,
             mdns_gate,
             mdns_pause_wait: MDNS_PAUSE_WAIT,
-            ui,
+            view,
             phase: Phase::Sta,
             ap_up: false,
             ap_reason: ApReason::Setup,
             ap_secs: 0,
             ap_ssid: format!("mestro-{suffix}"),
-            web_port,
+            portal,
             ssid: String::new(),
             last_error: String::new(),
             power_save_bssid: None,
@@ -211,38 +237,19 @@ impl<B: WifiBackend> Manager<B> {
 
     /// the hotspot overlay's panel: a WIFI QR to join the hotspot,
     /// shown whenever it is up — the first-run setup and the
-    /// lost-network fallback alike. The QR renders on the UI
-    /// thread (slint::Image stays there)
+    /// lost-network fallback alike. Published as pure data; the
+    /// binary renders it (the slint properties, the QR image)
     fn push_panel(&self) {
-        let active = self.ap_up;
-        let reason = if self.ap_reason == ApReason::Fallback {
-            HotspotReason::Fallback
-        } else {
-            HotspotReason::Setup
+        let view = HotspotView {
+            active: self.ap_up,
+            reason: self.ap_reason,
+            ssid: self.ap_ssid.clone(),
+            saved_ssid: self.ssid.clone(),
+            // the setup address the overlay names — the caller's
+            // spelling, the web port included
+            portal_url: self.portal.address.clone(),
         };
-        let ssid = self.ap_ssid.clone();
-        let saved = self.ssid.clone();
-        // the setup address the overlay names — the configured
-        // web port spelled out unless it is the URL default 80
-        let portal = format!(
-            "mestro.setup{}",
-            crate::remote::web::url_port_suffix(self.web_port)
-        );
-        let weak = self.ui.clone();
-        let _ = slint::invoke_from_event_loop(move || {
-            let Some(ui) = weak.upgrade() else { return };
-            ui.set_hotspot_active(active);
-            ui.set_hotspot_reason(reason);
-            ui.set_hotspot_ssid(ssid.clone().into());
-            ui.set_hotspot_saved_ssid(saved.clone().into());
-            ui.set_hotspot_portal(portal.clone().into());
-            if active {
-                ui.set_hotspot_qr(crate::remote::qr::image(
-                    &format!("WIFI:T:nopass;S:{ssid};;"),
-                    260,
-                ));
-            }
-        });
+        (self.view)(view);
     }
 
     /// the boot policy: mend a crash between the `.bak` and the
@@ -537,10 +544,7 @@ impl<B: WifiBackend> Manager<B> {
             &conf::ap_conf(&self.ap_ssid, &ctrl_dir, &self.plan.country),
         )?;
         let ip = ap_net.ip.to_string();
-        let portal = format!(
-            "http://{ip}{}/setup/wifi",
-            crate::remote::web::url_port_suffix(self.web_port)
-        );
+        let portal = self.portal.uri.clone();
         self.backend.run("ip", &["link", "set", &iface, "up"])?;
         self.backend.run("ip", &["addr", "flush", "dev", &iface])?;
         // the killed supplicant's socket file blocks the new one
@@ -886,7 +890,7 @@ impl<B: WifiBackend> Manager<B> {
 /// `inet` is the device, the one after it the address). Our own
 /// interface is skipped: it is flushed before the hotspot
 /// address goes on
-fn ap_subnet_clash(out: &str, ap_net: crate::config::ApNet, own_iface: &str) -> Option<String> {
+fn ap_subnet_clash(out: &str, ap_net: ApNet, own_iface: &str) -> Option<String> {
     for line in out.lines() {
         let parts: Vec<&str> = line.split_whitespace().collect();
         let Some(inet) = parts.iter().position(|t| *t == "inet") else {
@@ -956,7 +960,7 @@ impl<B: WifiBackend> Ops<B> {
         &self,
         op: WifiOp,
         deadline: Instant,
-        ingress: Ingress,
+        ap_trusted: bool,
         paired: bool,
     ) -> Result<Value, String> {
         match op {
@@ -973,7 +977,7 @@ impl<B: WifiBackend> Ops<B> {
                 if is_join && self.joining.swap(true, Ordering::Relaxed) {
                     return Err("another join is in progress".into());
                 }
-                let out = self.long_op(op, deadline, ingress, paired);
+                let out = self.long_op(op, deadline, ap_trusted, paired);
                 if is_join {
                     self.joining.store(false, Ordering::Relaxed);
                 }
@@ -992,14 +996,14 @@ impl<B: WifiBackend> Ops<B> {
         &self,
         op: WifiOp,
         deadline: Instant,
-        ingress: Ingress,
+        ap_trusted: bool,
         paired: bool,
     ) -> Result<Value, String> {
         let mut manager = locks::lock(&self.manager);
         if Instant::now() > deadline {
             return Err("wifi op timed out".into());
         }
-        if !(paired || (ingress == Ingress::Ap && self.ap_mode.load(Ordering::Relaxed))) {
+        if !(paired || (ap_trusted && self.ap_mode.load(Ordering::Relaxed))) {
             return Err("pairing required".into());
         }
         manager.op(op)
@@ -1014,10 +1018,10 @@ pub async fn run(
     mut rx: tokio::sync::mpsc::Receiver<WifiRequest>,
     ap_mode: Arc<AtomicBool>,
     mdns_gate: Arc<MdnsGate>,
-    ui: slint::Weak<crate::Mestro>,
-    config: crate::config::Wifi,
+    view: HotspotSink,
+    config: WifiSettings,
     device_id: String,
-    web_port: u16,
+    portal: Portal,
     shutdown: WifiShutdown,
 ) {
     // one plan per device: interface detection plus the image paths
@@ -1025,8 +1029,8 @@ pub async fn run(
     let Ok(plan) = super::plan(
         &config,
         &roots,
-        std::path::Path::new(crate::system::paths::WPA_CTRL_DIR),
-        std::path::Path::new(crate::system::paths::WPA_CONF),
+        std::path::Path::new(crate::wifi::paths::WPA_CTRL_DIR),
+        std::path::Path::new(crate::wifi::paths::WPA_CONF),
     ) else {
         tracing::warn!("wifi: no wireless interface — the setup lane stays off");
         return;
@@ -1052,10 +1056,10 @@ pub async fn run(
         plan,
         ap_mode.clone(),
         mdns_gate,
-        ui,
+        view,
         &mac,
         &device_id,
-        web_port,
+        portal,
         shutdown.clone(),
     )));
     {
@@ -1097,10 +1101,10 @@ pub async fn run(
                 });
             }
             req = rx.recv() => {
-                let Some((op, deadline, ingress, paired, reply)) = req else { return; };
+                let Some((op, deadline, ap_trusted, paired, reply)) = req else { return; };
                 let ops = ops.clone();
                 tokio::task::spawn_blocking(move || {
-                    let _ = reply.send(ops.request(op, deadline, ingress, paired));
+                    let _ = reply.send(ops.request(op, deadline, ap_trusted, paired));
                 });
             }
         }
@@ -1123,11 +1127,29 @@ fn secure_runtime_dir(dir: &std::path::Path) {
 #[cfg(test)]
 mod tests {
     use super::super::backend::fake::FakeBackend;
+    use super::super::gate::fake_announcer::confirming_worker;
+    use super::super::gate::GatePhase;
     use super::*;
-    use crate::remote::web::{confirming_worker, GatePhase};
 
     const MAC: &str = "d8:3a:dd:77:34:56";
     const DEVICE_ID: &str = "d83add773455";
+
+    /// a sink that drops the panels (the one test that cares about
+    /// them records its own)
+    fn sink() -> HotspotSink {
+        Arc::new(|_| ())
+    }
+
+    /// the hotspot URLs as the binary builds them for the tests'
+    /// default plan (the 10.42.0.1/24 hotspot): the portal URI and
+    /// the overlay's address, the web port given as its URL suffix
+    /// ("" = 80, the URL default)
+    fn portal(suffix: &str) -> Portal {
+        Portal {
+            uri: format!("http://10.42.0.1{suffix}/setup/wifi"),
+            address: format!("mestro.setup{suffix}"),
+        }
+    }
 
     /// the default [wifi] resolved for tests: wlan0, the default
     /// hotspot addresses, conf files in a temp dir
@@ -1139,7 +1161,7 @@ mod tests {
             sta_bak: dir.join("wpa_supplicant.conf.bak"),
             sta_good: dir.join("wpa_supplicant.conf.good"),
             ap: dir.join("run").join("ap.conf"),
-            ap_net: crate::config::Wifi::default().ap_net(),
+            ap_net: WifiSettings::default().ap_net(),
             power_save: false,
             country: String::new(),
         }
@@ -1154,10 +1176,10 @@ mod tests {
             plan(dir.path()),
             ap_mode.clone(),
             Arc::default(),
-            slint::Weak::default(),
+            sink(),
             MAC,
             DEVICE_ID,
-            80,
+            portal(""),
             WifiShutdown::default(),
         );
         std::mem::forget(dir); // the paths outlive the helper; the OS cleans up
@@ -1186,10 +1208,10 @@ mod tests {
             plan(dir.path()),
             Arc::new(AtomicBool::new(false)),
             Arc::default(),
-            slint::Weak::default(),
+            sink(),
             "aa:bb",
             "a1b2c3d46bec",
-            80,
+            portal(""),
             WifiShutdown::default(),
         );
         assert_eq!(short.ap_ssid, "mestro-AABB");
@@ -1212,7 +1234,7 @@ mod tests {
             std::fs::write(dir.join("address"), format!("{mac}\n")).unwrap();
         }
         let state = tempfile::tempdir().unwrap();
-        let device_id = crate::remote::web::device_id(root.path(), state.path(), "host");
+        let device_id = crate::identity::device_id(root.path(), state.path(), "host");
         let roots = super::super::backend::Roots {
             net_class: root.path().to_path_buf(),
             proc: "/nonexistent-proc".into(),
@@ -1225,10 +1247,10 @@ mod tests {
             plan(dir.path()),
             Arc::new(AtomicBool::new(false)),
             Arc::default(),
-            slint::Weak::default(),
+            sink(),
             mac,
             &device_id,
-            80,
+            portal(""),
             WifiShutdown::default(),
         );
         let name_suffix = super::super::name_suffix(&roots, "auto", &device_id);
@@ -1308,7 +1330,7 @@ mod tests {
 
     #[test]
     fn the_subnet_clash_parse_reads_ip_o_output() {
-        let ap_net = crate::config::Wifi::default().ap_net();
+        let ap_net = WifiSettings::default().ap_net();
         let out = "1: lo    inet 127.0.0.1/8 brd 127.0.0.0 scope host lo\\       valid_lft forever preferred_lft forever\n\
                    2: eth0    inet 192.168.178.20/24 brd 192.168.178.255 scope global eth0\n\
                    3: wlan0    inet 10.42.0.1/24 brd 10.42.0.255 scope global wlan0\\       valid_lft forever preferred_lft forever\n";
@@ -1332,10 +1354,9 @@ mod tests {
     }
 
     #[test]
-    fn the_portal_uri_names_the_configured_web_port() {
-        // 80 (the URL default) carries no port — covered by
-        // boot_without_a_conf_starts_the_hotspot; any other port
-        // is spelled out in the RFC 8910 URI
+    fn the_hotspot_advertises_the_callers_portal_uri() {
+        // the manager never formats a URL: the caller (the binary)
+        // passes the RFC 8910 URI in, whatever the web port is
         let dir = tempfile::tempdir().unwrap();
         let mut mgr = Manager::new(
             FakeBackend {
@@ -1345,10 +1366,10 @@ mod tests {
             plan(dir.path()),
             Arc::new(AtomicBool::new(false)),
             Arc::default(),
-            slint::Weak::default(),
+            sink(),
             MAC,
             DEVICE_ID,
-            8787,
+            portal(":8787"),
             WifiShutdown::default(),
         );
         std::mem::forget(dir);
@@ -1552,6 +1573,48 @@ mod tests {
     }
 
     #[test]
+    fn the_manager_publishes_the_panel_through_the_view_sink() {
+        // the overlay's data as pure values: active, reason, the
+        // hotspot's name, the retried network and the setup address
+        // with the web port spelled out
+        let recorded = Arc::new(Mutex::new(Vec::<HotspotView>::new()));
+        let sink: HotspotSink = {
+            let recorded = recorded.clone();
+            Arc::new(move |view| recorded.lock().unwrap().push(view))
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let mut mgr = Manager::new(
+            FakeBackend {
+                ping_ok: true,
+                wlan_addrs: WLAN_ADDR.into(),
+                ..FakeBackend::new(MAC)
+            },
+            plan(dir.path()),
+            Arc::new(AtomicBool::new(false)),
+            Arc::default(),
+            sink,
+            MAC,
+            DEVICE_ID,
+            portal(":8787"),
+            WifiShutdown::default(),
+        );
+        std::mem::forget(dir);
+        mgr.boot();
+        let panel = recorded.lock().unwrap().last().cloned().unwrap();
+        assert!(panel.active);
+        assert_eq!(panel.reason, ApReason::Setup);
+        assert_eq!(panel.ssid, "mestro-3456");
+        assert_eq!(panel.saved_ssid, "");
+        assert_eq!(panel.portal_url, "mestro.setup:8787");
+        // the join ends the hotspot: the panel says so, naming the
+        // network it would fall back to
+        mgr.join("FritzBox", Some("password12")).unwrap();
+        let panel = recorded.lock().unwrap().last().cloned().unwrap();
+        assert!(!panel.active);
+        assert_eq!(panel.saved_ssid, "FritzBox");
+    }
+
+    #[test]
     fn the_hotspot_is_built_only_after_the_mdns_gate_reports_paused() {
         let dir = tempfile::tempdir().unwrap();
         let gate = Arc::new(MdnsGate::default());
@@ -1566,10 +1629,10 @@ mod tests {
             plan(dir.path()),
             ap_mode.clone(),
             gate.clone(),
-            slint::Weak::default(),
+            sink(),
             MAC,
             DEVICE_ID,
-            80,
+            portal(""),
             WifiShutdown::default(),
         );
         std::mem::forget(dir);
@@ -1602,10 +1665,10 @@ mod tests {
             plan(dir.path()),
             ap_mode.clone(),
             gate.clone(),
-            slint::Weak::default(),
+            sink(),
             MAC,
             DEVICE_ID,
-            80,
+            portal(""),
             WifiShutdown::default(),
         );
         std::mem::forget(dir);
@@ -1629,10 +1692,10 @@ mod tests {
             plan(dir.path()),
             Arc::new(AtomicBool::new(false)),
             gate.clone(),
-            slint::Weak::default(),
+            sink(),
             MAC,
             DEVICE_ID,
-            80,
+            portal(""),
             WifiShutdown::default(),
         );
         std::mem::forget(dir);
@@ -2031,10 +2094,10 @@ mod tests {
             resolved,
             Arc::new(AtomicBool::new(false)),
             Arc::default(),
-            slint::Weak::default(),
+            sink(),
             MAC,
             DEVICE_ID,
-            80,
+            portal(""),
             WifiShutdown::default(),
         )
     }
@@ -2179,7 +2242,7 @@ mod tests {
             .request(
                 WifiOp::Status,
                 Instant::now() + Duration::from_secs(1),
-                Ingress::Ap,
+                true,
                 true,
             )
             .unwrap();
@@ -2197,7 +2260,7 @@ mod tests {
         let out = ops.request(
             WifiOp::Scan,
             Instant::now() - Duration::from_secs(1), // already expired
-            Ingress::Ap,
+            true,
             true,
         );
         assert!(out.unwrap_err().contains("timed out"));
@@ -2219,7 +2282,7 @@ mod tests {
                 psk: Some("password12".into()),
             },
             Instant::now() + Duration::from_secs(45),
-            Ingress::Ap,
+            true,
             true,
         );
         assert!(out.unwrap_err().contains("in progress"));
@@ -2228,7 +2291,7 @@ mod tests {
             .request(
                 WifiOp::Scan,
                 Instant::now() + Duration::from_secs(15),
-                Ingress::Ap,
+                true,
                 true
             )
             .is_ok());
@@ -2246,23 +2309,19 @@ mod tests {
         let deadline = Instant::now() + Duration::from_secs(45);
         // LAN ingress: rejected even with the flag up
         ap_mode.store(true, Ordering::Relaxed);
-        let out = ops.request(WifiOp::Scan, deadline, Ingress::Lan, false);
+        let out = ops.request(WifiOp::Scan, deadline, false, false);
         assert!(out.unwrap_err().contains("pairing required"));
         // hotspot ingress with the flag down (AP mode ended since
         // the request was made): rejected too
         ap_mode.store(false, Ordering::Relaxed);
-        let out = ops.request(WifiOp::Scan, deadline, Ingress::Ap, false);
+        let out = ops.request(WifiOp::Scan, deadline, true, false);
         assert!(out.unwrap_err().contains("pairing required"));
         // hotspot ingress + flag up: runs
         ap_mode.store(true, Ordering::Relaxed);
-        assert!(ops
-            .request(WifiOp::Scan, deadline, Ingress::Ap, false)
-            .is_ok());
+        assert!(ops.request(WifiOp::Scan, deadline, true, false).is_ok());
         // paired requests never depend on the hotspot
         ap_mode.store(false, Ordering::Relaxed);
-        assert!(ops
-            .request(WifiOp::Scan, deadline, Ingress::Lan, true)
-            .is_ok());
+        assert!(ops.request(WifiOp::Scan, deadline, false, true).is_ok());
     }
 
     #[test]
@@ -2432,10 +2491,10 @@ mod tests {
             plan(dir.path()),
             ap_mode,
             Arc::default(),
-            slint::Weak::default(),
+            sink(),
             MAC,
             DEVICE_ID,
-            80,
+            portal(""),
             shutdown.clone(),
         );
         std::fs::write(&mgr.plan.sta, sta_conf_file("Home")).unwrap();
@@ -2471,7 +2530,7 @@ mod tests {
             ops.request(
                 WifiOp::Scan,
                 Instant::now() + Duration::from_secs(30),
-                Ingress::Ap,
+                true,
                 false,
             )
         });
@@ -2501,7 +2560,7 @@ mod tests {
         let out = ops.request(
             WifiOp::Scan,
             Instant::now() + Duration::from_secs(15),
-            Ingress::Ap,
+            true,
             true,
         );
         assert!(out.unwrap_err().contains("busy"));
@@ -2511,7 +2570,7 @@ mod tests {
             .request(
                 WifiOp::Scan,
                 Instant::now() + Duration::from_secs(15),
-                Ingress::Ap,
+                true,
                 true
             )
             .is_ok());

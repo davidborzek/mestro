@@ -1,7 +1,7 @@
 //! [system]: the device settings the web app writes (feature
 //! `timezone` applies the zone). Where the image keeps the files it
 //! is applied through is a build setting, not config
-//! (`crate::system::paths`).
+//! (`mestro_os::timezone`).
 
 use serde::{Deserialize, Serialize};
 

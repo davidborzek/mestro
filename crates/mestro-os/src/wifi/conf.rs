@@ -1,8 +1,8 @@
 //! wpa_supplicant.conf writing. The STA conf is the persistent one
-//! (`system::paths::WPA_CONF`, PC-editable, survives re-flashes); the AP conf
-//! is ephemeral under /run. Writes are atomic (tmp in the same
-//! dir, fsync, rename) and the STA write keeps the previous file
-//! as `.bak` — the join-failure path restores it.
+//! ([`paths::WPA_CONF`](crate::paths::WPA_CONF), PC-editable, survives
+//! re-flashes); the AP conf is ephemeral under /run. Writes are atomic
+//! (tmp in the same dir, fsync, rename) and the STA write keeps the
+//! previous file as `.bak` — the join-failure path restores it.
 
 #![deny(clippy::indexing_slicing)]
 

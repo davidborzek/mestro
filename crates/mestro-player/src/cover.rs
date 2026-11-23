@@ -1,0 +1,75 @@
+//! Cover loading: the fetch seam and the pixel work (blur, size
+//! cap) on the fetch results. The production HTTP fetcher stays in
+//! the binary (ureq); this crate only defines the seam.
+
+use std::sync::Arc;
+
+#[derive(Clone)]
+pub struct CoverData {
+    pub rgba: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// Where a cover URL becomes pixels, and what picks the palette from
+/// them: the state machine asks, the fetcher answers later on its own
+/// thread (production: HTTP; tests: a recording stub).
+pub struct CoverSource {
+    pub fetcher: Arc<dyn CoverFetcher>,
+    pub variant: crate::palette::Variant,
+}
+
+/// the fetch result — None when the download or decode failed
+pub type CoverLanded = Box<dyn FnOnce(Option<CoverData>) + Send>;
+
+pub trait CoverFetcher: Send + Sync {
+    /// fetch `url` off the calling thread and hand the result to `landed`
+    fn fetch(&self, url: String, landed: CoverLanded);
+}
+
+/// blurred backdrop derivation, for the dimmed background
+/// behind the UI. The blur runs on a thumbnail: the result is
+/// scaled up and dimmed anyway, and a full-res blur burned a
+/// core for hundreds of milliseconds on every track change
+pub fn make_blur(cover: &Option<CoverData>) -> Option<CoverData> {
+    let c = cover.as_ref()?;
+    let img = image::RgbaImage::from_raw(c.width, c.height, c.rgba.clone())?;
+    let scale = (320.0 / c.width.max(1) as f64).min(1.0);
+    let (tw, th) = (
+        ((c.width as f64 * scale) as u32).max(1),
+        ((c.height as f64 * scale) as u32).max(1),
+    );
+    let small = image::imageops::resize(&img, tw, th, image::imageops::FilterType::Triangle);
+    let blurred = image::imageops::blur(&small, 5.0);
+    Some(CoverData {
+        rgba: blurred.into_raw(),
+        width: tw,
+        height: th,
+    })
+}
+
+/// cap a cover at `max` pixels on its long edge, in place: the
+/// nowplaying view never shows more than ~900 physical pixels,
+/// and every full-res upload cost a multi-MB copy + texture
+/// transfer on the UI thread
+pub fn cap_size(c: &mut CoverData, max: u32) {
+    let long = c.width.max(c.height);
+    if long <= max {
+        return;
+    }
+    let scale = max as f64 / long as f64;
+    let (tw, th) = (
+        ((c.width as f64 * scale) as u32).max(1),
+        ((c.height as f64 * scale) as u32).max(1),
+    );
+    #[expect(
+        clippy::expect_used,
+        reason = "dims and buffer are always set together in load_cover"
+    )]
+    let img = image::RgbaImage::from_raw(c.width, c.height, std::mem::take(&mut c.rgba))
+        .expect("cover dims match the buffer");
+    let small = image::imageops::resize(&img, tw, th, image::imageops::FilterType::Lanczos3);
+    c.rgba = small.into_raw();
+    c.width = tw;
+    c.height = th;
+}

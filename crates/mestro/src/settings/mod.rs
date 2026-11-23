@@ -274,7 +274,7 @@ impl Overlay {
     /// error); unreadable/malformed file warns and drops — the
     /// file is device-owned, its schema is the config's
     pub fn load() -> Self {
-        let path = state_dir().join("settings.toml");
+        let path = mestro_os::paths::state_dir().join("settings.toml");
         match std::fs::read_to_string(&path) {
             Ok(text) => match toml::from_str::<toml::Value>(&text) {
                 Ok(tree) => Self {
@@ -391,19 +391,6 @@ pub(crate) fn merge(base: &mut toml::Value, overlay: &toml::Value) {
         }
         (b, o) => *b = o.clone(),
     }
-}
-
-/// $XDG_STATE_HOME/mestro, per the base dir spec ~/.local/state
-pub(crate) fn state_dir() -> std::path::PathBuf {
-    std::env::var_os("XDG_STATE_HOME")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| {
-            let home = std::env::var_os("HOME")
-                .map(std::path::PathBuf::from)
-                .unwrap_or_default();
-            home.join(".local/state")
-        })
-        .join("mestro")
 }
 
 #[cfg(test)]

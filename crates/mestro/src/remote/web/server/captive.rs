@@ -56,7 +56,7 @@ fn own_host(name: &str, gateway: &str) -> bool {
     matches!(name, "127.0.0.1" | "localhost" | "::1")
         || name == gateway
         || name == SETUP_HOST
-        || name == crate::remote::web::lan_ip()
+        || name == mestro_os::lan_ip()
 }
 
 /// the 302 itself — a Location the caller composes: the probe

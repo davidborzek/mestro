@@ -5,6 +5,10 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
+// the wifi vocabulary lives with the wifi lane (`mestro-os`);
+// the protocol only carries it on the wire
+pub use mestro_os::wifi::WifiOp;
+
 /// client → server. `op` names the domain, `action` the verb:
 /// `settings` rides the UI thread (its writes are the
 /// `control.rs` command vocabulary), `ma` runs on the socket side
@@ -132,23 +136,6 @@ pub enum SettingsOp {
         #[serde(default)]
         wifi: bool,
     },
-}
-
-/// the wifi setup verbs (see [`Request::Wifi`]). `join` takes
-/// no `psk` for open networks — the device hashes the passphrase
-/// itself (PBKDF2-SHA1), the cleartext never leaves this request
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
-#[serde(tag = "action", rename_all = "kebab-case")]
-pub enum WifiOp {
-    /// scan and return the visible networks, strongest first,
-    /// one entry per SSID (hidden networks join by hand)
-    Scan,
-    /// join a network: write the credentials, leave AP mode when
-    /// in it, wait for an address — a failure restores the previous
-    /// configuration and returns to AP mode
-    Join { ssid: String, psk: Option<String> },
-    /// the current mode, SSIDs and the last error
-    Status,
 }
 
 /// MA setup operations (`src/providers/ma/auth.rs`)

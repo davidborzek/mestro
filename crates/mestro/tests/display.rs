@@ -27,7 +27,7 @@ impl Drop for TempDir {
 
 fn fake_backlight(max: u32, raw: u32) -> (TempDir, std::rc::Rc<mestro::display::Display>) {
     let n = COUNTER.fetch_add(1, Ordering::SeqCst);
-    let dir = TempDir(std::env::temp_dir().join(format!("mestro-display-test-{n}")));
+    let dir = TempDir(std::env::temp_dir().join(format!("mestro-bl-test-{n}")));
     let _ = fs::remove_dir_all(&dir.0);
     fs::create_dir_all(dir.join("bl")).unwrap();
     fs::write(dir.join("bl/max_brightness"), max.to_string()).unwrap();

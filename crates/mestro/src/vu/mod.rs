@@ -1,21 +1,14 @@
 //! VU meter input: squeezelite's shared-memory visualizer
-//! (`squeezelite -v`, needs a `-DVISEXPORT` build).
+//! (`squeezelite -v`, needs a `-DVISEXPORT` build — the ring reader
+//! lives in `mestro_os::audio::visexport`).
 //!
-//! squeezelite writes its decoded output into a `struct vis_t` ring
-//! in /dev/shm (see its `output_vis.c`): a 56-byte pthread rwlock,
-//! then `buf_size`/`buf_index`/`running`/`rate`/`updated` and
-//! `buffer[16384]` interleaved stereo s16 samples. The ring layout
-//! is hard-wired; the byte offsets below are the C struct's, valid
-//! for 64-bit Linux (glibc's `pthread_rwlock_t` is 56 bytes on both
-//! x86_64 and aarch64).
-//!
-//! The reader takes no lock: a torn sample or two does not move an
-//! RMS window, and the writer skips the export rather than block
-//! when the lock is held. `mock` synthesizes levels so the UI side
-//! can be exercised without squeezelite.
+//! This module owns the meter: the ballistics, the RMS→VU mapping
+//! and the spectrum analyzer (FFT + bands). `mock` synthesizes
+//! levels so the UI side can be exercised without squeezelite.
 
 use crate::config::VuMode;
 use crate::locks;
+use mestro_os::audio::visexport::Poll;
 
 /// The Slint edition of every runtime-compiled skin and face;
 /// build.rs compiles the app's own UI with the same one.
@@ -48,9 +41,6 @@ pub mod preview;
 pub mod skin;
 pub mod wire;
 
-use std::fs::File;
-use std::os::unix::fs::FileExt;
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -64,14 +54,6 @@ pub const BANDS: usize = 32;
 /// plus their slow-falling peak caps
 pub type SharedBands = Arc<Mutex<([f32; BANDS], [f32; BANDS])>>;
 
-// struct vis_t offsets — see output_vis.c
-const OFF_BUF_SIZE: u64 = 56;
-const OFF_BUF_INDEX: u64 = 60;
-const OFF_RUNNING: u64 = 64;
-const OFF_RATE: u64 = 68;
-const OFF_BUFFER: u64 = 80;
-/// the ring is hard-wired to this many s16 samples
-const VIS_BUF_SIZE: usize = 16384;
 /// meter tick; 30fps reads like a physical meter, stays cheap
 const TICK: Duration = Duration::from_millis(33);
 /// VU ballistics: single-pole smoothing with ~300ms time
@@ -128,108 +110,29 @@ impl Ballistics {
 }
 
 fn shmem_loop(shared: Shared, bands: SharedBands, prefix: &str, reference_dbfs: f64) {
-    let mut file: Option<(PathBuf, File)> = None;
+    let mut ring = mestro_os::audio::visexport::VisRing::new();
     let mut ballistic = Ballistics::new();
     let mut analyzer = fft::Analyzer::new();
-    let mut last_rate: Option<u32> = None;
     loop {
         std::thread::sleep(TICK);
-        // (re)acquire: squeezelite may start after us, restart with
-        // a new MAC-suffixed name, or run on another machine's /dev
-        if file.is_none() {
-            if let Some((path, f)) = open_shm(prefix) {
-                tracing::info!("vu: reading {}", path.display());
-                file = Some((path, f));
+        // the ring's per-tick outcome: silence zeroes the meter, a
+        // read error keeps the last reading for one tick
+        let (rate, samples) = match ring.poll(prefix) {
+            Poll::Playing { rate, samples } => (rate, samples),
+            Poll::NoRing | Poll::Silent => {
+                ballistic.push([0.0; 2]);
+                *locks::lock(&shared) = ballistic.level;
+                *locks::lock(&bands) = ([0.0; BANDS], [0.0; BANDS]);
+                continue;
             }
-        }
-        let Some((_, f)) = file.as_ref() else {
-            ballistic.push([0.0; 2]);
-            *locks::lock(&shared) = ballistic.level;
-            *locks::lock(&bands) = ([0.0; BANDS], [0.0; BANDS]);
-            continue;
+            Poll::Retry => continue,
         };
-
-        // header: buf_size, buf_index, running, rate
-        let mut hdr = [0u8; 9];
-        if f.read_exact_at(&mut hdr, OFF_BUF_SIZE).is_err() {
-            tracing::warn!("vu: shm unreadable, retrying");
-            file = None;
-            continue;
-        }
-        #[expect(
-            clippy::unwrap_used,
-            reason = "a 4-byte slice of the fixed 9-byte header"
-        )]
-        let buf_size = u32::from_le_bytes(hdr[0..4].try_into().unwrap()) as usize;
-        #[expect(
-            clippy::unwrap_used,
-            reason = "a 4-byte slice of the fixed 9-byte header"
-        )]
-        let buf_index = u32::from_le_bytes(
-            hdr[OFF_BUF_INDEX as usize - OFF_BUF_SIZE as usize..][..4]
-                .try_into()
-                .unwrap(),
-        ) as usize;
-        let running = hdr[OFF_RUNNING as usize - OFF_BUF_SIZE as usize] != 0;
-        let mut rb = [0u8; 4];
-        if f.read_exact_at(&mut rb, OFF_RATE).is_err() {
-            file = None;
-            continue;
-        }
-        let rate = u32::from_le_bytes(rb);
-        if buf_size == 0 || buf_size > VIS_BUF_SIZE {
-            continue; // not a vis_t we understand
-        }
-        if last_rate != Some(rate) {
-            if last_rate.is_some() {
-                tracing::debug!("vu: rate changed to {rate}");
-            }
-            last_rate = Some(rate);
-        }
-        if !running {
-            ballistic.push([0.0; 2]);
-            *locks::lock(&shared) = ballistic.level;
-            *locks::lock(&bands) = ([0.0; BANDS], [0.0; BANDS]);
-            continue;
-        }
-
-        // ~100ms tail window: the 4096-frame FFT needs the
-        // integration time (a 50ms read flickers band to band)
-        let frames = (rate as usize / 10)
-            .clamp(440, VIS_BUF_SIZE / 2)
-            .min(buf_size / 2);
-        let count = 2 * frames; // interleaved stereo samples
-        let idx = buf_index % buf_size;
-        let mut samples = vec![0i16; count];
-        let mut chunk = [0u8; 512];
-        let mut filled = 0usize;
-        let mut ok = true;
-        while filled < count {
-            // start can be near the ring edge: never read past the
-            // buffer end — the ring wraps, the next pass reads on
-            let start = (idx + buf_size - count + filled) % buf_size;
-            let edge = (buf_size - start) * 2; // bytes until the wrap
-            let take = chunk.len().min(edge).min((count - filled) * 2);
-            if f.read_exact_at(&mut chunk[..take], OFF_BUFFER + start as u64 * 2)
-                .is_err()
-            {
-                ok = false;
-                break;
-            }
-            for b in chunk[..take].chunks_exact(2) {
-                samples[filled] = i16::from_le_bytes([b[0], b[1]]);
-                filled += 1;
-            }
-        }
-        if !ok {
-            file = None;
-            continue;
-        }
 
         // RMS per channel → dBFS → VU (0 VU = the configured
         // reference level, default -14 dBFS: modern loud masters
         // center the needle around 0) → level 0..1 across
         // -20..+3 VU — the classic VU scale
+        let frames = samples.len() / 2;
         let mut level = [0.0f32; 2];
         for ch in 0..2 {
             let sum: f64 = samples[ch..]
@@ -247,27 +150,6 @@ fn shmem_loop(shared: Shared, bands: SharedBands, prefix: &str, reference_dbfs: 
         let (bands_now, peaks_now) = analyzer.analyze(&samples, rate);
         *locks::lock(&bands) = (bands_now, peaks_now);
     }
-}
-
-/// find the shm file: squeezelite names it `<prefix>` or
-/// `<prefix>-<MAC>` (it appends its interface address)
-fn open_shm(prefix: &str) -> Option<(PathBuf, File)> {
-    let dir = std::fs::read_dir("/dev/shm").ok()?;
-    let dash = format!("{prefix}-");
-    let mut found: Vec<PathBuf> = dir
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| {
-            let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            name == prefix || name.starts_with(&dash)
-        })
-        .collect();
-    found.sort();
-    if found.len() > 1 {
-        tracing::warn!("vu: multiple shm candidates, using the first");
-    }
-    let path = found.into_iter().next()?;
-    File::open(&path).ok().map(|f| (path, f))
 }
 
 /// synthesized levels while `playing` — UI work without squeezelite

@@ -30,10 +30,14 @@ pub struct WpaCtrl {
 impl WpaCtrl {
     /// connect the ctrl socket (`/run/wpa_supplicant/<iface>`)
     pub fn connect(ctrl_path: &Path) -> Result<Self, String> {
-        let local = local_path();
+        Self::bind(ctrl_path, local_path())
+    }
+
+    /// bind `local`, then connect it to the ctrl socket. The bound
+    /// path is a file a failed connect must not leave behind (the
+    /// policy tick retries every few seconds)
+    fn bind(ctrl_path: &Path, local: PathBuf) -> Result<Self, String> {
         let socket = UnixDatagram::bind(&local).map_err(|e| format!("wpa ctrl bind: {e}"))?;
-        // the bound path is a file: a failed connect must not leave it
-        // behind (the policy tick retries every few seconds)
         if let Err(e) = socket.connect(ctrl_path) {
             let _ = std::fs::remove_file(&local);
             return Err(format!("wpa ctrl connect {}: {e}", ctrl_path.display()));
@@ -251,33 +255,45 @@ pub fn parse_status(reply: &str) -> StatusInfo {
 mod tests {
     use super::*;
 
-    fn own_sockets() -> usize {
-        let prefix = format!("mestro-wpa-{}-", std::process::id());
-        std::fs::read_dir(std::env::temp_dir())
-            .unwrap()
-            .filter_map(Result::ok)
-            .filter(|e| e.file_name().to_string_lossy().starts_with(&prefix))
-            .count()
+    /// a fresh temp dir unique to this call — the tests run in
+    /// parallel, so a shared name would collide
+    fn unique_dir(tag: &str) -> PathBuf {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("mestro-wpa-{tag}-{}-{n}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
     }
 
     #[test]
     fn local_sockets_never_pile_up() {
-        let before = own_sockets();
+        // own dir: the parallel tests' sockets never land in it, so
+        // the count below only ever sees this test's own
+        let dir = unique_dir("pileup");
+        let own = || {
+            std::fs::read_dir(&dir)
+                .unwrap()
+                .filter_map(Result::ok)
+                .filter(|e| e.file_name().to_string_lossy().ends_with(".sock"))
+                .count()
+        };
         // no supplicant behind this path: every attempt fails
-        for _ in 0..5 {
-            assert!(WpaCtrl::connect(Path::new("/nonexistent/wlan0")).is_err());
+        for n in 0..5 {
+            assert!(WpaCtrl::bind(
+                Path::new("/nonexistent/wlan0"),
+                dir.join(format!("fail-{n}.sock"))
+            )
+            .is_err());
         }
-        assert_eq!(own_sockets(), before, "failed connects leaked socket files");
+        assert_eq!(own(), 0, "failed connects leaked socket files");
 
         // a connected client removes its path when dropped
-        let dir = std::env::temp_dir().join(format!("mestro-wpa-test-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
         let server = UnixDatagram::bind(dir.join("wlan0")).unwrap();
-        let client = WpaCtrl::connect(&dir.join("wlan0")).unwrap();
-        assert_eq!(own_sockets(), before + 1);
+        let client = WpaCtrl::bind(&dir.join("wlan0"), dir.join("client.sock")).unwrap();
+        assert_eq!(own(), 1);
         drop(client);
-        assert_eq!(own_sockets(), before);
+        assert_eq!(own(), 0);
         drop(server);
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -339,13 +355,7 @@ mod tests {
         frames: Vec<&'static str>,
         pause: Duration,
     ) -> (PathBuf, std::thread::JoinHandle<()>) {
-        let dir = std::env::temp_dir().join(format!(
-            "mestro-wpa-events-{}-{}",
-            std::process::id(),
-            frames.len()
-        ));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = unique_dir("events");
         let path = dir.join("wlan0");
         let server = UnixDatagram::bind(&path).unwrap();
         let handle = std::thread::spawn(move || {
@@ -384,6 +394,7 @@ mod tests {
             "returned on the event, not the timeout"
         );
         supplicant.join().unwrap();
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]
@@ -403,6 +414,7 @@ mod tests {
             Ok(true)
         );
         supplicant.join().unwrap();
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]
@@ -425,13 +437,12 @@ mod tests {
         );
         assert!(started.elapsed() >= Duration::from_millis(250));
         supplicant.join().unwrap();
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]
     fn a_refused_attach_is_an_error() {
-        let dir = std::env::temp_dir().join(format!("mestro-wpa-refuse-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = unique_dir("refuse");
         let server = UnixDatagram::bind(dir.join("wlan0")).unwrap();
         let handle = std::thread::spawn(move || {
             let mut buf = [0u8; 64];
@@ -443,6 +454,7 @@ mod tests {
         let mut client = WpaCtrl::connect(&dir.join("wlan0")).unwrap();
         assert!(client.attach().is_err());
         handle.join().unwrap();
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

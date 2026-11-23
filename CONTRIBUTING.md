@@ -19,19 +19,23 @@ crates/
       standby/         clock faces, custom skins, image backdrop
       vu/              VU faceplates and the spectrum
       display/         the backlight throttle (the backends live in
-                       mestro-display)
+                       mestro-os)
       ui/              navigation stack, OSD, accent palette
       providers/       the Music Assistant client (the PlaybackSource
                        contract lives in mestro-player)
       remote/          control vocabulary, ctl socket, web endpoint, QR
-      system/          wifi hotspot + first-boot setup (feature
-                       `wifi-setup`); the mestro-owned env files,
-                       audio output and timezone pickers (features
-                       `audio-output`, `timezone`) live in
-                       mestro-system / mestro-squeezelite
       restart.rs       self-restart after a settings change or update
     ui/                the slint views (mestro.slint is the root)
     tools/             dev tools: wscap (MA protocol capture), vu-feed
+  mestro-os/          the OS crate: everything that talks to the
+                       device's OS or hardware, a module per
+                       capability — the base plumbing, the backlight
+                       backends (display), the wifi lane (wifi),
+                       squeezelite's audio lane (audio), the timezone
+                       picker and the factory reset of the device
+                       state — see docs/architecture.md
+  mestro-player/      the playback domain: source contract, state
+                       machine, shell, cover seam, artwork palette
 web/               the companion web app (Svelte PWA)
 image/             the Buildroot player image (see image/README.md)
 ```
@@ -53,23 +57,29 @@ ratio.
 The player image's paths and commands are not user settings: they
 are fixed at build time. Set the variable in the environment of
 `cargo build` (e.g. `MESTRO_SQUEEZELITE_ENV=/mnt/squeezelite.env
-cargo build`); unset, the Buildroot image's value applies.
-`crates/mestro/src/system/paths.rs` reads them with `option_env!` and `build.rs`
-reruns when one changes, so a cached build never keeps an old value.
-Functions take their paths as parameters (tests use temp dirs);
-only the production call sites read the constants.
+cargo build`); unset, the Buildroot image's value applies. Each
+crate reads exactly its own variables with `option_env!` and its
+`build.rs` reruns when one changes, so a cached build never keeps an
+old value; the helper (`mestro_os::paths::setting`) is shared,
+and the variables are global to cargo, so they reach every crate.
+mestro-os's one `build.rs` reruns on every device variable
+(the module that reads one pins it with a guard test); the
+binary keeps only the diagnostics pair. Functions take their
+paths as parameters (tests use temp dirs); only the production
+call sites read the constants.
 
-| variable | default | what |
-|---|---|---|
-| `MESTRO_SQUEEZELITE_ENV` | `/data/state/mestro/squeezelite.env` | the env file mestro owns and writes whole (`OUTPUT`, `NAME`, `SERVER`, `EXTRA`, from the `audio.*` settings); the only file the init script sources — must match the path S60squeezelite sources |
-| `MESTRO_SQUEEZELITE_RESTART` | `/etc/init.d/S60squeezelite restart` | the command that restarts squeezelite (split on whitespace, no shell); the audio output picker and the env file act only while its program exists |
-| `MESTRO_ENV_FILE` | `/data/state/mestro/mestro.env` | the env file mestro owns and writes whole (`TZ=`, from the timezone setting); S50mestro sources it before the user's `/data/mestro.env` — must match that path |
-| `MESTRO_ZONEINFO_DIR` | `/usr/share/zoneinfo` | the zoneinfo database a chosen zone must exist in; the timezone picker shows only while it exists |
-| `MESTRO_LOCALTIME` | `/etc/localtime` | the system zone link, read to learn the running zone when `TZ` is unset |
-| `MESTRO_DIAG_LOGS` | `/tmp/mestro.log:/tmp/mestro.log.old:/tmp/ota.log` | colon-separated log files whose last 200 lines go into the diagnostics download (`.old` is the previous run); a missing file is skipped |
-| `MESTRO_DIAG_STATUS` | `/usr/sbin/mestro-upgrade --status` | the command whose output joins the diagnostics download (split on whitespace, no shell, 5 s budget); empty = none |
-| `MESTRO_WPA_CTRL_DIR` | `/run/wpa_supplicant` | wpa_supplicant's control socket directory (the wifi setup lane) |
-| `MESTRO_WPA_CONF` | `/data/wpa_supplicant.conf` | the persistent STA conf; must match what the boot scripts start wpa_supplicant with |
+| variable | default | read in | what |
+|---|---|---|---|
+| `MESTRO_SQUEEZELITE_ENV` | `/data/state/mestro/squeezelite.env` | mestro-os (`audio::squeezelite`) | the env file mestro owns and writes whole (`OUTPUT`, `NAME`, `SERVER`, `EXTRA`, from the `audio.*` settings); the only file the init script sources — must match the path S60squeezelite sources |
+| `MESTRO_SQUEEZELITE_RESTART` | `/etc/init.d/S60squeezelite restart` | mestro-os (`audio::squeezelite`) | the command that restarts squeezelite (split on whitespace, no shell); the audio output picker and the env file act only while its program exists |
+| `MESTRO_ENV_FILE` | `/data/state/mestro/mestro.env` | mestro-os (`timezone`) | the env file mestro owns and writes whole (`TZ=`, from the timezone setting); S50mestro sources it before the user's `/data/mestro.env` — must match that path |
+| `MESTRO_ZONEINFO_DIR` | `/usr/share/zoneinfo` | mestro-os (`timezone`) | the zoneinfo database a chosen zone must exist in; the timezone picker shows only while it exists |
+| `MESTRO_LOCALTIME` | `/etc/localtime` | mestro-os (`timezone`) | the system zone link, read to learn the running zone when `TZ` is unset |
+| `MESTRO_DIAG_LOGS` | `/tmp/mestro.log:/tmp/mestro.log.old:/tmp/ota.log` | the binary (`remote/web/server/diagnostics`) | colon-separated log files whose last 200 lines go into the diagnostics download (`.old` is the previous run); a missing file is skipped |
+| `MESTRO_DIAG_STATUS` | `/usr/sbin/mestro-upgrade --status` | the binary (`remote/web/server/diagnostics`) | the command whose output joins the diagnostics download (split on whitespace, no shell, 5 s budget); empty = none |
+| `MESTRO_WPA_CTRL_DIR` | `/run/wpa_supplicant` | mestro-os (`wifi::paths`) | wpa_supplicant's control socket directory (the wifi setup lane) |
+| `MESTRO_WPA_CONF` | `/data/wpa_supplicant.conf` | mestro-os (`wifi::paths`) | the persistent STA conf; must match what the boot scripts start wpa_supplicant with |
+| `MESTRO_WPA_TEMPLATE` | `/etc/mestro-defaults/wpa_supplicant.conf` | mestro-os (`wifi::paths`) | the image's seeded default conf the factory reset restores (setup lane); a missing template means the credentials are removed instead |
 
 ## Formatting
 

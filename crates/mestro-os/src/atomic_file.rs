@@ -29,8 +29,8 @@ pub fn write_atomic(path: &Path, text: &str) -> Result<(), String> {
 }
 
 /// [`write_atomic`] with the directory-sync seam injected — the
-/// tests pin the failure discipline
-pub(crate) fn write_atomic_with(
+/// wifi conf tests pin the failure discipline
+pub fn write_atomic_with(
     path: &Path,
     text: &str,
     dir_sync: &dyn Fn(&Path) -> std::io::Result<()>,
@@ -66,7 +66,7 @@ pub(crate) fn write_atomic_with(
 
 /// fsync the directory a rename happened in — the rename must
 /// survive a power cut, not just the file contents
-pub(crate) fn sync_dir(dir: &Path) -> std::io::Result<()> {
+pub fn sync_dir(dir: &Path) -> std::io::Result<()> {
     std::fs::File::open(dir)?.sync_all()
 }
 

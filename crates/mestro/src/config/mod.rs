@@ -197,7 +197,7 @@ pub fn load_parts(
     cfg.now_playing.validate();
     cfg.hub.validate();
 
-    let wifi_problems = cfg.wifi.validate();
+    let wifi_problems = wifi::validate(&mut cfg.wifi);
     for problem in &wifi_problems {
         tracing::warn!("config: ignoring {} ({})", problem.key, problem.reason);
     }
@@ -227,7 +227,7 @@ impl Config {
         self.clock.validate();
         // wifi problems were reported at load; a settings merge
         // cannot add new ones, so the fallbacks run quietly here
-        let _ = self.wifi.validate();
+        let _ = wifi::validate(&mut self.wifi);
     }
 }
 

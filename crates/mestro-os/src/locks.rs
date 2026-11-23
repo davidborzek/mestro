@@ -2,7 +2,7 @@
 //! are written wholesale, never incrementally, so a mutex left
 //! poisoned by a panicking thread still holds usable data —
 //! poisoning must not take the whole pipeline down with it.
-//! (unwrap/expect are denied crate-wide, see [lints] in
+//! (unwrap/expect are denied crate-wide, see `[lints]` in
 //! Cargo.toml.)
 
 use std::sync::{Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};

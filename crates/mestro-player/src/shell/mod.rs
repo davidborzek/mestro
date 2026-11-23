@@ -6,9 +6,9 @@
 //! a download and follows after the unlock — its result comes back as
 //! `Event::CoverLanded`.
 
+use crate::cover::{cap_size, make_blur, CoverData, CoverSource};
 use crate::locks;
-use crate::player::cover::{cap_size, make_blur, CoverData, CoverSource};
-use crate::player::state::{reduce, CoverRequest, Effects, Event, Live, PlayerState, PlayerUpdate};
+use crate::state::{reduce, CoverRequest, Effects, Event, Live, PlayerState, PlayerUpdate};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -169,7 +169,7 @@ impl Shell {
         };
         let palette = cover
             .as_ref()
-            .and_then(|c| crate::ui::palette::from_cover(c, self.covers.variant.clone()));
+            .and_then(|c| crate::palette::from_cover(c, self.covers.variant.clone()));
         if let Some(p) = &palette {
             let hex = |c: [u8; 3]| format!("#{:02x}{:02x}{:02x}", c[0], c[1], c[2]);
             tracing::info!(

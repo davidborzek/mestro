@@ -2,7 +2,7 @@
 //! palette and the live theme switch from the settings.
 
 use mestro::config::{Config, RailStyle, ThemePalette};
-use mestro::ui::palette::ArtworkPalette;
+use mestro::ui::palette::{to_colors, ArtworkPalette};
 use mestro::Mestro;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -30,7 +30,7 @@ pub fn amber_fallback() -> Colors {
 pub fn cover_accent(palette: &PaletteCell) -> Colors {
     palette
         .borrow()
-        .map(|p| p.to_colors())
+        .map(to_colors)
         .unwrap_or_else(amber_fallback)
 }
 

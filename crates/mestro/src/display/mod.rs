@@ -1,5 +1,5 @@
 //! Backlight control, best-effort: whatever the platform offers
-//! (see [`crate::display::backlight`] for the backends and their detection).
+//! (see [`mestro_os::display`] for the backends and their detection).
 //! No backlight → all methods are no-ops, the app runs on (kiosk
 //! on a panel, desktop on a laptop, VM without any).
 //!
@@ -11,9 +11,7 @@
 //! (containing `brightness` + `max_brightness`) to override
 //! discovery — for tests and exotic setups.
 
-pub mod backlight;
-
-use backlight::{Backlight, BacklightChoice};
+pub use mestro_os::display::{Backlight, BacklightChoice};
 use std::cell::Cell;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -51,12 +49,12 @@ impl Display {
             // explicit sysfs directory (tests, exotic setups)
             Ok(dir) => {
                 let dir = PathBuf::from(dir);
-                let max = backlight::read_u32(&dir.join("max_brightness"))
+                let max = mestro_os::display::read_u32(&dir.join("max_brightness"))
                     .unwrap_or(1)
                     .max(1);
                 Backlight::Sysfs { dir, max }
             }
-            Err(_) => backlight::detect(choice, &backlight::Roots::default()),
+            Err(_) => mestro_os::display::detect(choice, &mestro_os::display::Roots::default()),
         };
         tracing::info!("display: backlight via {}", backend.name());
         Self::with_backend(backend)

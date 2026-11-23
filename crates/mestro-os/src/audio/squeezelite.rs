@@ -8,11 +8,26 @@
 
 #![deny(clippy::indexing_slicing)]
 
-use super::audio::{self, Card, Output, Squeezelite, SwitchSlot};
-use crate::config::Audio;
+use super::outputs::{self, Card, Output, Squeezelite, SwitchSlot};
+use super::AudioSettings;
+use crate::paths::setting;
 use std::path::Path;
 use std::sync::Mutex;
 use std::time::Duration;
+
+/// the env file mestro owns and writes whole (`OUTPUT`, `NAME`, `SERVER`,
+/// `EXTRA`); the only file squeezelite's init script sources
+pub const SQUEEZELITE_ENV: &str = setting(
+    option_env!("MESTRO_SQUEEZELITE_ENV"),
+    "/data/state/mestro/squeezelite.env",
+);
+
+/// the command that restarts squeezelite (split on whitespace, no
+/// shell) so a changed `OUTPUT` takes effect
+pub const SQUEEZELITE_RESTART: &str = setting(
+    option_env!("MESTRO_SQUEEZELITE_RESTART"),
+    "/etc/init.d/S60squeezelite restart",
+);
 
 /// one wait step while a card may still be enumerating
 const SETTLE_STEP: Duration = Duration::from_secs(1);
@@ -36,7 +51,7 @@ const HEADER: &str =
 /// newer one
 #[derive(Debug, Clone, Default)]
 struct Inputs {
-    audio: Audio,
+    audio: AudioSettings,
     ma_url: String,
 }
 
@@ -159,8 +174,8 @@ fn pick_output(cards: &[Card], outputs: &[Output]) -> Option<Pick> {
 
 fn current_pick(asound_dir: &Path) -> Option<Pick> {
     pick_output(
-        &audio::list_cards(asound_dir),
-        &audio::list_outputs(asound_dir),
+        &outputs::list_cards(asound_dir),
+        &outputs::list_outputs(asound_dir),
     )
 }
 
@@ -369,12 +384,12 @@ fn confirm_startup(paths: &Paths, runner: &mut dyn Squeezelite) -> Result<(), St
 
 fn device_paths() -> Paths<'static> {
     Paths {
-        env_file: Path::new(super::paths::SQUEEZELITE_ENV),
-        asound_dir: Path::new(audio::ASOUND_DIR),
+        env_file: Path::new(SQUEEZELITE_ENV),
+        asound_dir: Path::new(outputs::ASOUND_DIR),
     }
 }
 
-fn set_inputs(audio: &Audio, ma_url: &str) {
+fn set_inputs(audio: &AudioSettings, ma_url: &str) {
     *crate::locks::lock(&INPUTS) = Some(Inputs {
         audio: audio.clone(),
         ma_url: ma_url.to_string(),
@@ -385,13 +400,13 @@ fn set_inputs(audio: &Audio, ma_url: &str) {
 /// flight) and the restart take seconds, never on the caller's thread.
 /// Nothing happens where squeezelite's init script is not (a desktop)
 fn spawn_run(startup_suffix: Option<String>) {
-    if !audio::available(super::paths::SQUEEZELITE_RESTART) {
+    if !outputs::available(SQUEEZELITE_RESTART) {
         return;
     }
     let spawned = std::thread::Builder::new()
         .name("mestro-audio-env".into())
         .spawn(move || {
-            let mut runner = audio::SqueezeliteService::new(super::paths::SQUEEZELITE_RESTART);
+            let mut runner = outputs::SqueezeliteService::new(SQUEEZELITE_RESTART);
             if let Err(e) = run(
                 &device_paths(),
                 startup_suffix.as_deref(),
@@ -408,13 +423,13 @@ fn spawn_run(startup_suffix: Option<String>) {
 
 /// the startup run: the `NAME` suffix (`device_suffix`) and the
 /// settings as loaded
-pub fn start(suffix: &str, audio: &Audio, ma_url: &str) {
+pub fn start(suffix: &str, audio: &AudioSettings, ma_url: &str) {
     set_inputs(audio, ma_url);
     spawn_run(Some(suffix.to_string()));
 }
 
 /// an `audio.*` or `music-assistant.*` setting changed
-pub fn settings_changed(audio: &Audio, ma_url: &str) {
+pub fn settings_changed(audio: &AudioSettings, ma_url: &str) {
     set_inputs(audio, ma_url);
     spawn_run(None);
 }
@@ -443,6 +458,38 @@ pub fn output_setting() -> String {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    #[test]
+    fn the_audio_settings_follow_their_build_variables() {
+        assert_eq!(
+            SQUEEZELITE_ENV,
+            option_env!("MESTRO_SQUEEZELITE_ENV").unwrap_or("/data/state/mestro/squeezelite.env")
+        );
+        assert_eq!(
+            SQUEEZELITE_RESTART,
+            option_env!("MESTRO_SQUEEZELITE_RESTART")
+                .unwrap_or("/etc/init.d/S60squeezelite restart")
+        );
+    }
+
+    #[test]
+    fn build_rs_reruns_on_every_variable_read_here() {
+        let build_rs = include_str!("../../build.rs");
+        let source = include_str!("squeezelite.rs");
+        let vars: Vec<&str> = source
+            .split("option_env!(\"")
+            .skip(1)
+            .filter_map(|rest| rest.split('"').next())
+            .filter(|var| var.starts_with("MESTRO_"))
+            .collect();
+        assert!(!vars.is_empty());
+        for var in vars {
+            assert!(
+                build_rs.contains(&format!("\"{var}\"")),
+                "build.rs must emit rerun-if-env-changed for {var}"
+            );
+        }
+    }
 
     /// the tests that run with the global INPUTS, DERIVED and RUNS go one at a time
     static GLOBAL_STATE_TESTS: Mutex<()> = Mutex::new(());
@@ -587,7 +634,7 @@ mod tests {
 
     fn settings(output: &str, name: &str, server: &str, extra: &str, ma_url: &str) -> Inputs {
         Inputs {
-            audio: Audio {
+            audio: AudioSettings {
                 output: output.into(),
                 name: name.into(),
                 server: server.into(),
@@ -1051,15 +1098,15 @@ mod tests {
         let _serial = crate::locks::lock(&GLOBAL_STATE_TESTS);
         let fx = usb_fixture();
         let mut fake = Fake::new();
-        set_inputs(&Audio::default(), "");
+        set_inputs(&AudioSettings::default(), "");
         run(&fx.paths(), Some("6BEC"), Trigger::Background, &mut fake).unwrap();
         assert_eq!(effective_output(), "hw:CARD=S3");
         assert_eq!(output_setting(), "");
-        set_inputs(&Audio::default(), "http://10.0.0.5:8095");
+        set_inputs(&AudioSettings::default(), "http://10.0.0.5:8095");
         set_inputs(
-            &Audio {
+            &AudioSettings {
                 output: "hw:CARD=Mine".into(),
-                ..Audio::default()
+                ..AudioSettings::default()
             },
             "http://10.0.0.6:8095",
         );
@@ -1090,10 +1137,10 @@ mod tests {
         fake.starts_at_poll = up_at;
         fake.args = argv(args);
         set_inputs(
-            &Audio {
+            &AudioSettings {
                 name: "HiFi".into(),
                 extra: "-a 80".into(),
-                ..Audio::default()
+                ..AudioSettings::default()
             },
             "http://192.168.3.13:8095",
         );

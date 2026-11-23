@@ -145,8 +145,11 @@ The classic captive-portal probes go to port 80: on another
 `[remote] port`, only clients that honor DHCP option 114 open the
 setup page on their own.
 The verdict is re-checked when a wifi op executes (a request that
-queued while the hotspot was up must not run after it ended), and
-the socket closes the moment AP mode ends.
+queued while the hotspot was up must not run after it ended): the
+request carries the sender-side verdict as a distilled flag —
+`Ingress::of_peer` (the web endpoint) decides, the wifi manager
+re-checks it against the live AP state (`crates/mestro-os/src/wifi`,
+`WifiRequest`). The socket closes the moment AP mode ends.
 
 The captive portal rides the same rule: for an AP-trusted
 connection, the OS connectivity probes (`/generate_204`,

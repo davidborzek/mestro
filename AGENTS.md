@@ -13,12 +13,15 @@ not on the host.
 
 ```sh
 # Rust: both feature sets — CI-equivalent. The feature flags
-# live on the binary crate (crates/mestro): -p scopes them
-# there while the workspace gains more members
+# live on the binary crate (crates/mestro) and on mestro-os
+# (`wifi-setup`/`audio-output`/`timezone`, forwarded by the
+# binary's features of the same names): -p scopes them
 nix develop -c cargo test
 nix develop -c cargo test -p mestro --features ota,wifi-setup,audio-output,timezone
+nix develop -c cargo test -p mestro-os --features wifi-setup,audio-output,timezone
 nix develop -c cargo clippy --all-targets
 nix develop -c cargo clippy -p mestro --no-default-features --features linuxkms,ota,wifi-setup,audio-output,timezone --all-targets
+nix develop -c cargo clippy -p mestro-os --features wifi-setup,audio-output,timezone --all-targets
 nix develop -c cargo test --test np_layout          # one integration test
 nix develop -c cargo deny check                     # advisories, licenses, bans, sources
 nix develop -c cargo machete                        # unused dependencies
@@ -67,8 +70,9 @@ The binary embeds `web/dist/` at compile time: after a web change,
 - **device logic lives in Rust**, not shell scripts; init scripts only
   start things. No hard-wired board paths: detect hardware at runtime
   (one binary for every board); where the *image* keeps files or how
-  it runs commands is a build setting (`crates/mestro/src/system/paths.rs`,
-  `MESTRO_*` at build time), never a user config key
+  it runs commands is a build setting (`MESTRO_*` at build time, read
+  by the crate that owns them — CONTRIBUTING.md, "Building for
+  another image"), never a user config key
 - **user-facing text says "player"**, never "kiosk"
 - **web**: Svelte 5 runes, TypeScript strict, small components, own
   history router (`lib/router.ts`, no router dependency); every string
@@ -92,5 +96,7 @@ Changes here need a test for the auth matrix and a note in `docs/remote.md`:
 
 - `crates/mestro/src/remote/web/` — pairing cookie, unpaired hotspot access
   (`Ingress::of_peer`), the captive portal
-- `crates/mestro/src/system/wifi/` — credentials, hotspot, factory reset
+- `crates/mestro-os/src/wifi/` — wifi credentials, the hotspot, the
+  web↔wifi trust contract (the factory reset's wifi half lives
+  here, its state half in `crates/mestro-os/src/reset.rs`)
 - `image/` — root has no password and no console login; SSH is key-only

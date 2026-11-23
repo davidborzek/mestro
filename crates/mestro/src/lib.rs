@@ -1,9 +1,9 @@
-// what mestro does
-pub(crate) mod atomic_file;
+// what mestro does: the lock helpers come from mestro-os
+// under their historical path (crate::locks)
 pub mod config;
 pub mod display;
 pub mod library;
-pub mod locks;
+pub use mestro_os::locks;
 pub mod player;
 pub mod settings;
 pub mod standby;
@@ -13,12 +13,6 @@ pub mod vu;
 // how it talks to the outside
 pub mod providers;
 pub mod remote;
-
-// device-level system logic (kiosk builds: wifi setup + factory
-// reset — feature `wifi-setup`; the audio output and timezone
-// pickers — features `audio-output`, `timezone`; each part is gated
-// inside, the image paths in `system::paths` are always there)
-pub mod system;
 
 /// `0.1.0 (<git hash>)`; the plain version when git was unavailable
 pub fn app_version() -> String {

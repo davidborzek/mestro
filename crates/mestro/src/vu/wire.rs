@@ -492,7 +492,7 @@ impl Vui {
         let (palette, danger) = if inner.theme_cover {
             let p = *inner.palette_cell.borrow();
             let (accent, secondary, danger) = p
-                .map(|p| p.to_colors())
+                .map(palette::to_colors)
                 .unwrap_or_else(palette::amber_fallback);
             (Some((accent, secondary)), danger)
         } else {
