@@ -1,6 +1,8 @@
-//! The display's state machine — provider-agnostic and pure: `reduce`
-//! takes the state, one event and the time and returns the effects the
-//! shell (`player::shell`) has to carry out. Guards against incoherent
+//! The display's state machine — provider-agnostic: `reduce` takes
+//! the state, one event and the time and returns the effects the
+//! shell (`player::shell`) has to carry out. It keeps no state outside
+//! `Live`, takes no locks, spawns nothing and reads no clock (time
+//! comes in as `now`); logging is allowed. Guards against incoherent
 //! event streams live here (stale replays, seek confirmation, loading
 //! timeouts); the provider only supplies resolved events.
 
