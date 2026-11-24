@@ -13,6 +13,7 @@ pub mod atomic_file;
 pub mod audio;
 pub mod display;
 pub mod identity;
+pub mod logs;
 pub mod paths;
 #[cfg(feature = "wifi-setup")]
 pub mod reset;

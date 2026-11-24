@@ -86,8 +86,8 @@ call sites read the constants.
 | `MESTRO_ENV_FILE` | `/data/state/mestro/mestro.env` | mestro-os (`timezone`) | the env file mestro owns and writes whole (`TZ=`, from the timezone setting); S50mestro sources it before the user's `/data/mestro.env` — must match that path |
 | `MESTRO_ZONEINFO_DIR` | `/usr/share/zoneinfo` | mestro-os (`timezone`) | the zoneinfo database a chosen zone must exist in; the timezone picker shows only while it exists |
 | `MESTRO_LOCALTIME` | `/etc/localtime` | mestro-os (`timezone`) | the system zone link, read to learn the running zone when `TZ` is unset |
-| `MESTRO_DIAG_LOGS` | `/tmp/mestro.log:/tmp/mestro.log.old:/tmp/ota.log` | mestro-remote (`server/diagnostics`) | colon-separated log files whose last 200 lines go into the diagnostics download (`.old` is the previous run); a missing file is skipped |
-| `MESTRO_DIAG_STATUS` | `/usr/sbin/mestro-upgrade --status` | mestro-remote (`server/diagnostics`) | the command whose output joins the diagnostics download (split on whitespace, no shell, 5 s budget); empty = none |
+| `MESTRO_LOG_DIR` | `/tmp` | mestro-os (`logs`) | where the init scripts log: `mestro.log` and the previous run `mestro.log.old` (S50mestro), `ota.log` (S04trial, S99ota, mestro-upgrade); the diagnostics download tails them, plus the last trial boot's copies under `$XDG_STATE_HOME/mestro/trial-boot/` — must match the scripts |
+| `MESTRO_STATUS_COMMAND` | `/usr/sbin/mestro-upgrade --status` | mestro-os (`logs`) | the command whose output joins the diagnostics download (split on whitespace, no shell, 5 s budget); empty = none |
 | `MESTRO_WPA_CTRL_DIR` | `/run/wpa_supplicant` | mestro-os (`wifi::paths`) | wpa_supplicant's control socket directory (the wifi setup lane) |
 | `MESTRO_WPA_CONF` | `/data/wpa_supplicant.conf` | mestro-os (`wifi::paths`) | the persistent STA conf; must match what the boot scripts start wpa_supplicant with |
 | `MESTRO_WPA_TEMPLATE` | `/etc/mestro-defaults/wpa_supplicant.conf` | mestro-os (`wifi::paths`) | the image's seeded default conf the factory reset restores (setup lane); a missing template means the credentials are removed instead |

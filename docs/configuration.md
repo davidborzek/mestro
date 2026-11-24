@@ -261,10 +261,10 @@ The image's paths and commands are build settings (`MESTRO_*` at
 `cargo build` time, not run-time env). `mestro-os`'s one `build.rs`
 owns the wpa trio (`MESTRO_WPA_CTRL_DIR`, `MESTRO_WPA_CONF`,
 `MESTRO_WPA_TEMPLATE`), the squeezelite pair
-(`MESTRO_SQUEEZELITE_ENV`, `MESTRO_SQUEEZELITE_RESTART`) and the
+(`MESTRO_SQUEEZELITE_ENV`, `MESTRO_SQUEEZELITE_RESTART`), the
 timezone trio (`MESTRO_ENV_FILE`, `MESTRO_ZONEINFO_DIR`,
-`MESTRO_LOCALTIME`); the binary keeps only `MESTRO_DIAG_LOGS` and
-`MESTRO_DIAG_STATUS`. Defaults and meaning: CONTRIBUTING.md,
+`MESTRO_LOCALTIME`) and the log locations (`MESTRO_LOG_DIR`,
+`MESTRO_STATUS_COMMAND`). Defaults and meaning: CONTRIBUTING.md,
 "Building for another image".
 | flag | effect |
 |---|---|

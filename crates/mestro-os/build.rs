@@ -16,6 +16,9 @@ const IMAGE_VARS: &[&str] = &[
     "MESTRO_ENV_FILE",
     "MESTRO_ZONEINFO_DIR",
     "MESTRO_LOCALTIME",
+    // logs
+    "MESTRO_LOG_DIR",
+    "MESTRO_STATUS_COMMAND",
 ];
 
 fn main() {

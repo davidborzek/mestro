@@ -25,27 +25,11 @@ use super::http::json;
 use super::pair::Pairing;
 use crate::{UiPort, WebInfo, WifiChannel};
 use mestro_ipc::web::{Envelope, Request, Response, SettingsOp, WifiOp};
-use mestro_os::paths::setting;
 use serde_json::{json, Map, Value};
 use std::path::Path;
 use std::sync::Arc;
 
 const REDACTED: &str = "[redacted]";
-
-/// the log files a report tails, colon-separated (the image logs
-/// mestro and the OTA scripts to tmpfs; the `.old` file is the
-/// previous run — what a crash leaves)
-const DIAG_LOGS: &str = setting(
-    option_env!("MESTRO_DIAG_LOGS"),
-    "/tmp/mestro.log:/tmp/mestro.log.old:/tmp/ota.log",
-);
-
-/// the command whose output joins a diagnostics report (split on
-/// whitespace, no shell); empty = none
-const DIAG_STATUS: &str = setting(
-    option_env!("MESTRO_DIAG_STATUS"),
-    "/usr/sbin/mestro-upgrade --status",
-);
 
 /// key names whose values never leave the device
 const SECRET_KEY_NAMES: &[&str] = &[
@@ -395,7 +379,7 @@ fn read_tail(path: &Path) -> Option<String> {
 /// the log files a report tails, the small files it copies whole
 /// and the command whose output joins it (kernel version and sound
 /// cards are Linux facts; the logs and the command are the image's,
-/// build settings in this module)
+/// owned by `mestro_os::logs`)
 #[derive(Debug, Clone, PartialEq)]
 pub struct Sources {
     pub logs: Vec<String>,
@@ -410,14 +394,13 @@ impl Sources {
     /// what a report collects on the player image
     pub fn image() -> Self {
         Self {
-            logs: DIAG_LOGS
-                .split(':')
-                .filter(|path| !path.is_empty())
-                .map(String::from)
+            logs: mestro_os::logs::image_diagnostic_logs()
+                .iter()
+                .map(|path| path.display().to_string())
                 .collect(),
             log_lines: LOG_LINES,
             files: KERNEL_FILES.iter().map(|path| path.to_string()).collect(),
-            status_command: DIAG_STATUS.to_string(),
+            status_command: mestro_os::logs::STATUS_COMMAND.to_string(),
         }
     }
 }
@@ -707,38 +690,6 @@ mod tests {
     use std::time::Duration;
 
     #[test]
-    fn the_diagnostics_settings_follow_their_build_variables() {
-        assert_eq!(
-            DIAG_LOGS,
-            option_env!("MESTRO_DIAG_LOGS")
-                .unwrap_or("/tmp/mestro.log:/tmp/mestro.log.old:/tmp/ota.log")
-        );
-        assert_eq!(
-            DIAG_STATUS,
-            option_env!("MESTRO_DIAG_STATUS").unwrap_or("/usr/sbin/mestro-upgrade --status")
-        );
-    }
-
-    #[test]
-    fn build_rs_reruns_on_every_variable_read_here() {
-        let build_rs = include_str!("../../build.rs");
-        let source = include_str!("diagnostics.rs");
-        let vars: Vec<&str> = source
-            .split("option_env!(\"")
-            .skip(1)
-            .filter_map(|rest| rest.split('"').next())
-            .filter(|var| var.starts_with("MESTRO_"))
-            .collect();
-        assert!(!vars.is_empty());
-        for var in vars {
-            assert!(
-                build_rs.contains(&format!("\"{var}\"")),
-                "build.rs must emit rerun-if-env-changed for {var}"
-            );
-        }
-    }
-
-    #[test]
     fn secret_named_keys_are_redacted_at_any_depth() {
         let tree = json!({
             "music-assistant": {"url": "http://ma", "token": "TOKEN-123456", "token-set": true},
@@ -951,13 +902,12 @@ mod tests {
     #[test]
     fn the_image_sources_split_the_log_list_and_name_no_secret_path() {
         let sources = Sources::image();
-        assert_eq!(
-            sources.logs,
-            DIAG_LOGS
-                .split(':')
-                .filter(|path| !path.is_empty())
-                .collect::<Vec<_>>()
-        );
+        let expected: Vec<String> = mestro_os::logs::image_diagnostic_logs()
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect();
+        assert_eq!(sources.logs, expected);
+        assert_eq!(sources.status_command, mestro_os::logs::STATUS_COMMAND);
         assert_eq!(sources.log_lines, 200);
         assert_eq!(sources.files, ["/proc/version", "/proc/asound/cards"]);
         for path in sources.logs.iter().chain(&sources.files) {
