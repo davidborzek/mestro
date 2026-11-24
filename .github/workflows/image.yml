@@ -1,0 +1,137 @@
+# The Pi image, built in the same container as a local build
+# (image/scripts/enter.sh, image/README.md). Every push to main that
+# can change the image produces a test image as an artifact; a v* tag
+# builds the release and attaches it to a GitHub release.
+# Every action is pinned to a full commit SHA.
+name: image
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths:
+      - ".github/workflows/image.yml"
+      - "buildroot"
+      - "image/**"
+      - "crates/**"
+      - "web/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "Makefile"
+  pull_request:
+    paths:
+      - ".github/workflows/image.yml"
+      - "buildroot"
+      - "image/**"
+      - "Makefile"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    # a cold build (empty ccache) takes about an hour on a hosted runner
+    timeout-minutes: 180
+    env:
+      MESTRO_CACHE_DIR: /mnt/cache
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          submodules: true
+          # the version string carries `git describe` of this commit
+          fetch-depth: 0
+
+      - name: Check the tag against the crate version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          crate=$(sed -n 's/^version = "\(.*\)"$/\1/p' crates/mestro/Cargo.toml | head -n1)
+          if [ "v${crate}" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match crates/mestro version ${crate}"
+            exit 1
+          fi
+
+      # a hosted runner has ~14 GB free on /; the Buildroot output is
+      # ~15 GB. /mnt has ~70 GB: the cache volume and the output tree
+      # go there (the same trick Home Assistant OS uses). The output
+      # is bind-mounted into the checkout — a symlink would point
+      # outside the repo mount the build container sees
+      - name: Free space for the build
+        run: |
+          set -euo pipefail
+          df -h / /mnt
+          sudo rm -rf /usr/local/lib/android /opt/hostedtoolcache/CodeQL /usr/share/dotnet /opt/ghc
+          sudo mkdir -p /mnt/cache /mnt/output
+          sudo chown -R "$(id -u):$(id -g)" /mnt/cache /mnt/output
+          mkdir output
+          sudo mount --bind /mnt/output output
+          df -h / /mnt
+
+      - name: "Restore cache: downloads"
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /mnt/cache/dl
+          key: image-dl-${{ hashFiles('image/configs/*_defconfig', 'image/package/**/*.mk', 'image/package/**/*.hash', 'image/patches/**', 'Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            image-dl-${{ hashFiles('image/configs/*_defconfig', 'image/package/**/*.mk', 'image/package/**/*.hash', 'image/patches/**', 'Cargo.lock') }}-
+            image-dl-
+
+      - name: "Restore cache: ccache"
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /mnt/cache/cc
+          key: image-cc-${{ github.sha }}
+          restore-keys: image-cc-
+
+      - name: Build the image
+        run: image/scripts/enter.sh make mestro_pi4 JOBS="$(nproc)"
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          version=$(git describe --always --dirty)
+          cp output/images/Image "dist/mestro-${version}-pi4.Image"
+          xz -T0 -6 -c output/images/mestro.img > "dist/mestro-${version}-pi4.img.xz"
+          (cd dist && sha256sum -- * > SHA256SUMS)
+          cat dist/SHA256SUMS
+          du -sh /mnt/cache/dl /mnt/cache/cc
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mestro-pi4-image
+          path: dist/
+          retention-days: 14
+          # the image is already compressed
+          compression-level: 0
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: mestro-pi4-image
+          path: dist
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          prerelease=
+          case "$GITHUB_REF_NAME" in *-*) prerelease=--prerelease ;; esac
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            --draft \
+            $prerelease
