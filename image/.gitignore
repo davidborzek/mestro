@@ -1,2 +1,1 @@
-image/bin/
-dl/
+# image build outputs live in the repo root output/ (gitignored)

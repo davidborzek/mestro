@@ -7,9 +7,12 @@
 # goldens (must stay byte-identical) and web/dist.
 
 # markdown stays hand-wrapped prose, image/package C would need
-# clang-format, Kconfig/defconfig have no formatter — all left alone
+# clang-format, Kconfig/defconfig have no formatter — all left alone.
+# The Buildroot submodule is upstream's code, output/ its build tree
 excludes = [
   "*.md",
+  "buildroot/**",
+  "output/**",
   "crates/mestro/src/settings/schema-golden.json",
   "web/src/lib/mockSchema.json",
   "web/node_modules/**",

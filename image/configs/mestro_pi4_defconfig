@@ -4,7 +4,8 @@
 # - BusyBox init (no systemd), dropbear for recovery access
 # - mesa3d v3d + EGL/GLESv2: the slint linuxkms skia renderer
 #   gets GPU acceleration on the Pi 4/5 (vc4/v3d KMS)
-# - mestro (prebuilt aarch64 binary) + squeezelite (VISEXPORT)
+# - mestro (built from this repository via the cargo package) +
+#   squeezelite (VISEXPORT)
 # - rootfs as initramfs: the whole system runs from RAM,
 #   the SD card is only read at boot
 # - genimage builds boot FAT + data FAT around the kernel image
@@ -16,7 +17,11 @@ BR2_ARM_FPU_VFPV4=y
 BR2_TOOLCHAIN_EXTERNAL=y
 BR2_TOOLCHAIN_EXTERNAL_BOOTLIN=y
 BR2_TOOLCHAIN_EXTERNAL_BOOTLIN_AARCH64_GLIBC_STABLE=y
-BR2_DL_DIR="$(BR2_EXTERNAL_MESTROIMAGE_PATH)/../dl"
+# caches live on the /cache volume the build container mounts —
+# they survive `make clean` and are shared with CI
+BR2_DL_DIR="/cache/dl"
+BR2_CCACHE=y
+BR2_CCACHE_DIR="/cache/cc"
 BR2_DOWNLOAD_FORCE_CHECK_HASHES=y
 
 # system: busybox init, dhcp on eth0, dropbear for recovery

@@ -1,0 +1,8 @@
+config BR2_PACKAGE_FONT_MATERIAL_SYMBOLS
+	bool "font-material-symbols"
+	help
+	  Material Symbols — the icon font of the kiosk UI
+	  (Apache-2.0). Installs the outlined variable TTF that
+	  board/mestro/common/fonts.conf expects.
+
+	  https://fonts.google.com/icons

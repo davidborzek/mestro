@@ -50,49 +50,104 @@ system that runs entirely from RAM — piCorePlayer-style.
 
 ## Build
 
-First image, from scratch (see [README](../README.md) for the
-player itself):
+Everything builds inside one container — locally with podman, in
+CI with docker, the same image (`image/Dockerfile`): a pinned
+Buildroot submodule plus a BR2_EXTERNAL tree (this `image/`
+directory) that owns the defconfig, the packages and the board
+files. Nothing on the host is needed beyond the container runtime
+and git (for the submodule); in particular the image build never
+touches nix — the dev shells stay for the player itself.
 
 ```sh
-git clone https://github.com/buildroot/buildroot
-cd buildroot
-# NixOS only: buildroot insists on a literal /usr/bin/file
-# (legacy libtool workaround). Plain PATH lookup works fine here:
-sed -i 's|^check_prog_host "/usr/bin/file"$|check_prog_host "file"|' \
-  support/dependencies/dependencies.sh
-nix develop /path/to/mestro#image -c \
-  make BR2_EXTERNAL=/path/to/mestro/image mestro_pi4_defconfig
-
-# stages bin/mestro + fonts behind image/bin — on the fresh tree
-# it bootstraps toolchain + the binary's runtime libs
-# (`make mestro-depends`) before cross-building the binary
-nix develop -c /path/to/mestro/image/scripts/build-mestro-aarch64.sh
-
-nix develop /path/to/mestro#image -c make -j$(nproc)
+git clone <mestro> && cd mestro
+image/scripts/enter.sh make mestro_pi4
 # → output/images/mestro.img
 ```
 
-The script runs a plain `cargo build` for aarch64 in the flake's
-`.#pi` shell, linked against this Buildroot tree's toolchain and
-sysroot — so it needs the tree configured first (the `mestro_pi4_defconfig`
-step above), but nothing built: the script's `make mestro-depends`
-bootstrap produces the toolchain and the sysroot libs. The staged
-payload lands in `~/.cache/pi/mestro-image-bin` (or the stage-dir
-argument), linked from `image/bin`. `mestro-dirclean` before a
-`make` is not optional once an image exists: the package rsyncs
-with `-u` and skips a binary that is not newer than the copy it
-already has.
+`enter.sh` builds the container, inits the `buildroot/` submodule
+if needed, and runs the command with the repo mounted at `/build`
+and the cache volume at `/cache`, as the calling user. Build from
+a regular clone: in a `git worktree` the `.git` file points
+outside the mount, so the image's version string loses its git
+hash. With no
+command it opens a shell in the container — that is where
+`make menuconfig`, `make clean` and the Buildroot targets below
+belong.
 
-```sh
-image/scripts/build-mestro-aarch64.sh   # → ~/.cache/pi/mestro-image-bin, links image/bin
-cd buildroot && nix develop /path/to/mestro#image -c \
-  bash -c 'make mestro-dirclean && make -j$(nproc)'
-```
+The cache volume (default `~/.cache/pi/mestro-cache`, override
+with `MESTRO_CACHE_DIR`) holds everything that survives
+`make clean`:
 
-For quick tests on a running kiosk, skip the image: build with
-`cargo build --profile pi` in `.#pi` and swap `/usr/bin/mestro`
-live (the root is a writable overlay; the swap is gone after a
-reboot).
+| dir | content |
+|---|---|
+| `dl/` | the Buildroot download cache, incl. the cargo crate cache (`dl/br-cargo-home`) |
+| `cc/` | ccache |
+| `bun/` | the bun package cache (the web app build) |
+
+The build output (`output/`, gitignored) stays in the tree —
+`make clean` keeps its `host/` toolchain, so only the target
+packages rebuild. A first build with an empty cache needs network
+(cargo fetches the crate set once); afterwards everything,
+including `make clean` cycles, runs offline.
+
+The root `Makefile` is the entry point:
+
+| command | effect |
+|---|---|
+| `make mestro_pi4` | defconfig + build the image |
+| `make mestro_pi4-config` | only (re)write `output/.config` |
+| `make web` | rebuild `web/dist` (the mestro crate embeds it) |
+| `make <buildroot target>` | falls through to Buildroot (`clean`, `menuconfig`, `mestro-dirclean`, `show-info`, …) |
+
+`make mestro_pi4` rebuilds the mestro package first (`mestro-rebuild`):
+a local-source package is rsynced into the build tree once, so
+without that step the image would keep the sources of the previous
+build. The rsync excludes `buildroot/`, `output/`, `target/` and
+`web/node_modules` — `web/dist` is included on purpose.
+
+### The Buildroot pin
+
+`buildroot/` is a git submodule pinned to a stable tag
+(2026.08.x). Buildroot releases quarterly; a regular series gets
+bugfix releases until the next one, the February release of every
+odd year is an LTS series with three years of bugfix and security
+releases. We ride the current stable line and settle on the next
+LTS (2027.02.x, spring 2027), following its point releases.
+
+The pin defines the whole package set, toolchain included: the
+image ships what the tag ships, not what Buildroot `master` has.
+2026.08.x comes with the Bootlin 2025.08-1 toolchain (glibc 2.41)
+— extensions with prebuilt binaries must not need a newer glibc
+(python-build-standalone and static Go/Rust tools don't). Bumps are **manual** — commit the new
+gitlink, never let automation touch it (Renovate does not manage
+submodules) — and one bump = one PR that rebuilds the image and
+re-checks the package versions (`make show-info`) plus the rootfs
+file list against the previous build.
+
+### How the player binary builds
+
+`mestro` is a regular Buildroot cargo package
+(`image/package/mestro`): the source is the repository itself
+(local site method), Buildroot compiles it with its own Rust
+toolchain (a newer rustc than the dev shells — check CI warnings
+on bumps) and links it against the sysroot it just built. The
+crate set is vendored into the build tree at package-extract time
+(same as Buildroot's own cargo packages; the crate cache lives on
+the /cache volume). The kiosk features are pinned in the package:
+`linuxkms,ota,wifi-setup,audio-output,timezone`.
+
+The fonts ship as their own packages (`image/package/font-inter`,
+`font-material-symbols`), pinned upstream and hash-checked,
+installing exactly the two files `board/mestro/common/fonts.conf`
+lists.
+
+### Quick tests on a running kiosk
+
+Skip the image: `nix develop .#pi -c cargo build --profile pi`
+links against the container-built toolchain in `output/host`
+(build the image once first) and produces a binary for the exact
+libs the image ships — swap `/usr/bin/mestro` live (the root is a
+writable overlay; the swap is gone after a reboot).
 
 ## Extensions (tcz)
 
@@ -123,7 +178,7 @@ Three sourcing recipes, pick by situation:
 | Source | Recipe |
 |---|---|
 | Buildroot package (`BR2_PACKAGE_*`) | `make <pkg>` in a copy of the buildroot tree with the same defconfig, extract the package's files from `output/target`, mksquashfs — exact toolchain match |
-| Prebuilt standalone tarball (python-build-standalone, Go tools, …) | unpack, mksquashfs — binaries built against older glibc run against the image's glibc 2.44 |
+| Prebuilt standalone tarball (python-build-standalone, Go tools, …) | unpack, mksquashfs — binaries built against older glibc run against the image's glibc 2.41 |
 | Your own files | arrange a directory tree as it should appear under /, mksquashfs |
 
 Everything on `/data` survives re-flashes and OTA upgrades — the
@@ -153,8 +208,8 @@ trial, no re-flashing:
 
 ```sh
 # stream it from the build machine (nothing is buffered in RAM)
-cat ~/.cache/pi/buildroot/output/images/Image | \
-	ssh root@<pi> "mestro-upgrade --reboot - $(sha256sum ~/.cache/pi/buildroot/output/images/Image | cut -d' ' -f1)"
+cat output/images/Image | \
+	ssh root@<pi> "mestro-upgrade --reboot - $(sha256sum output/images/Image | cut -d' ' -f1)"
 ```
 
 The trial uses the firmware's one-shot `tryboot`: that boot reads
