@@ -1,0 +1,192 @@
+// A build script panics on purpose: a failed embed or a missing
+// OUT_DIR is a build error, not a runtime condition to propagate.
+// (mestro denies unwrap/expect everywhere else — see [lints] in
+// Cargo.toml.)
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
+/// the Gregorian year of a unix timestamp (days → civil date, the
+/// well-known days-from-civil inverse) — no date crate in a build script
+fn year_of(epoch_seconds: i64) -> i64 {
+    let days = epoch_seconds.div_euclid(86_400) + 719_468;
+    let era = days.div_euclid(146_097);
+    let day_of_era = days.rem_euclid(146_097);
+    let year_of_era =
+        (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_shifted = (5 * day_of_year + 2) / 153;
+    let year = year_of_era + era * 400;
+    // January and February belong to the next shifted year
+    if month_shifted >= 10 {
+        year + 1
+    } else {
+        year
+    }
+}
+
+fn main() {
+    // the image's diagnostics build-time variables are read with
+    // option_env! (src/remote/web/server/diagnostics.rs); a
+    // changed variable must recompile.
+    // Listed in CONTRIBUTING.md "Building for another image"
+    for var in ["MESTRO_DIAG_LOGS", "MESTRO_DIAG_STATUS"] {
+        println!("cargo:rerun-if-env-changed={var}");
+    }
+
+    // the image's timezone build-time variables moved with the
+    // timezone module into mestro-os: its build.rs reruns on them
+
+    // component-container is experimental and gates ComponentContainer
+    // + component-factory, which the runtime VU skins (ui/vu/page.slint)
+    // are built on. slint 1.19 names the features instead of accepting "1"
+    std::env::set_var("SLINT_ENABLE_EXPERIMENTAL_FEATURES", "component-container");
+
+    // track every file under ui/ and skins/: the slint compiler
+    // embeds images at build time and manifest.rs include_str!s
+    // the built-in manifests, so an SVG or TOML change must
+    // recompile even when no .slint file changed
+    fn walk(dir: &std::path::Path) {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            println!("cargo:rerun-if-changed={}", path.display());
+            if path.is_dir() {
+                walk(&path);
+            }
+        }
+    }
+    walk(std::path::Path::new("ui"));
+    walk(std::path::Path::new("skins"));
+
+    // the same edition as SLINT_EDITION in src/vu/mod.rs
+    slint_build::compile_with_config(
+        "ui/mestro.slint",
+        slint_build::CompilerConfiguration::new().with_edition((1, 19)),
+    )
+    .unwrap();
+
+    // the short git hash next to the crate version (empty without
+    // git, e.g. in the nix sandbox) — the crate lives under crates/,
+    // the repository root is two levels up
+    println!("cargo:rerun-if-changed=../../.git/HEAD");
+    let git = std::process::Command::new("git")
+        .args(["describe", "--always", "--dirty"])
+        .output()
+        .ok()
+        .filter(|out| out.status.success())
+        .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
+        .unwrap_or_default();
+    println!("cargo:rustc-env=MESTRO_GIT={git}");
+
+    // the build year: the standby clock and the topbar show "--:--"
+    // while the system year is older (no RTC, NTP not answered yet —
+    // src/standby/time.rs). The wall clock, deliberately not
+    // SOURCE_DATE_EPOCH: the dev shell pins that to 1980, which would
+    // make every date after the epoch look trustworthy. A cached build
+    // script only ever leaves an older year behind, the permissive side
+    let epoch = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .and_then(|elapsed| i64::try_from(elapsed.as_secs()).ok())
+        .unwrap_or(0);
+    std::fs::write(
+        std::path::Path::new(&std::env::var("OUT_DIR").expect("OUT_DIR")).join("build_year.rs"),
+        format!("pub const BUILD_YEAR: i32 = {};\n", year_of(epoch)),
+    )
+    .unwrap();
+
+    // ── the embedded web app (PWA) ──
+    // pattern: the build/release process runs the Vite build first
+    // (`bun run build` in web/), this only embeds the result.
+    // $MESTRO_WEB_DIST points at a prebuilt dist DIRECTORY (a
+    // release pipeline may pass its own); a single index.html file
+    // still works (the pre-PWA layout).
+    // The dev loop uses `bun run dev` (Vite + ws proxy) and never
+    // rebuilds this.
+    println!("cargo:rerun-if-env-changed=MESTRO_WEB_DIST");
+    println!("cargo:rerun-if-changed=../../web/dist");
+    // the web app is a repository sibling of the crate: web/ stays
+    // at the workspace root, the crate lives under crates/mestro.
+    // A relative $MESTRO_WEB_DIST is taken from the workspace root
+    // like the default, not from this script's cwd (crates/mestro);
+    // join leaves an absolute path as it is
+    let workspace_root =
+        std::path::Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("../..");
+    let dist = workspace_root
+        .join(std::env::var("MESTRO_WEB_DIST").unwrap_or_else(|_| "web/dist".to_string()));
+    let out = std::path::PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
+    let table = match embed_table(&dist) {
+        Ok(table) => table,
+        Err(e) => panic!(
+            "cannot embed the web app from {}: {e}\n\
+             build it first: `cd web && bun install && bun run build`\n\
+             or set MESTRO_WEB_DIST to a prebuilt dist directory",
+            dist.display()
+        ),
+    };
+    std::fs::write(out.join("mestro-web-assets.rs"), table).expect("write the asset table");
+}
+
+/// the embedded file table (path + absolute include_bytes! path),
+/// one entry per file under the dist dir. Paths are URL paths:
+/// '/' + the file's path relative to the dist root, forward slashes
+fn embed_table(dist: &std::path::Path) -> Result<String, String> {
+    let dist = dist
+        .canonicalize()
+        .map_err(|e| format!("{}: {e}", dist.display()))?;
+    let meta = std::fs::metadata(&dist).map_err(|e| e.to_string())?;
+    // the pre-PWA layout: a single index.html file
+    let files: Vec<std::path::PathBuf> = if meta.is_file() {
+        vec![dist.clone()]
+    } else {
+        walk(&dist)?
+    };
+    if files.is_empty() {
+        return Err("no files under it".into());
+    }
+    for file in &files {
+        println!("cargo:rerun-if-changed={}", file.display());
+    }
+    let mut table = String::from("// generated by build.rs — every file under the web dist dir\n");
+    table.push_str("&[\n");
+    for file in files {
+        let url = url_path(&dist, &file);
+        table.push_str(&format!(
+            "    Asset {{ path: {url:?}, bytes: include_bytes!({:?}) }},\n",
+            file
+        ));
+    }
+    table.push(']');
+    Ok(table)
+}
+
+fn walk(dir: &std::path::Path) -> Result<Vec<std::path::PathBuf>, String> {
+    let mut files = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).map_err(|e| format!("{}: {e}", dir.display()))? {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else {
+                files.push(path);
+            }
+        }
+    }
+    files.sort();
+    Ok(files)
+}
+
+/// the dist file's URL: '/' + relative path with forward slashes
+/// (a lone dist file serves as the index)
+fn url_path(dist: &std::path::Path, file: &std::path::Path) -> String {
+    if dist == file {
+        return "/index.html".into();
+    }
+    let rel = file
+        .strip_prefix(dist)
+        .unwrap_or(file)
+        .to_string_lossy()
+        .replace('\\', "/");
+    format!("/{rel}")
+}

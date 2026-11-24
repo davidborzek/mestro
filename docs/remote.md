@@ -84,7 +84,11 @@ with the endpoint. Check with `avahi-browse -rt _mestro._tcp`.
 - A **pairing PIN** (8 chars, alphabet without `0/O/1/I`, from
   `/dev/urandom`) gates the protocol. It is **restart-stable** —
   persisted `0600` in the XDG state dir (`web-pin`) so the URL a
-  phone scanned survives app updates.
+  phone scanned survives app updates. The file is written
+  atomically (tmp file in the same directory, mode `0600` set
+  *before* the rename, fsync, rename): it never exists with wider
+  permissions and a power cut leaves the old or the new PIN, never
+  a torn one.
 - The player URL carries the PIN in the **hash**
   (`http://host:port/#pair=…`): HTTP middlemen never log a
   fragment. The PWA consumes the hash once (drops it from the
@@ -145,8 +149,11 @@ The classic captive-portal probes go to port 80: on another
 `[remote] port`, only clients that honor DHCP option 114 open the
 setup page on their own.
 The verdict is re-checked when a wifi op executes (a request that
-queued while the hotspot was up must not run after it ended), and
-the socket closes the moment AP mode ends.
+queued while the hotspot was up must not run after it ended): the
+request carries the sender-side verdict as a distilled flag —
+`Ingress::of_peer` (the web endpoint) decides, the wifi manager
+re-checks it against the live AP state (`crates/mestro-os/src/wifi`,
+`WifiRequest`). The socket closes the moment AP mode ends.
 
 The captive portal rides the same rule: for an AP-trusted
 connection, the OS connectivity probes (`/generate_204`,
@@ -543,7 +550,7 @@ per key. A custom skin whose art files changed on disk without
 a config edit stays stale until the day-long browser cache
 expires.
 
-Settings writes map 1:1 onto the player's `control::Command`
+Settings writes map 1:1 onto the player's `mestro_ipc::command::Command`
 vocabulary (`SetSetting`/`ResetSetting`/`ResetAllSettings`) — one
 dispatch path for touch UI, keyboard and web.
 

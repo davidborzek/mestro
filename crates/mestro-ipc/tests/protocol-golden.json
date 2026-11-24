@@ -1,0 +1,165 @@
+{
+  "internal": [
+    {
+      "op": "ma-token"
+    },
+    {
+      "kind": "vu",
+      "name": "round",
+      "op": "preview"
+    }
+  ],
+  "requests": [
+    {
+      "id": 1,
+      "op": "hello"
+    },
+    {
+      "action": "state",
+      "id": 2,
+      "op": "settings"
+    },
+    {
+      "action": "schema",
+      "id": 3,
+      "op": "settings"
+    },
+    {
+      "action": "set",
+      "id": 4,
+      "key": "vu.skin",
+      "op": "settings",
+      "value": "round"
+    },
+    {
+      "action": "set",
+      "id": 5,
+      "key": "osd.toast-duration",
+      "op": "settings",
+      "value": 2600
+    },
+    {
+      "action": "reset",
+      "id": 6,
+      "key": "vu.skin",
+      "op": "settings"
+    },
+    {
+      "action": "reset-all",
+      "id": 7,
+      "op": "settings"
+    },
+    {
+      "action": "restart",
+      "id": 8,
+      "op": "settings"
+    },
+    {
+      "action": "factory-reset",
+      "id": 9,
+      "op": "settings",
+      "wifi": true
+    },
+    {
+      "action": "probe",
+      "id": 10,
+      "op": "ma",
+      "url": "http://ma.local:8095"
+    },
+    {
+      "action": "login",
+      "id": 11,
+      "op": "ma",
+      "password": "secret",
+      "url": "http://ma.local:8095",
+      "username": "admin"
+    },
+    {
+      "action": "players",
+      "id": 12,
+      "op": "ma",
+      "url": "http://ma.local:8095"
+    },
+    {
+      "cmd": "play-pause",
+      "id": 13,
+      "op": "ctl"
+    },
+    {
+      "action": "volume",
+      "id": 14,
+      "op": "player",
+      "value": 42
+    },
+    {
+      "action": "scan",
+      "id": 15,
+      "op": "wifi"
+    },
+    {
+      "action": "join",
+      "id": 16,
+      "op": "wifi",
+      "psk": "secret",
+      "ssid": "Home"
+    },
+    {
+      "action": "join",
+      "id": 17,
+      "op": "wifi",
+      "psk": null,
+      "ssid": "Open"
+    },
+    {
+      "action": "status",
+      "id": 18,
+      "op": "wifi"
+    },
+    {
+      "action": "outputs",
+      "id": 19,
+      "op": "audio"
+    },
+    {
+      "action": "set",
+      "id": 20,
+      "op": "audio",
+      "output": "hw:CARD=S3"
+    },
+    {
+      "action": "zones",
+      "id": 21,
+      "op": "timezone"
+    },
+    {
+      "action": "set",
+      "id": 22,
+      "op": "timezone",
+      "zone": "Europe/Berlin"
+    },
+    {
+      "action": "adopt",
+      "id": 23,
+      "op": "timezone",
+      "zone": "Asia/Tokyo"
+    }
+  ],
+  "responses": [
+    {
+      "data": {
+        "volume": 42
+      },
+      "id": 1,
+      "ok": true
+    },
+    {
+      "id": 2,
+      "ok": true
+    },
+    {
+      "error": "unknown op",
+      "id": 3,
+      "ok": false
+    }
+  ]
+}

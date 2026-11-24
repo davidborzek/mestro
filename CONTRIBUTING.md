@@ -2,30 +2,46 @@
 
 ## Layout
 
+A Cargo workspace (see [docs/architecture.md](docs/architecture.md)):
+the binary and UI in `crates/mestro`, focused crates for the
+device/domain code beside it.
+
 ```text
-src/
-  main.rs, app/    the binary: wiring, command dispatch, ticker
-  config/          TOML config, the settings overlay merge, lenient
-                   parsing (a broken key is dropped and reported)
-  settings/        the settings page: overlay handle, UI sync
-  player/          what plays: state machine, now playing, queue,
-                   cover art
-  library/         browse, drill-down, search
-  standby/         clock faces, custom skins, image backdrop
-  vu/              VU faceplates and the spectrum
-  display/         backlight backends (Pi firmware, sysfs)
-  ui/              navigation stack, OSD, accent palette
-  providers/       PlaybackSource trait + the Music Assistant client
-  remote/          control vocabulary, ctl socket, web endpoint, QR
-  system/          wifi hotspot + first-boot setup, factory reset
-                   (feature `wifi-setup`); the mestro-owned env files,
-                   audio output and timezone pickers (features
-                   `audio-output`, `timezone`)
-  restart.rs       self-restart after a settings change or update
-ui/                the slint views (mestro.slint is the root)
+crates/
+  mestro/
+    src/
+      main.rs, app/  the binary: wiring, command dispatch, ticker
+      config/          TOML config, the settings overlay merge, lenient
+                       parsing (a broken key is dropped and reported)
+      settings/        the settings page: overlay handle, UI sync
+      player/          what plays: now playing, queue
+      library/         browse, drill-down, search
+      standby/         clock faces, custom skins, image backdrop
+      vu/              VU faceplates and the spectrum
+      display/         the backlight throttle (the backends live in
+                       mestro-os)
+      ui/              navigation stack, OSD, accent palette
+      providers/       the Music Assistant client (the PlaybackSource
+                       contract lives in mestro-player)
+      remote/          keyboard map, ctl socket, web endpoint, QR
+      restart.rs       self-restart after a settings change or update
+    ui/                the slint views (mestro.slint is the root)
+    tools/             dev tools: wscap (MA protocol capture), vu-feed
+  mestro-os/          the OS crate: everything that talks to the
+                       device's OS or hardware, a module per
+                       capability — the base plumbing, the backlight
+                       backends (display), the wifi lane (wifi),
+                       squeezelite's audio lane (audio), the timezone
+                       picker and the factory reset of the device
+                       state — see docs/architecture.md
+  mestro-ipc/         the wire protocol: the control vocabulary
+                       (command), the web endpoint's JSON requests and
+                       responses (web), the ctl socket's line framing
+                       (ctl) — pure data, no sibling crate
+  mestro-player/      the playback domain: source contract, state
+                       machine, shell, cover seam, artwork palette
 web/               the companion web app (Svelte PWA)
 image/             the Buildroot player image (see image/README.md)
-tools/             dev tools: wscap (MA protocol capture), vu-feed
 ```
 
 ## Dev setup
@@ -45,23 +61,29 @@ ratio.
 The player image's paths and commands are not user settings: they
 are fixed at build time. Set the variable in the environment of
 `cargo build` (e.g. `MESTRO_SQUEEZELITE_ENV=/mnt/squeezelite.env
-cargo build`); unset, the Buildroot image's value applies.
-`src/system/paths.rs` reads them with `option_env!` and `build.rs`
-reruns when one changes, so a cached build never keeps an old value.
-Functions take their paths as parameters (tests use temp dirs);
-only the production call sites read the constants.
+cargo build`); unset, the Buildroot image's value applies. Each
+crate reads exactly its own variables with `option_env!` and its
+`build.rs` reruns when one changes, so a cached build never keeps an
+old value; the helper (`mestro_os::paths::setting`) is shared,
+and the variables are global to cargo, so they reach every crate.
+mestro-os's one `build.rs` reruns on every device variable
+(the module that reads one pins it with a guard test); the
+binary keeps only the diagnostics pair. Functions take their
+paths as parameters (tests use temp dirs); only the production
+call sites read the constants.
 
-| variable | default | what |
-|---|---|---|
-| `MESTRO_SQUEEZELITE_ENV` | `/data/state/mestro/squeezelite.env` | the env file mestro owns and writes whole (`OUTPUT`, `NAME`, `SERVER`, `EXTRA`, from the `audio.*` settings); the only file the init script sources — must match the path S60squeezelite sources |
-| `MESTRO_SQUEEZELITE_RESTART` | `/etc/init.d/S60squeezelite restart` | the command that restarts squeezelite (split on whitespace, no shell); the audio output picker and the env file act only while its program exists |
-| `MESTRO_ENV_FILE` | `/data/state/mestro/mestro.env` | the env file mestro owns and writes whole (`TZ=`, from the timezone setting); S50mestro sources it before the user's `/data/mestro.env` — must match that path |
-| `MESTRO_ZONEINFO_DIR` | `/usr/share/zoneinfo` | the zoneinfo database a chosen zone must exist in; the timezone picker shows only while it exists |
-| `MESTRO_LOCALTIME` | `/etc/localtime` | the system zone link, read to learn the running zone when `TZ` is unset |
-| `MESTRO_DIAG_LOGS` | `/tmp/mestro.log:/tmp/mestro.log.old:/tmp/ota.log` | colon-separated log files whose last 200 lines go into the diagnostics download (`.old` is the previous run); a missing file is skipped |
-| `MESTRO_DIAG_STATUS` | `/usr/sbin/mestro-upgrade --status` | the command whose output joins the diagnostics download (split on whitespace, no shell, 5 s budget); empty = none |
-| `MESTRO_WPA_CTRL_DIR` | `/run/wpa_supplicant` | wpa_supplicant's control socket directory (the wifi setup lane) |
-| `MESTRO_WPA_CONF` | `/data/wpa_supplicant.conf` | the persistent STA conf; must match what the boot scripts start wpa_supplicant with |
+| variable | default | read in | what |
+|---|---|---|---|
+| `MESTRO_SQUEEZELITE_ENV` | `/data/state/mestro/squeezelite.env` | mestro-os (`audio::squeezelite`) | the env file mestro owns and writes whole (`OUTPUT`, `NAME`, `SERVER`, `EXTRA`, from the `audio.*` settings); the only file the init script sources — must match the path S60squeezelite sources |
+| `MESTRO_SQUEEZELITE_RESTART` | `/etc/init.d/S60squeezelite restart` | mestro-os (`audio::squeezelite`) | the command that restarts squeezelite (split on whitespace, no shell); the audio output picker and the env file act only while its program exists |
+| `MESTRO_ENV_FILE` | `/data/state/mestro/mestro.env` | mestro-os (`timezone`) | the env file mestro owns and writes whole (`TZ=`, from the timezone setting); S50mestro sources it before the user's `/data/mestro.env` — must match that path |
+| `MESTRO_ZONEINFO_DIR` | `/usr/share/zoneinfo` | mestro-os (`timezone`) | the zoneinfo database a chosen zone must exist in; the timezone picker shows only while it exists |
+| `MESTRO_LOCALTIME` | `/etc/localtime` | mestro-os (`timezone`) | the system zone link, read to learn the running zone when `TZ` is unset |
+| `MESTRO_DIAG_LOGS` | `/tmp/mestro.log:/tmp/mestro.log.old:/tmp/ota.log` | the binary (`remote/web/server/diagnostics`) | colon-separated log files whose last 200 lines go into the diagnostics download (`.old` is the previous run); a missing file is skipped |
+| `MESTRO_DIAG_STATUS` | `/usr/sbin/mestro-upgrade --status` | the binary (`remote/web/server/diagnostics`) | the command whose output joins the diagnostics download (split on whitespace, no shell, 5 s budget); empty = none |
+| `MESTRO_WPA_CTRL_DIR` | `/run/wpa_supplicant` | mestro-os (`wifi::paths`) | wpa_supplicant's control socket directory (the wifi setup lane) |
+| `MESTRO_WPA_CONF` | `/data/wpa_supplicant.conf` | mestro-os (`wifi::paths`) | the persistent STA conf; must match what the boot scripts start wpa_supplicant with |
+| `MESTRO_WPA_TEMPLATE` | `/etc/mestro-defaults/wpa_supplicant.conf` | mestro-os (`wifi::paths`) | the image's seeded default conf the factory reset restores (setup lane); a missing template means the credentials are removed instead |
 
 ## Formatting
 
@@ -117,7 +139,7 @@ renders. Consequences:
 
 ## Music Assistant protocol notes
 
-Useful when touching `src/providers/ma/` or talking to MA's
+Useful when touching `crates/mestro/src/providers/ma/` or talking to MA's
 WebSocket API elsewhere:
 
 - the auth frame needs a `message_id`, or the session silently
@@ -127,7 +149,7 @@ WebSocket API elsewhere:
 - the event stream is incoherent during transitions: `queue_updated`
   replays the previous `current_item` for ~1.5s after a skip and
   replays the old clock on `queue_time`; natural advances surface
-  seconds late. The state machine (`src/player/state/`) guards all of
+  seconds late. The state machine (`crates/mestro/src/player/state/`) guards all of
   this — providers only emit resolved events, guards never live in
   a provider
 - an external source (AirPlay receiver, Spotify Connect, ...) is
@@ -143,13 +165,13 @@ WebSocket API elsewhere:
   `AirPlay | HiFi | Music Assistant`; the title moves seconds before
   the elapsed clock on a skip; `image_url` is MA's public hostname
   with `size=0`. `current_media` is read ONLY while the source is
-  external (`src/providers/ma/external.rs`); on the queue it lags and
+  external (`crates/mestro/src/providers/ma/external.rs`); on the queue it lags and
   stays ignored. The source's list entry also says what it can do
   (`can_play_pause`, `can_seek`, `can_next_previous`, `can_shuffle`,
   `can_repeat`, `passive`; AirPlay: all false, passive) — the
   transport greys out the rest, and what stays goes to MA as
   `players/cmd/{play,pause,next,previous,seek,shuffle,repeat}`, never
-  to `player_queues/*`. Fixtures: `tests/fixtures/ma/`
+  to `player_queues/*`. Fixtures: `crates/mestro/tests/fixtures/ma/`
 - queue lists must be fetched via `player_queues/items`;
   `queue_updated` carries only an item *count*, and a cleared queue
   arrives *without* `current_item`
@@ -160,7 +182,7 @@ WebSocket API elsewhere:
 ```sh
 # replay a scripted session against your server and dump every
 # frame with sanitized tokens — the tool this knowledge came from
-# (tools/wscap.rs)
+# (crates/mestro/tools/wscap.rs)
 MESTRO_TOKEN=eyJ… cargo run --example wscap -- 16
 ```
 
@@ -174,7 +196,7 @@ MESTRO_TOKEN=eyJ… cargo run --example wscap -- 16
   integer repetition is `for name[index] in N`, if-statements take
   no colon, elements sizing across component boundaries cause
   binding loops — size at the instantiation site
-- colors live in the `Theme` global (`ui/common.slint`), including
+- colors live in the `Theme` global (`crates/mestro/ui/common.slint`), including
   `danger`; palette changes should not introduce hardcodes
 
 ## Logging
@@ -198,7 +220,8 @@ at compile time.
 - **release**: `bun run build` → `web/dist/` (generated, gitignored) —
   hashed assets plus the PWA manifest and icons. `build.rs` embeds
   `$MESTRO_WEB_DIST` (that dist directory, or a single index.html as
-  a legacy fallback) — a release pipeline can pass its own dist.
+  a legacy fallback; a relative path is taken from the repository
+  root) — a release pipeline can pass its own dist.
 - **checks**: `bun run check` (svelte-check), `bun test`, plus
   `bun run build` — and remember the binary embeds `web/dist/` at
   compile time: build the web app before `cargo build`, or the

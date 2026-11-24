@@ -1,0 +1,73 @@
+[package]
+name = "mestro-os"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+# never published to crates.io
+publish = false
+
+[features]
+# one capability per feature, additive — the binary's features carry
+# the same names and forward each
+#
+# the wifi setup lane: the wpa_supplicant ctrl client, AP mode +
+# captive-portal policy, the join state machine and the factory
+# reset's halves. Without it `wifi` is the web↔wifi contract only
+# (ops channel, shutdown/children, the mDNS pause gate, the [wifi]
+# settings) — the parts the web endpoint, the protocol and the
+# restart path name in every build
+wifi-setup = ["dep:sha1", "dep:hmac"]
+# the ALSA output picker and squeezelite's env-file writer; the
+# VISEXPORT shm reader is always built — [vu] mode = "shmem" is
+# not feature-gated
+audio-output = []
+# the timezone picker: zone validation against the device's
+# zoneinfo, the zone list, TZ into mestro's env file
+timezone = []
+
+[dependencies]
+# the wifi ops vocabulary (WifiOp) is part of the wire protocol
+mestro-ipc = { path = "../mestro-ipc", version = "0.1.0" }
+# the EINVAL/ENOTSUP checks of the atomic write, the signal
+# wrapper's kill(2), the wifi lane's foreign-kill constants
+libc = { workspace = true }
+# the [display] backlight choice, the [wifi] section and the ops
+# vocabulary (wire/config data)
+serde = { workspace = true }
+# the wifi ops' reply payload
+serde_json = "1"
+# the persisted fallback device id (hostname-derived hash)
+sha2 = { workspace = true }
+# the shared-state locks: no poisoning, so a panicked thread
+# never takes the pipeline down with it
+parking_lot = { workspace = true }
+# the wifi ops channel: bounded mpsc + oneshot replies, and the
+# manager thread's own (current-thread) runtime
+tokio = { version = "1", features = ["rt", "sync", "time", "macros"] }
+tracing = { workspace = true }
+# the WPA-PSK hash (PBKDF2-HMAC-SHA1): the sha1 sibling of sha2
+# plus hmac — the tiny RustCrypto pair, pulled in only where the
+# kiosk needs them (the wifi-setup lane)
+sha1 = { version = "0.11", optional = true }
+hmac = { version = "0.13", optional = true }
+
+[dev-dependencies]
+# temp-dir state in the atomic-file, identity, display, wifi,
+# audio, timezone and reset tests
+tempfile = "3"
+# the [wifi] section roundtrip test
+toml = "1"
+
+[lints.rust]
+# unsafe only at the two audited sites (the kill(2) wrapper and the
+# Pi firmware mailbox ioctl), with local allows and SAFETY
+# comments; tests/unsafe_pin.rs fails when a third one appears
+unsafe_code = "deny"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"

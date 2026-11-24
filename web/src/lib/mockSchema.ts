@@ -1,5 +1,5 @@
 // dev-only mock of the device's settings schema: the golden JSON
-// the backend serves (src/settings/schema.rs), with the dynamic
+// the backend serves (crates/mestro/src/settings/schema.rs), with the dynamic
 // VU section rebuilt from the configured cycle like the device
 // does, and the preview URLs rewritten to real renders (the mock
 // has no device behind it). Plus the effective config the mock
@@ -11,7 +11,7 @@ import goldenJson from "./mockSchema.json";
 const golden = goldenJson as Schema;
 
 // real preview renders exported by the Rust test
-// (tests/preview_export.rs → web/src/lib/mock-previews). The
+// (crates/mestro/tests/preview_export.rs → web/src/lib/mock-previews). The
 // device's /vu-preview and /clock-preview endpoints cannot run
 // against the mock, so the schema's URLs become asset URLs.
 const previewAssets = import.meta.glob("./mock-previews/*.png", {

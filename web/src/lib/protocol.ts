@@ -1,5 +1,5 @@
 // the JSON vocabulary of the embedded endpoint — mirrors
-// src/remote/web/protocol.rs: `op` names the domain, `action` the verb
+// crates/mestro-ipc/src/web.rs: `op` names the domain, `action` the verb
 
 export type SettingsOp =
   | { action: "state" }

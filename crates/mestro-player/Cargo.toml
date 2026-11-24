@@ -1,0 +1,29 @@
+[package]
+name = "mestro-player"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+# never published to crates.io
+publish = false
+
+[dependencies]
+# cover decode (fetch results, the blur) — same version the binary uses
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+# the M3 score's IndexMap alias is private; the concrete type is ours to build
+indexmap = "2.3"
+ahash = "0.8"
+# the Material You dynamic scheme (accent, tertiary, harmonized danger)
+material-colors = "0.4.2"
+# the shell's shared-state lock (no poisoning)
+parking_lot = { workspace = true }
+# the shell's publish channel
+tokio = { version = "1", features = ["sync"] }
+tracing = { workspace = true }
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"

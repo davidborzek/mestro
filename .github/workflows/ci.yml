@@ -128,7 +128,10 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: kiosk
-      - run: cargo clippy --no-default-features --features linuxkms,ota,wifi-setup,audio-output,timezone --all-targets -- -D warnings
+      - run: cargo clippy -p mestro --no-default-features --features linuxkms,ota,wifi-setup,audio-output,timezone --all-targets -- -D warnings
+      # the OS crate's own clippy run: -p mestro compiles it (the
+      # feature forwards) but lints only the binary
+      - run: cargo clippy -p mestro-os --features wifi-setup,audio-output,timezone --all-targets -- -D warnings
 
   # the fonts mirror the dev shell's FONTCONFIG_FILE for the
   # #[ignore]d visual snapshot tests (they need any text font;
@@ -170,7 +173,12 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: kiosk
-      - run: cargo test --features ota,wifi-setup,audio-output,timezone
+      # the feature flags live on the binary crate (crates/mestro)
+      # and on mestro-os (`wifi-setup`/`audio-output`/`timezone`,
+      # forwarded by the binary's features of the same names);
+      # -p scopes them there
+      - run: cargo test -p mestro --features ota,wifi-setup,audio-output,timezone
+      - run: cargo test -p mestro-os --features wifi-setup,audio-output,timezone
 
   web:
     runs-on: ubuntu-24.04

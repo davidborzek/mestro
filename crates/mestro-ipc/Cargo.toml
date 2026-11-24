@@ -1,0 +1,25 @@
+[package]
+name = "mestro-ipc"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+# never published to crates.io
+publish = false
+
+[dependencies]
+# the wire types' derives
+serde = { workspace = true }
+# the wire's JSON (reply payloads, the golden snapshot)
+serde_json = "1"
+# settings values cross the wire as toml::Value (typed once at the
+# text protocol, kept as sent by the web protocol) — the type only,
+# no TOML parsing or printing
+toml = { version = "1", default-features = false, features = ["std", "serde"] }
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"

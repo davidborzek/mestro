@@ -5,7 +5,7 @@ device in a second one. Everything has a working default — a
 fresh device needs nothing but the connection to Music Assistant,
 and the web app's setup wizard writes that.
 
-[`mestro.example.toml`](../mestro.example.toml) lists every key
+[`mestro.example.toml`](../crates/mestro/mestro.example.toml) lists every key
 with its default and an explanation. This page is the map.
 
 ## Where things live
@@ -257,6 +257,15 @@ clears the settings; the file is derived again.
 | `MESTRO_OUTPUT` | DRM output for the direct-render backend (`DSI-1`, `HDMI-A-1`) |
 | `RUST_LOG` | log filter, default `mestro=info` |
 
+The image's paths and commands are build settings (`MESTRO_*` at
+`cargo build` time, not run-time env). `mestro-os`'s one `build.rs`
+owns the wpa trio (`MESTRO_WPA_CTRL_DIR`, `MESTRO_WPA_CONF`,
+`MESTRO_WPA_TEMPLATE`), the squeezelite pair
+(`MESTRO_SQUEEZELITE_ENV`, `MESTRO_SQUEEZELITE_RESTART`) and the
+timezone trio (`MESTRO_ENV_FILE`, `MESTRO_ZONEINFO_DIR`,
+`MESTRO_LOCALTIME`); the binary keeps only `MESTRO_DIAG_LOGS` and
+`MESTRO_DIAG_STATUS`. Defaults and meaning: CONTRIBUTING.md,
+"Building for another image".
 | flag | effect |
 |---|---|
 | `--config PATH` | config file or directory |

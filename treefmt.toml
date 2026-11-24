@@ -10,7 +10,7 @@
 # clang-format, Kconfig/defconfig have no formatter — all left alone
 excludes = [
   "*.md",
-  "src/settings/schema-golden.json",
+  "crates/mestro/src/settings/schema-golden.json",
   "web/src/lib/mockSchema.json",
   "web/node_modules/**",
   "web/dist/**",
