@@ -5,12 +5,12 @@
 //! lives in the shared state, guarded there.
 
 use super::super::PlayerCtx;
-use crate::player::state::Event;
-use crate::providers::SourceCommand;
 use mestro_ipc::web::{PlayerAction, Response};
+use mestro_player::source::SourceCommand;
+use mestro_player::state::Event;
 
 /// one player round on the UI thread: dispatch + ack
-pub(crate) fn handle(id: u64, action: &PlayerAction, ctx: &PlayerCtx) -> Response {
+pub fn handle(id: u64, action: &PlayerAction, ctx: &PlayerCtx) -> Response {
     let PlayerAction::Volume { value } = action;
     let value = (*value).clamp(0, 100);
     // local origin: the transport echo of THIS change must
@@ -27,12 +27,19 @@ pub(crate) fn handle(id: u64, action: &PlayerAction, ctx: &PlayerCtx) -> Respons
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::player::cover::{CoverSource, HttpCovers};
-    use crate::player::shell::Shell;
-    use crate::player::state::Live;
-    use crate::player::state::PlayerState;
+    use mestro_player::cover::{CoverFetcher, CoverLanded, CoverSource};
+    use mestro_player::shell::Shell;
+    use mestro_player::state::Live;
+    use mestro_player::state::PlayerState;
     use parking_lot::Mutex;
     use std::sync::Arc;
+
+    /// the volume bookkeeping never asks for artwork
+    struct NoFetch;
+
+    impl CoverFetcher for NoFetch {
+        fn fetch(&self, _url: String, _landed: CoverLanded) {}
+    }
 
     fn shell(live: Option<Live>) -> Shell {
         let (update_tx, _) = tokio::sync::mpsc::unbounded_channel();
@@ -40,8 +47,8 @@ mod tests {
             Arc::new(Mutex::new(live)),
             update_tx,
             CoverSource {
-                fetcher: Arc::new(HttpCovers),
-                variant: crate::ui::palette::Variant::TonalSpot,
+                fetcher: Arc::new(NoFetch),
+                variant: mestro_player::palette::Variant::TonalSpot,
             },
         )
     }

@@ -1,11 +1,11 @@
 //! The remote-control state frame: what the PWA renders. Pure
-//! data + conversions — the push pipeline (remote/web/push.rs)
-//! builds it on the UI thread from a `PlayerState` plus the
-//! kiosk view flags, and the serialization here is the wire
-//! contract. Everything is unit-tested without sockets or a UI.
+//! data + conversions — the push pipeline (push.rs) builds it
+//! from a `PlayerState` plus the view snapshot the binary
+//! publishes, and the serialization here is the wire contract.
+//! Everything is unit-tested without sockets or a UI.
 
-use crate::player::state::PlayerState;
-use crate::providers::SourceCaps;
+use mestro_player::source::SourceCaps;
+use mestro_player::state::PlayerState;
 use serde::{Deserialize, Serialize};
 
 /// the push frame: `{"event":"state","data":…}` — no id, clients

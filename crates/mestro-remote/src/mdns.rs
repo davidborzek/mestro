@@ -151,8 +151,8 @@ mod tests {
             display_supported: true,
             ap_mode: std::sync::Arc::default(),
             mdns_gate: std::sync::Arc::default(),
-            ap_net: crate::config::Wifi::default().ap_net(),
-            diagnostics: crate::remote::web::server::diagnostics::Sources::image(),
+            ap_net: mestro_os::wifi::WifiSettings::default().ap_net(),
+            diagnostics: super::super::server::diagnostics::Sources::image(),
         }
     }
 

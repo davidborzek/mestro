@@ -128,7 +128,7 @@ impl From<CtlCmd> for mestro_ipc::command::Command {
 fn run_ui(
     ui: Mestro,
     restart: &Cell<bool>,
-    wifi_stop: &Cell<Option<mestro::remote::web::WifiShutdown>>,
+    wifi_stop: &Cell<Option<mestro_os::wifi::WifiShutdown>>,
 ) {
     // a dead event loop leaves nothing to recover into — this is
     // the one place a UI failure turns into an exit code
@@ -171,9 +171,9 @@ fn main() {
 
     let args = Args::parse();
     // `mestro ctl …`: one roundtrip to the running instance,
-    // no UI (ipc/client.rs)
+    // no UI (the ctl client in mestro-remote)
     if let Some(Sub::Ctl { cmd }) = args.sub {
-        std::process::exit(mestro::remote::ipc::client(Command::from(cmd).as_str()));
+        std::process::exit(mestro_remote::ctl::client(Command::from(cmd).as_str()));
     }
     // must land before the Slint platform initializes — the
     // linuxkms backend reads SLINT_DRM_OUTPUT exactly once
@@ -202,7 +202,7 @@ fn main() {
     let restart = Rc::new(Cell::new(false));
     // the wifi manager's stop handle — set when wire_remote spawns
     // it, drained on the restart path (exec keeps children alive)
-    let wifi_stop = Cell::new(None::<mestro::remote::web::WifiShutdown>);
+    let wifi_stop = Cell::new(None::<mestro_os::wifi::WifiShutdown>);
 
     apply_scale(&config);
     let display = start_display(&config);
@@ -281,16 +281,15 @@ fn main() {
     let ma_cfg = Arc::new(RwLock::new(
         mestro::providers::ma::Config::from_music_assistant(&config.music_assistant),
     ));
-    // the remote-control push pipeline: the hub lives on this
-    // (UI) thread, the events side crosses into the web thread.
-    // Built before the update loop and wire_remote so both can
-    // feed it
-    let events = mestro::remote::web::Events::new();
-    let push = mestro::remote::web::Push::new(
-        events.clone(),
-        ma_cfg.clone(),
-        &config.music_assistant.player,
-    );
+    // the remote-control push pipeline: the hub is fed by the
+    // update loop (UI thread) and the view watcher (web thread).
+    // The view state arrives through the watch: the binary
+    // publishes a snapshot whenever a view-relevant UI property
+    // changes (the slint `changed` hooks fire view-changed), the
+    // pipeline reacts — change-driven, no poll
+    let events = mestro_remote::Events::new();
+    let (views_tx, views_rx) = tokio::sync::watch::channel(mestro_remote::UiView::default());
+    let push = mestro_remote::Push::new(events.clone(), &config.music_assistant.player, views_rx);
     spawn_update_loop(
         &ui,
         update_rx,
@@ -334,6 +333,7 @@ fn main() {
         ma_cfg: ma_cfg.clone(),
         cmd_tx: cmd_tx.clone(),
         events: events.clone(),
+        views: views_tx.clone(),
     });
     let dispatch_fn: Rc<dyn Fn(&Command)> = {
         let dispatch = dispatch.clone();
@@ -353,7 +353,9 @@ fn main() {
         &dispatch_fn,
         &events,
         &push,
-        &mestro::remote::web::PlayerCtx {
+        &views_tx,
+        &ma_cfg,
+        &mestro_remote::PlayerCtx {
             shell: shell.clone(),
             cmd_tx: cmd_tx.clone(),
         },
@@ -566,7 +568,7 @@ fn spawn_update_loop(
     mut update_rx: tokio::sync::mpsc::UnboundedReceiver<PlayerUpdate>,
     deps: UpdateDeps,
     standby: impl Fn(&Mestro, &PlayerUpdate) + 'static,
-    push: &mestro::remote::web::Push,
+    push: &mestro_remote::Push,
 ) {
     let ui_weak = ui.as_weak();
     let UpdateDeps {
@@ -624,21 +626,32 @@ fn wire_remote(
     config: &mestro::config::Config,
     settings: &Rc<Handle>,
     dispatch: &Rc<dyn Fn(&Command)>,
-    events: &mestro::remote::web::Events,
-    push: &mestro::remote::web::Push,
-    player: &mestro::remote::web::PlayerCtx,
+    events: &mestro_remote::Events,
+    push: &mestro_remote::Push,
+    views: &tokio::sync::watch::Sender<mestro_remote::UiView>,
+    ma_cfg: &Arc<RwLock<mestro::providers::ma::Config>>,
+    player: &mestro_remote::PlayerCtx,
     vui: &vu::wire::Vui,
     clock: &Rc<app::clock::StandbyClock>,
-) -> Option<mestro::remote::web::WifiShutdown> {
+) -> Option<mestro_os::wifi::WifiShutdown> {
     // display-supported is up (app::display::sync ran first);
     // the trust boundary needs the hotspot's subnet (`[wifi]
     // ap-address`) — the peer check derives from it
-    let (web_info, web_pin) =
-        mestro::remote::web::info(config, &mestro::app_version(), ui.get_display_supported());
+    let web_settings = mestro_remote::WebSettings {
+        enabled: config.remote.enabled,
+        port: config.remote.port,
+    };
+    let (web_info, web_pin) = mestro_remote::info(
+        &web_settings,
+        &config.music_assistant.player,
+        &mestro::app_version(),
+        ui.get_display_supported(),
+        config.wifi.ap_net(),
+    );
     // the settings-preview thumbnails: rendered on this (UI)
     // thread from the compiled registries, on demand through the
     // bridge; the effective config keeps them in sync with edits
-    let previews: mestro::remote::web::PreviewRenderer = {
+    let previews: mestro::remote::ports::PreviewRenderer = {
         let vui = vui.clone();
         let clock = clock.clone();
         let settings = settings.clone();
@@ -653,7 +666,7 @@ fn wire_remote(
             _ => None,
         })
     };
-    mestro::remote::web::wire(ui, settings, dispatch, &web_info, player, &previews);
+    mestro::remote::ports::wire(ui, settings, dispatch, &web_info, player, &previews);
     #[cfg(all(feature = "audio-output", feature = "wifi-setup"))]
     let name_suffix = mestro_os::wifi::name_suffix(
         &mestro_os::wifi::backend::Roots::default(),
@@ -661,7 +674,7 @@ fn wire_remote(
         &web_info.id,
     );
     #[cfg(all(feature = "audio-output", not(feature = "wifi-setup")))]
-    let name_suffix = mestro::remote::web::device_suffix("", &web_info.id);
+    let name_suffix = mestro_remote::device_suffix("", &web_info.id);
     // squeezelite's env file (the audio settings, else derived values),
     // written on a thread of its own (the wait for a slow DAC and the
     // restart take seconds)
@@ -676,7 +689,7 @@ fn wire_remote(
     // Without the feature every wifi op answers "unavailable"
     #[cfg(feature = "wifi-setup")]
     let (wifi, wifi_stop) = {
-        let shutdown = mestro::remote::web::WifiShutdown::default();
+        let shutdown = mestro_os::wifi::WifiShutdown::default();
         // the hotspot panel: the manager publishes pure data, the
         // binary renders it — the slint properties and the QR image
         // stay on the UI thread
@@ -705,7 +718,7 @@ fn wire_remote(
         // manager never formats one: the RFC 8910 portal URI DHCP
         // option 114 advertises and the setup address the overlay
         // names, both with the web port spelled out unless it is 80
-        let port = mestro::remote::web::url_port_suffix(config.remote.port);
+        let port = mestro_remote::url_port_suffix(config.remote.port);
         let portal = mestro_os::wifi::Portal {
             uri: format!("http://{}{port}/setup/wifi", config.wifi.ap_net().ip),
             address: format!("mestro.setup{port}"),
@@ -722,22 +735,41 @@ fn wire_remote(
         (channel, Some(shutdown))
     };
     #[cfg(not(feature = "wifi-setup"))]
-    let (wifi, wifi_stop) = (mestro::remote::web::WifiChannel::unavailable(), None);
+    let (wifi, wifi_stop) = (mestro_os::wifi::WifiChannel::unavailable(), None);
+    // the view publisher: the slint `changed` hooks on the
+    // view-relevant properties fire view-changed, every one
+    // samples the props into the watch the push pipeline reads
+    {
+        let views = views.clone();
+        let ma_cfg = ma_cfg.clone();
+        let weak = ui.as_weak();
+        ui.on_view_changed(move || {
+            let Some(ui) = weak.upgrade() else { return };
+            let _ = views.send_replace(mestro::remote::ports::view_of(&ui, &ma_cfg.read().ws_url));
+        });
+    }
+    // the initial snapshot: the first frame and the view watcher
+    // both start from the current props
+    let _ = views.send_replace(mestro::remote::ports::view_of(ui, &ma_cfg.read().ws_url));
     // the snapshot exists before the first socket can connect:
     // every paired WS starts with a state frame
-    push.publish_initial(ui);
-    mestro::remote::web::serve(
-        &config.remote,
+    push.publish_snapshot();
+    // the UI port both remote surfaces share: the web endpoint
+    // and the ctl socket ride the same slint event-loop crossing
+    let ui_port: std::sync::Arc<dyn mestro_remote::UiPort> =
+        std::sync::Arc::new(mestro::remote::ports::SlintUi::new(ui));
+    mestro_remote::serve(
+        &web_settings,
         web_info.clone(),
-        mestro::remote::web::Bridge::new(ui),
+        ui_port.clone(),
+        std::sync::Arc::new(mestro::remote::ports::MaAuthClient),
         web_pin,
         events.clone(),
+        push.clone(),
         wifi,
     );
-    // the push timers (coalescing flush + the view-prop poll)
-    push.start_timers(ui);
     // the local control socket: `mestro ctl <command>`
-    mestro::remote::ipc::serve(ui.as_weak());
+    mestro_remote::ctl::serve(ui_port);
     // the connection page shows the wizard URL (incl. pairing PIN)
     // and the first-run overlay its QR code. The address follows
     // DHCP: the kiosk starts before the network is up, and leases

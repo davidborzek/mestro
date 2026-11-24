@@ -2858,16 +2858,15 @@ dependencies = [
  "i-slint-compiler",
  "i-slint-core",
  "image",
- "mdns-sd",
  "mestro-ipc",
  "mestro-os",
  "mestro-player",
+ "mestro-remote",
  "parking_lot",
  "qrcode",
  "rustfft",
  "serde",
  "serde_json",
- "sha2",
  "slint",
  "slint-build",
  "slint-interpreter",
@@ -2918,6 +2917,28 @@ dependencies = [
  "material-colors",
  "parking_lot",
  "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "mestro-remote"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "futures-util",
+ "image",
+ "mdns-sd",
+ "mestro-ipc",
+ "mestro-os",
+ "mestro-player",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "tokio-tungstenite",
+ "toml",
  "tracing",
 ]
 

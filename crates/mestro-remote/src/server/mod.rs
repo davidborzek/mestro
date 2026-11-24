@@ -7,37 +7,40 @@
 //! non-upgrade traffic is answered here.
 //!
 //! Domain split:
-//! - [`settings`]: the UI-bound ops (settings reads/writes) —
-//!   runs on the UI thread through the Bridge
+//! - `settings`: the UI-bound ops live in the BINARY
+//!   (the binary's port implementation behind the UiPort op) — everything
+//!   that touches `&Mestro` or the settings handle
 //! - [`ma`]: the wizard's Music Assistant calls (probe/login/
 //!   players) — plain HTTP, on the blocking pool of this thread
 //! - `ota` (feature `ota`): the system-image upload, streamed into
 //!   `mestro-upgrade`
-//! - [`assets`]/[`pair`]/[`http`]/[`ws`]/[`auth`]: transport plumbing
+//! - assets/pair/http/ws/auth/wifi: transport plumbing
 
-mod assets;
-mod audio;
-mod auth;
-mod captive;
-mod ctl;
+pub(crate) mod assets;
+pub(crate) mod audio;
+pub(crate) mod auth;
+pub(crate) mod captive;
+pub mod ctl;
 pub(crate) mod diagnostics;
-mod http;
-mod ma;
+pub mod http;
+pub mod ma;
 #[cfg(feature = "ota")]
 mod ota;
-mod pair;
-mod player;
-pub(crate) mod settings;
-mod state_data;
-mod timezone;
-mod wifi;
-mod ws;
+pub(crate) mod pair;
+pub mod player;
+
+pub mod timezone;
+pub(crate) mod wifi;
+pub(crate) mod ws;
 
 /// the shared command path onto the UI thread (owned by the
 /// wiring in main.rs; used by the UI-bound op handlers)
-pub(crate) type Dispatch = std::rc::Rc<dyn Fn(&mestro_ipc::command::Command)>;
+pub type Dispatch = std::rc::Rc<dyn Fn(&mestro_ipc::command::Command)>;
 
-use super::{Bridge, Ingress, WebInfo, WifiChannel};
+#[cfg(feature = "ota")]
+use super::UiUpdate;
+use super::{op_async, Ingress, UiPort, WebInfo, WifiChannel};
+use ma::MaAuth;
 use mestro_ipc::web::{Envelope, Request, Response};
 use pair::Pairing;
 use serde_json::json;
@@ -53,7 +56,8 @@ pub(crate) const PROTOCOL_VERSION: u32 = 1;
 pub async fn serve(
     port: u16,
     info: WebInfo,
-    bridge: Bridge,
+    ui: Arc<dyn UiPort>,
+    ma_auth: Arc<dyn MaAuth>,
     pin: String,
     events: super::Events,
     wifi: WifiChannel,
@@ -71,7 +75,8 @@ pub async fn serve(
         match listener.accept().await {
             Ok((stream, peer)) => {
                 let info = info.clone();
-                let bridge = bridge.clone();
+                let ui = ui.clone();
+                let ma_auth = ma_auth.clone();
                 let pairing = pairing.clone();
                 let events = events.clone();
                 let wifi = wifi.clone();
@@ -80,7 +85,8 @@ pub async fn serve(
                         stream,
                         peer,
                         info,
-                        bridge,
+                        ui,
+                        ma_auth,
                         pairing,
                         events,
                         assets::TABLE,
@@ -101,7 +107,7 @@ pub async fn serve(
 }
 
 // the plumbing is wide by nature (stream + facts + the shared
-// state every route needs) — same allowance as web::wire
+// state every route needs) — same allowance as the lib wiring
 #[allow(clippy::too_many_arguments)]
 async fn handle(
     mut stream: TcpStream,
@@ -110,7 +116,8 @@ async fn handle(
     // unpaired gate — never the listener that accepted it
     peer: std::net::SocketAddr,
     info: WebInfo,
-    bridge: Bridge,
+    ui: Arc<dyn UiPort>,
+    ma_auth: Arc<dyn MaAuth>,
     pairing: Arc<Pairing>,
     events: super::Events,
     assets: &[assets::Asset],
@@ -155,7 +162,10 @@ async fn handle(
             return http::reply(&mut stream, "401 Unauthorized", "pairing required").await;
         }
         return ota::handle(&mut stream, &head, &ota::OtaCmds::from_env(), |phase| {
-            bridge.notify(move |ui| show_update_status(ui, &phase));
+            ui.notify(UiUpdate::UpdateStatus {
+                text: phase.status_text(),
+                failure: phase.is_failure(),
+            });
         })
         .await;
     }
@@ -174,7 +184,10 @@ async fn handle(
             })
             .await
             .map_err(|e| format!("handshake: {e}"))?;
-            ws::ws_loop(ws, &info, &bridge, &events, &wifi, ingress, authorized).await
+            ws::ws_loop(
+                ws, &info, &ui, &ma_auth, &events, &wifi, ingress, authorized,
+            )
+            .await
         }
         "/ws" => http::reply(&mut stream, "401 Unauthorized", "pairing required").await,
         "/cover" if authorized => {
@@ -205,7 +218,7 @@ async fn handle(
         // the bug-report download: paired only, never on the hotspot
         // path (the unpaired AP vocabulary is hello + wifi)
         "/diagnostics" if method == "GET" && authorized => {
-            diagnostics::serve(&mut stream, &info, &bridge, &pairing, &wifi).await
+            diagnostics::serve(&mut stream, &info, &ui, &pairing, &wifi).await
         }
         "/diagnostics" if method == "GET" => {
             http::reply(&mut stream, "401 Unauthorized", "pairing required").await
@@ -213,12 +226,10 @@ async fn handle(
         // the settings thumbnails (the schema's preview URLs):
         // auth like /cover, served from the Events cache, rendered
         // once per (name, version) on the UI thread
-        "/vu-preview" if authorized => {
-            serve_preview(&mut stream, "vu", &query, &bridge, &events).await
-        }
+        "/vu-preview" if authorized => serve_preview(&mut stream, "vu", &query, &ui, &events).await,
         "/vu-preview" => http::reply(&mut stream, "401 Unauthorized", "pairing required").await,
         "/clock-preview" if authorized => {
-            serve_preview(&mut stream, "clock", &query, &bridge, &events).await
+            serve_preview(&mut stream, "clock", &query, &ui, &events).await
         }
         "/clock-preview" => http::reply(&mut stream, "401 Unauthorized", "pairing required").await,
         // the PWA: static assets, `/` as the shell, SPA routes
@@ -287,12 +298,12 @@ async fn backdrop_jpeg(events: &super::Events) -> Option<Vec<u8>> {
 }
 
 /// one settings thumbnail: the slot cache first, then the
-/// UI-thread render through the bridge op (PNG bytes as hex)
+/// UI-thread render through the port op (PNG bytes as hex)
 async fn serve_preview(
     stream: &mut TcpStream,
     kind: &str,
     query: &str,
-    bridge: &Bridge,
+    ui: &Arc<dyn UiPort>,
     events: &super::Events,
 ) -> Result<(), String> {
     let name_param = if kind == "vu" { "skin" } else { "style" };
@@ -302,7 +313,7 @@ async fn serve_preview(
     ) else {
         return http::reply(stream, "404 Not Found", "skin and v required").await;
     };
-    let png = preview_png(kind, &name, &version, bridge, events).await;
+    let png = preview_png(kind, &name, &version, ui, events).await;
     match png {
         Some(bytes) => {
             // the version changes with every preview-relevant
@@ -326,18 +337,18 @@ async fn preview_png(
     kind: &str,
     name: &str,
     version: &str,
-    bridge: &Bridge,
+    ui: &Arc<dyn UiPort>,
     events: &super::Events,
 ) -> Option<Vec<u8>> {
     let events = events.clone();
-    let bridge = bridge.clone();
+    let ui = Arc::clone(ui);
     let (kind, name, version) = (kind.to_string(), name.to_string(), version.to_string());
     tokio::task::spawn_blocking(move || {
         events.preview_png(&kind, &name, &version, || {
             // process-internal op (the public protocol rejects
             // it): the UI thread renders, PNG bytes come back hex
             let op = format!(r#"{{"op":"preview","kind":"{kind}","name":"{name}"}}"#);
-            let reply = bridge.op(&op).ok()?;
+            let reply = ui.op(&op).ok()?;
             let value: serde_json::Value = serde_json::from_str(&reply).ok()?;
             http::hex_decode(value["data"]["png"].as_str()?).ok()
         })
@@ -345,24 +356,6 @@ async fn preview_png(
     .await
     .ok()
     .flatten()
-}
-
-/// the device overlay: a failure text clears itself, unless a
-/// newer status replaced it meanwhile
-#[cfg(feature = "ota")]
-fn show_update_status(ui: &crate::Mestro, phase: &ota::OtaPhase) {
-    use slint::ComponentHandle as _;
-    const FAILURE_VISIBLE: std::time::Duration = std::time::Duration::from_secs(8);
-    let text = slint::SharedString::from(phase.status_text());
-    ui.set_update_status(text.clone());
-    if phase.is_failure() {
-        let ui = ui.as_weak();
-        slint::Timer::single_shot(FAILURE_VISIBLE, move || {
-            if let Some(ui) = ui.upgrade().filter(|ui| ui.get_update_status() == text) {
-                ui.set_update_status("".into());
-            }
-        });
-    }
 }
 
 /// the `hello` payload; the wizard URL carries the pairing PIN and
@@ -393,14 +386,16 @@ pub(crate) fn hello_data(info: &WebInfo, paired: bool) -> serde_json::Value {
 }
 
 /// one protocol round: the MA and wifi domains run here, everything
-/// else goes through the bridge onto the UI thread ([`settings`]).
+/// else goes through the port onto the UI thread (the binary's
+/// ports module).
 /// `paired` carries the HTTP route's verdict: unpaired callers only
 /// come through on the hotspot, and there only hello + wifi answer —
 /// the setup hotspot is the trust boundary, not the device data
 pub(crate) async fn dispatch(
     text: &str,
     info: &WebInfo,
-    bridge: &Bridge,
+    ui: &Arc<dyn UiPort>,
+    ma_auth: &Arc<dyn MaAuth>,
     wifi: &WifiChannel,
     ingress: Ingress,
     paired: bool,
@@ -419,15 +414,15 @@ pub(crate) async fn dispatch(
             if !paired {
                 return http::json(&Response::err(id, "pairing required"));
             }
-            audio::handle(id, action, bridge).await
+            audio::handle(id, action, ui).await
         }
         Request::Ma { action } => {
             if !paired {
                 return http::json(&Response::err(id, "pairing required"));
             }
-            ma::handle(id, action, info, bridge).await
+            ma::handle(id, action, info, ui, ma_auth).await
         }
-        // settings + ctl + player are UI-bound — ride the bridge
+        // settings + ctl + player are UI-bound — ride the port
         // onto the UI thread (dispatch there owns the command
         // path)
         other => {
@@ -435,8 +430,7 @@ pub(crate) async fn dispatch(
                 return http::json(&Response::err(id, "pairing required"));
             }
             let envelope = Envelope { id, request: other };
-            bridge
-                .op_async(&http::json(&envelope))
+            op_async(ui, http::json(&envelope))
                 .await
                 .unwrap_or_else(|e| http::json(&Response::err(id, e)))
         }
@@ -446,7 +440,7 @@ pub(crate) async fn dispatch(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::remote::web::Events;
+    use crate::Events;
     use futures_util::{SinkExt, StreamExt};
     use mestro_ipc::web::WifiOp;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -454,15 +448,15 @@ mod tests {
     const PIN: &str = "ABCD2345";
 
     /// the default hotspot subnet (`[wifi] ap-address`)
-    fn ap_net() -> crate::config::ApNet {
-        crate::config::Wifi::default().ap_net()
+    fn ap_net() -> mestro_os::wifi::ApNet {
+        mestro_os::wifi::WifiSettings::default().ap_net()
     }
 
     /// a hotspot subnet the test client can be trusted from: the
     /// whole loopback range, with `gateway` as the hotspot's own
     /// address — the roundtrip peer is 127.0.0.1
-    fn loop_net(gateway: std::net::Ipv4Addr) -> crate::config::ApNet {
-        crate::config::ApNet {
+    fn loop_net(gateway: std::net::Ipv4Addr) -> mestro_os::wifi::ApNet {
+        mestro_os::wifi::ApNet {
             ip: gateway,
             prefix: 8,
             net: std::net::Ipv4Addr::new(127, 0, 0, 0),
@@ -507,15 +501,44 @@ mod tests {
         WifiChannel,
         tokio::sync::mpsc::Receiver<super::super::WifiRequest>,
     ) {
-        let (tx, rx) = tokio::sync::mpsc::channel(crate::remote::web::WIFI_QUEUE);
+        let (tx, rx) = tokio::sync::mpsc::channel(crate::WIFI_QUEUE);
         (WifiChannel::new(std::sync::Arc::new(tx)), rx)
     }
 
-    // a bridge to no UI: these routes never reach the UI thread
-    fn detached_bridge() -> Bridge {
-        Bridge {
-            ui: slint::Weak::default(),
+    // a UI port to no UI: these routes never reach the UI thread
+    fn detached_ui() -> std::sync::Arc<dyn super::UiPort> {
+        super::super::test_port::detached()
+    }
+
+    // an MA port to no server: the tests only exercise the pairing
+    // gate and the wire shapes, never a live Music Assistant
+    fn no_ma() -> std::sync::Arc<dyn super::MaAuth> {
+        struct NoMa;
+        impl super::MaAuth for NoMa {
+            fn probe(&self, _url: &str) -> Result<super::ma::ServerInfo, String> {
+                Err("server unreachable".into())
+            }
+            fn login(
+                &self,
+                _url: &str,
+                _username: &str,
+                _password: &str,
+                _device_name: &str,
+            ) -> Result<String, String> {
+                Err("server unreachable".into())
+            }
+            fn players(
+                &self,
+                _url: &str,
+                _token: &str,
+            ) -> Result<Vec<super::ma::PlayerSummary>, String> {
+                Err("server unreachable".into())
+            }
+            fn same_endpoint(&self, _a: &str, _b: &str) -> bool {
+                false
+            }
         }
+        std::sync::Arc::new(NoMa)
     }
 
     // one request through `handle` over a real socket → the full
@@ -553,7 +576,8 @@ mod tests {
                         stream,
                         peer,
                         info,
-                        detached_bridge(),
+                        detached_ui(),
+                        no_ma(),
                         pairing,
                         events,
                         table,
@@ -600,7 +624,8 @@ mod tests {
             .block_on(dispatch(
                 r#"{"id":1,"op":"hello"}"#,
                 &info(),
-                &detached_bridge(),
+                &detached_ui(),
+                &no_ma(),
                 &no_wifi(),
                 Ingress::Lan,
                 true,
@@ -669,12 +694,12 @@ mod tests {
         let events = Events::new();
         events.set_cover(
             1,
-            crate::player::cover::CoverData {
+            mestro_player::cover::CoverData {
                 rgba: vec![255, 0, 0, 255],
                 width: 1,
                 height: 1,
             },
-            Some(crate::player::cover::CoverData {
+            Some(mestro_player::cover::CoverData {
                 rgba: vec![0, 0, 255, 255],
                 width: 1,
                 height: 1,
@@ -832,7 +857,8 @@ mod tests {
                         stream,
                         peer,
                         info(),
-                        detached_bridge(),
+                        detached_ui(),
+                        no_ma(),
                         pairing,
                         events,
                         assets::TABLE,
@@ -868,13 +894,12 @@ mod tests {
         // startup order: the initial snapshot is published before the
         // listener accepts — no player update has happened yet
         let events = Events::new();
-        let ma_cfg = std::sync::Arc::new(parking_lot::RwLock::new(crate::providers::ma::Config {
-            ws_url: String::new(),
-            token: String::new(),
-            player_name: "wohnzimmer".into(),
-            own_player_id: None,
-        }));
-        crate::remote::web::Push::new(events.clone(), ma_cfg, "wohnzimmer").publish_snapshot();
+        crate::Push::new(
+            events.clone(),
+            "wohnzimmer",
+            tokio::sync::watch::channel(crate::UiView::default()).1,
+        )
+        .publish_snapshot();
         tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -889,7 +914,8 @@ mod tests {
                         stream,
                         peer,
                         info(),
-                        detached_bridge(),
+                        detached_ui(),
+                        no_ma(),
                         pairing,
                         events,
                         assets::TABLE,
@@ -946,8 +972,8 @@ mod tests {
     // ── the preview thumbnails ──
 
     /// a request through `handle` with a pre-populated preview
-    /// slot (the cache path — the bridge is never touched, the
-    /// detached bridge would wait for a UI thread that is absent)
+    /// slot (the cache path — the port is never touched, the
+    /// detached one answers an error instead)
     fn preview_roundtrip(request: &str, events: &Events) -> String {
         roundtrip_with(
             request,
@@ -1182,7 +1208,8 @@ mod tests {
                 let unpaired = dispatch(
                     r#"{"id":1,"op":"hello"}"#,
                     &info,
-                    &detached_bridge(),
+                    &detached_ui(),
+                    &no_ma(),
                     &no_wifi(),
                     Ingress::Ap,
                     false,
@@ -1204,7 +1231,8 @@ mod tests {
                 let paired = dispatch(
                     r#"{"id":2,"op":"hello"}"#,
                     &info,
-                    &detached_bridge(),
+                    &detached_ui(),
+                    &no_ma(),
                     &no_wifi(),
                     Ingress::Ap,
                     true,
@@ -1292,7 +1320,7 @@ mod tests {
                     // the subnet and the hotspot is up — the trust
                     // that grants the unpaired setup vocabulary
                     let _ = handle(
-                        stream, peer, info, detached_bridge(), pairing, events, assets::TABLE, wifi,
+                        stream, peer, info, detached_ui(), no_ma(), pairing, events, assets::TABLE, wifi,
                     )
                     .await;
                 });
@@ -1353,7 +1381,8 @@ mod tests {
                 let reply = dispatch(
                     r#"{"id":9,"op":"wifi","action":"scan"}"#,
                     &info(),
-                    &detached_bridge(),
+                    &detached_ui(),
+                    &no_ma(),
                     &wifi,
                     Ingress::Ap,
                     false,
@@ -1390,8 +1419,16 @@ mod tests {
                     (r#"{"id":11,"op":"wifi","action":"scan"}"#, "scan"),
                     (r#"{"id":12,"op":"wifi","action":"status"}"#, "status"),
                 ] {
-                    let reply =
-                        dispatch(op, &info(), &detached_bridge(), &wifi, Ingress::Lan, true).await;
+                    let reply = dispatch(
+                        op,
+                        &info(),
+                        &detached_ui(),
+                        &no_ma(),
+                        &wifi,
+                        Ingress::Lan,
+                        true,
+                    )
+                    .await;
                     let value: serde_json::Value = serde_json::from_str(&reply).unwrap();
                     assert_eq!(value["ok"], serde_json::json!(true), "{op}");
                     assert_eq!(value["data"]["action"], action);
@@ -1401,7 +1438,8 @@ mod tests {
                 let reply = dispatch(
                     r#"{"id":13,"op":"wifi","action":"join","ssid":"Home","psk":"secret"}"#,
                     &info(),
-                    &detached_bridge(),
+                    &detached_ui(),
+                    &no_ma(),
                     &wifi,
                     Ingress::Lan,
                     true,
@@ -1418,7 +1456,8 @@ mod tests {
                 let reply = dispatch(
                     r#"{"id":14,"op":"wifi","action":"scan"}"#,
                     &info(),
-                    &detached_bridge(),
+                    &detached_ui(),
+                    &no_ma(),
                     &no_wifi(),
                     Ingress::Lan,
                     true,
@@ -1441,9 +1480,9 @@ mod tests {
             .build()
             .unwrap()
             .block_on(async {
-                let (tx, _undrained) = tokio::sync::mpsc::channel(crate::remote::web::WIFI_QUEUE);
+                let (tx, _undrained) = tokio::sync::mpsc::channel(crate::WIFI_QUEUE);
                 let wifi = WifiChannel::new(std::sync::Arc::new(tx));
-                for _ in 0..crate::remote::web::WIFI_QUEUE {
+                for _ in 0..crate::WIFI_QUEUE {
                     let out = wifi
                         .request(
                             WifiOp::Scan,
@@ -1480,7 +1519,8 @@ mod tests {
             .block_on(dispatch(
                 text,
                 info,
-                &detached_bridge(),
+                &detached_ui(),
+                &no_ma(),
                 &no_wifi(),
                 ingress,
                 paired,

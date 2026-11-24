@@ -7,12 +7,12 @@
 //! on the blocking pool, never on the async worker.
 
 use super::http::json;
-use crate::remote::web::Bridge;
+use crate::UiPort;
 use mestro_ipc::web::{AudioOp, Response};
 
-pub(super) async fn handle(id: u64, action: AudioOp, bridge: &Bridge) -> String {
-    let bridge = bridge.clone();
-    let outcome = tokio::task::spawn_blocking(move || run(action, &bridge))
+pub(super) async fn handle(id: u64, action: AudioOp, ui: &std::sync::Arc<dyn UiPort>) -> String {
+    let ui = std::sync::Arc::clone(ui);
+    let outcome = tokio::task::spawn_blocking(move || run(action, &ui))
         .await
         .map_err(|_| "blocking pool gone".to_string())
         .and_then(|result| result);
@@ -38,12 +38,12 @@ pub(super) fn capable() -> bool {
 /// the `audio.output` setting, written through the normal settings
 /// path on the UI thread (the settings handle lives there)
 #[cfg(feature = "audio-output")]
-struct BridgeSetting<'a> {
-    bridge: &'a Bridge,
+struct PortSetting<'a> {
+    ui: &'a std::sync::Arc<dyn UiPort>,
 }
 
 #[cfg(feature = "audio-output")]
-impl mestro_os::audio::outputs::OutputSetting for BridgeSetting<'_> {
+impl mestro_os::audio::outputs::OutputSetting for PortSetting<'_> {
     fn get(&self) -> String {
         mestro_os::audio::squeezelite::output_setting()
     }
@@ -63,7 +63,7 @@ impl mestro_os::audio::outputs::OutputSetting for BridgeSetting<'_> {
                 },
             },
         };
-        let body = self.bridge.op(&json(&envelope))?;
+        let body = self.ui.op(&json(&envelope))?;
         let reply: Response = serde_json::from_str(&body).map_err(|e| e.to_string())?;
         if reply.ok {
             Ok(())
@@ -81,7 +81,7 @@ impl mestro_os::audio::outputs::OutputSetting for BridgeSetting<'_> {
 }
 
 #[cfg(feature = "audio-output")]
-fn run(action: AudioOp, bridge: &Bridge) -> Result<serde_json::Value, String> {
+fn run(action: AudioOp, ui: &std::sync::Arc<dyn UiPort>) -> Result<serde_json::Value, String> {
     use mestro_os::audio::outputs;
     use mestro_os::audio::squeezelite::{SQUEEZELITE_ENV, SQUEEZELITE_RESTART};
     run_in(
@@ -91,7 +91,7 @@ fn run(action: AudioOp, bridge: &Bridge) -> Result<serde_json::Value, String> {
             restart_command: SQUEEZELITE_RESTART,
         },
         action,
-        &mut BridgeSetting { bridge },
+        &mut PortSetting { ui },
     )
 }
 
@@ -146,7 +146,7 @@ fn run_in(
 }
 
 #[cfg(not(feature = "audio-output"))]
-fn run(_action: AudioOp, _bridge: &Bridge) -> Result<serde_json::Value, String> {
+fn run(_action: AudioOp, _ui: &std::sync::Arc<dyn UiPort>) -> Result<serde_json::Value, String> {
     Err("audio output not available".into())
 }
 

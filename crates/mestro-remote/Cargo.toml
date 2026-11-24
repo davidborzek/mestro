@@ -1,0 +1,70 @@
+[package]
+name = "mestro-remote"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+# never published to crates.io
+publish = false
+
+[features]
+# one capability per feature, additive — the binary's features
+# carry the same names and forward each
+#
+# the system-image upload (POST /ota): streams into mestro-upgrade
+ota = []
+# the capability hello reports (the factory reset itself is the
+# binary's settings glue over mestro-os)
+wifi-setup = []
+# the audio output picker (mestro-os): lists the ALSA playback
+# devices, switches squeezelite's output through the audio.output
+# setting
+audio-output = ["mestro-os/audio-output"]
+# the timezone picker (mestro-os): zone validation, the zone list
+timezone = ["mestro-os/timezone"]
+
+[dependencies]
+# the wire protocol: the web endpoint's JSON requests, responses
+# and ops (Envelope, Request, SettingsOp, WifiOp, …)
+mestro-ipc = { path = "../mestro-ipc", version = "0.1.0" }
+# the wifi ops channel, the mDNS pause gate, the timezone and
+# audio lanes the ops call into, the atomic writes, identity
+mestro-os = { path = "../mestro-os", version = "0.1.0" }
+# the player domain: the state frame's source contract, the player
+# op's shell and command channel, the cover seam, the palette
+mestro-player = { path = "../mestro-player", version = "0.1.0" }
+# the endpoint's own runtime: sockets, the push pipeline's
+# broadcast/watch channels, the OTA child process
+tokio = { version = "1", features = ["rt", "macros", "time", "sync", "net", "process", "io-util"] }
+tokio-tungstenite = "0.30"
+futures-util = "0.3"
+serde.workspace = true
+serde_json = "1"
+toml = "1"
+# the JPEG/backdrop encodes of the push pipeline
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+# the push hub's shared-state lock (no poisoning)
+parking_lot = { workspace = true }
+# the pairing cookie token (server/auth.rs): hex sha256 over
+# the pairing PIN
+sha2.workspace = true
+# the diagnostics report's generation timestamp
+chrono = "0.4"
+# the mDNS announcement of the endpoint
+mdns-sd = "0.22.0"
+tracing.workspace = true
+
+[dev-dependencies]
+# temp-dir state in the pairing-pin, wifi-reset and audio tests
+tempfile = "3"
+
+[lints.rust]
+# a network endpoint: no unsafe, ever
+unsafe_code = "forbid"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"

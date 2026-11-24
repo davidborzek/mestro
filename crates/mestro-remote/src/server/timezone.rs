@@ -10,7 +10,7 @@ use mestro_ipc::web::{Response, TimezoneOp};
 
 /// what an op decided
 #[derive(Debug)]
-pub(super) struct Outcome {
+pub struct Outcome {
     pub response: Response,
     /// the zone to record as `system.timezone` (`None` = leave it)
     pub record: Option<String>,
@@ -51,7 +51,7 @@ struct Paths<'a> {
 /// `chosen` is the `system.timezone` setting, `tz_env` the process's
 /// `TZ`
 #[cfg(feature = "timezone")]
-pub(super) fn run(id: u64, action: TimezoneOp, chosen: &str, tz_env: Option<&str>) -> Outcome {
+pub fn run(id: u64, action: TimezoneOp, chosen: &str, tz_env: Option<&str>) -> Outcome {
     use mestro_os::timezone::{ENV_FILE, LOCALTIME, ZONEINFO_DIR};
     use std::path::Path;
     run_in(
@@ -120,7 +120,7 @@ fn run_in(
 }
 
 #[cfg(not(feature = "timezone"))]
-pub(super) fn run(id: u64, _action: TimezoneOp, _chosen: &str, _tz_env: Option<&str>) -> Outcome {
+pub fn run(id: u64, _action: TimezoneOp, _chosen: &str, _tz_env: Option<&str>) -> Outcome {
     Outcome::reply(Response::err(id, "timezone not available"))
 }
 

@@ -23,11 +23,12 @@
 use super::http;
 use super::http::json;
 use super::pair::Pairing;
-use crate::remote::web::{Bridge, WebInfo, WifiChannel};
+use crate::{UiPort, WebInfo, WifiChannel};
 use mestro_ipc::web::{Envelope, Request, Response, SettingsOp, WifiOp};
 use mestro_os::paths::setting;
 use serde_json::{json, Map, Value};
 use std::path::Path;
+use std::sync::Arc;
 
 const REDACTED: &str = "[redacted]";
 
@@ -542,7 +543,7 @@ pub(super) fn run_status_command(
 /// value layer must find nowhere in the report
 async fn known_secrets(
     info: &WebInfo,
-    bridge: &Bridge,
+    ui: &Arc<dyn UiPort>,
     pairing: &Pairing,
     wifi_conf: &str,
 ) -> Vec<String> {
@@ -552,7 +553,7 @@ async fn known_secrets(
         pairing.token().to_string(),
         std::env::var("MESTRO_TOKEN").unwrap_or_default(),
     ];
-    if let Ok((token, _url)) = super::ma::fetch_conn(bridge).await {
+    if let Ok((token, _url)) = super::ma::fetch_conn(ui).await {
         secrets.push(token);
     }
     for path in [wifi_conf.to_string(), format!("{wifi_conf}.good")] {
@@ -565,14 +566,14 @@ async fn known_secrets(
 }
 
 /// the settings state as the UI thread reports it
-async fn fetch_state(bridge: &Bridge) -> Result<Value, String> {
+async fn fetch_state(ui: &Arc<dyn UiPort>) -> Result<Value, String> {
     let envelope = Envelope {
         id: 0,
         request: Request::Settings {
             action: SettingsOp::State,
         },
     };
-    let body = bridge.op_async(&json(&envelope)).await?;
+    let body = crate::op_async(ui, json(&envelope)).await?;
     let reply: Response = serde_json::from_str(&body).map_err(|e| e.to_string())?;
     if reply.ok {
         reply.data.ok_or_else(|| "empty state".to_string())
@@ -588,12 +589,12 @@ async fn fetch_state(bridge: &Bridge) -> Result<Value, String> {
 pub(super) async fn serve(
     stream: &mut tokio::net::TcpStream,
     info: &WebInfo,
-    bridge: &Bridge,
+    ui: &Arc<dyn UiPort>,
     pairing: &Pairing,
     wifi: &WifiChannel,
 ) -> Result<(), String> {
-    let state = fetch_state(bridge).await;
-    let secrets = known_secrets(info, bridge, pairing, mestro_os::wifi::paths::WPA_CONF).await;
+    let state = fetch_state(ui).await;
+    let secrets = known_secrets(info, ui, pairing, mestro_os::wifi::paths::WPA_CONF).await;
     let wifi_status = wifi
         .request(
             WifiOp::Status,
@@ -720,7 +721,7 @@ mod tests {
 
     #[test]
     fn build_rs_reruns_on_every_variable_read_here() {
-        let build_rs = include_str!("../../../../build.rs");
+        let build_rs = include_str!("../../build.rs");
         let source = include_str!("diagnostics.rs");
         let vars: Vec<&str> = source
             .split("option_env!(\"")

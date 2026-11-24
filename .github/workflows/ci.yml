@@ -85,7 +85,7 @@ jobs:
           treefmt
       - run: git diff --exit-code
 
-  # the binary embeds web/dist at compile time (build.rs): the web
+  # mestro-remote embeds web/dist at compile time (its build.rs): the web
   # app is built before every Rust job
   #
   # apt: what the dev shell's buildInputs provide — the slint
@@ -130,8 +130,10 @@ jobs:
           key: kiosk
       - run: cargo clippy -p mestro --no-default-features --features linuxkms,ota,wifi-setup,audio-output,timezone --all-targets -- -D warnings
       # the OS crate's own clippy run: -p mestro compiles it (the
-      # feature forwards) but lints only the binary
+      # feature forwards) but lints only the binary. The web crate's
+      # run is the same idea
       - run: cargo clippy -p mestro-os --features wifi-setup,audio-output,timezone --all-targets -- -D warnings
+      - run: cargo clippy -p mestro-remote --features ota,wifi-setup,audio-output,timezone --all-targets -- -D warnings
 
   # the fonts mirror the dev shell's FONTCONFIG_FILE for the
   # #[ignore]d visual snapshot tests (they need any text font;
@@ -174,11 +176,12 @@ jobs:
         with:
           key: kiosk
       # the feature flags live on the binary crate (crates/mestro)
-      # and on mestro-os (`wifi-setup`/`audio-output`/`timezone`,
-      # forwarded by the binary's features of the same names);
-      # -p scopes them there
+      # and on mestro-os/mestro-remote (`wifi-setup`/`audio-output`/
+      # `timezone`, forwarded by the binary's features of the same
+      # names); -p scopes them there
       - run: cargo test -p mestro --features ota,wifi-setup,audio-output,timezone
       - run: cargo test -p mestro-os --features wifi-setup,audio-output,timezone
+      - run: cargo test -p mestro-remote --features ota,wifi-setup,audio-output,timezone
 
   web:
     runs-on: ubuntu-24.04

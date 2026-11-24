@@ -23,10 +23,17 @@ crates/
       ui/              navigation stack, OSD, accent palette
       providers/       the Music Assistant client (the PlaybackSource
                        contract lives in mestro-player)
-      remote/          keyboard map, ctl socket, web endpoint, QR
+      remote/          keyboard map, the mestro-remote port
+                       implementations (ports), QR
       restart.rs       self-restart after a settings change or update
     ui/                the slint views (mestro.slint is the root)
     tools/             dev tools: wscap (MA protocol capture), vu-feed
+  mestro-remote/   the remote-control surface: HTTP/WS server, auth
+                       matrix, pairing, captive portal, mDNS, OTA
+                       upload, diagnostics, the push pipeline, the
+                       local ctl socket, the embedded web app — UI
+                       and provider cross through the UiPort/MaAuth
+                       ports the binary implements
   mestro-os/          the OS crate: everything that talks to the
                        device's OS or hardware, a module per
                        capability — the base plumbing, the backlight
@@ -79,8 +86,8 @@ call sites read the constants.
 | `MESTRO_ENV_FILE` | `/data/state/mestro/mestro.env` | mestro-os (`timezone`) | the env file mestro owns and writes whole (`TZ=`, from the timezone setting); S50mestro sources it before the user's `/data/mestro.env` — must match that path |
 | `MESTRO_ZONEINFO_DIR` | `/usr/share/zoneinfo` | mestro-os (`timezone`) | the zoneinfo database a chosen zone must exist in; the timezone picker shows only while it exists |
 | `MESTRO_LOCALTIME` | `/etc/localtime` | mestro-os (`timezone`) | the system zone link, read to learn the running zone when `TZ` is unset |
-| `MESTRO_DIAG_LOGS` | `/tmp/mestro.log:/tmp/mestro.log.old:/tmp/ota.log` | the binary (`remote/web/server/diagnostics`) | colon-separated log files whose last 200 lines go into the diagnostics download (`.old` is the previous run); a missing file is skipped |
-| `MESTRO_DIAG_STATUS` | `/usr/sbin/mestro-upgrade --status` | the binary (`remote/web/server/diagnostics`) | the command whose output joins the diagnostics download (split on whitespace, no shell, 5 s budget); empty = none |
+| `MESTRO_DIAG_LOGS` | `/tmp/mestro.log:/tmp/mestro.log.old:/tmp/ota.log` | mestro-remote (`server/diagnostics`) | colon-separated log files whose last 200 lines go into the diagnostics download (`.old` is the previous run); a missing file is skipped |
+| `MESTRO_DIAG_STATUS` | `/usr/sbin/mestro-upgrade --status` | mestro-remote (`server/diagnostics`) | the command whose output joins the diagnostics download (split on whitespace, no shell, 5 s budget); empty = none |
 | `MESTRO_WPA_CTRL_DIR` | `/run/wpa_supplicant` | mestro-os (`wifi::paths`) | wpa_supplicant's control socket directory (the wifi setup lane) |
 | `MESTRO_WPA_CONF` | `/data/wpa_supplicant.conf` | mestro-os (`wifi::paths`) | the persistent STA conf; must match what the boot scripts start wpa_supplicant with |
 | `MESTRO_WPA_TEMPLATE` | `/etc/mestro-defaults/wpa_supplicant.conf` | mestro-os (`wifi::paths`) | the image's seeded default conf the factory reset restores (setup lane); a missing template means the credentials are removed instead |
@@ -98,7 +105,7 @@ when anything changes.
 CI (`.github/workflows/ci.yml`) runs the same commands as the dev
 shell on every push to main and on every pull request: treefmt,
 both clippy variants with `-D warnings`, both test feature sets (the
-web app is built first — `build.rs` embeds `web/dist`), web
+web app is built first — mestro-remote's `build.rs` embeds `web/dist`), web
 check/test/build, `cargo deny check` and `cargo machete`. CI runs
 on plain GitHub-hosted toolchains, every tool pinned to the exact
 dev-shell version (`rust-toolchain.toml` and the `*-VERSION`/
@@ -208,8 +215,8 @@ Keep stderr quiet in the normal path.
 
 ## Web app (`web/`)
 
-Svelte 5 + Vite, a PWA the binary serves over the LAN and embeds
-at compile time.
+Svelte 5 + Vite, a PWA the mestro-remote crate serves over the LAN
+and embeds at compile time.
 
 - **dev loop**: `bun install && bun run dev` in `web/`, then open
   `http://localhost:5173/#pair=<PIN>` — Vite serves with HMR and
@@ -218,11 +225,11 @@ at compile time.
   `~/.local/state/mestro/web-pin`). No rebuild needed, the app is
   always live.
 - **release**: `bun run build` → `web/dist/` (generated, gitignored) —
-  hashed assets plus the PWA manifest and icons. `build.rs` embeds
+  hashed assets plus the PWA manifest and icons. mestro-remote's `build.rs` embeds
   `$MESTRO_WEB_DIST` (that dist directory, or a single index.html as
   a legacy fallback; a relative path is taken from the repository
   root) — a release pipeline can pass its own dist.
 - **checks**: `bun run check` (svelte-check), `bun test`, plus
-  `bun run build` — and remember the binary embeds `web/dist/` at
+  `bun run build` — and remember mestro-remote embeds `web/dist/` at
   compile time: build the web app before `cargo build`, or the
   binary serves the old one.

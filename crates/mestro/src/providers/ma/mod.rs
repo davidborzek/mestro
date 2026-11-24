@@ -57,7 +57,7 @@ impl Config {
                 ma.token.clone()
             },
             player_name: ma.player.clone(),
-            own_player_id: crate::remote::web::own_player_id(),
+            own_player_id: mestro_remote::own_player_id(),
         }
     }
 }

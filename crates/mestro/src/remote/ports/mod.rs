@@ -1,22 +1,221 @@
-//! the UI-bound half of the protocol: settings reads/writes and
-//! the process-internal ops. Runs on the UI thread (through the
-//! `web-op` callback via [`crate::remote::web::Bridge`]) — MA calls never
-//! arrive here (they would block the UI). Writes map 1:1 onto
-//! `mestro_ipc::command::Command`, the same vocabulary the touch UI and the
-//! text protocol use.
+//! The binary's implementation of the mestro-remote ports: the
+//! slint [`UiPort`] implementation (`SlintUi`), the MA auth client
+//! (the provider's REST calls), the `web-op` handler glue
+//! (settings, ctl, player,
+//! timezone — everything that needs `&Mestro` or the settings
+//! handle on the UI thread) and the OTA overlay updater. The
+//! server, auth and push pipeline live in the `mestro-remote`
+//! crate behind the ports — this module is the only remote
+//! code that touches slint or the provider.
 
-use super::Dispatch;
-use crate::remote::web::PlayerCtx;
-use crate::remote::web::{PreviewRenderer, WebInfo};
+use crate::providers::ma::auth as ma_auth;
 use crate::settings::Handle;
 use crate::Mestro;
 use mestro_ipc::command::Command;
 use mestro_ipc::web::{Envelope, InternalOp, Request, Response, SettingsOp};
+use mestro_remote::server::ctl;
+use mestro_remote::server::http;
+use mestro_remote::server::player;
+use mestro_remote::server::timezone;
+use mestro_remote::server::Dispatch;
+use mestro_remote::{
+    AuthMode, MaAuth, PlayerCtx, PlayerSummary, ServerInfo, UiPort, UiUpdate, UiView, WebInfo,
+};
+use slint::ComponentHandle as _;
+use std::rc::Rc;
+use std::sync::mpsc;
+use std::time::Duration;
 
-/// one round on the UI thread. `dispatch` is the shared command
-/// path (it owns the UI resync after a write), `previews` renders
-/// the settings thumbnails.
-pub(crate) fn handle_ui(
+mod state_data;
+
+/// renders one settings-preview thumbnail (kind "vu" or
+/// "clock", name = skin/style) as PNG bytes on the UI thread;
+/// None when the name is unknown. Built in main.rs from the
+/// compiled skin registries and threaded into [`wire`]
+pub type PreviewRenderer = Rc<dyn Fn(&str, &str) -> Option<Vec<u8>>>;
+
+/// the MA auth port against the provider's REST client (ureq):
+/// the web endpoint's wizard calls land here, the web side never
+/// links the provider
+pub struct MaAuthClient;
+
+impl MaAuth for MaAuthClient {
+    fn probe(&self, url: &str) -> Result<ServerInfo, String> {
+        ma_auth::probe(url)
+            .map(|s| ServerInfo {
+                version: s.version,
+                schema: s.schema,
+                auth: match s.auth {
+                    ma_auth::AuthMode::Login => AuthMode::Login,
+                    ma_auth::AuthMode::None => AuthMode::None,
+                },
+            })
+            .map_err(|e| e.to_string())
+    }
+
+    fn login(
+        &self,
+        url: &str,
+        username: &str,
+        password: &str,
+        device_name: &str,
+    ) -> Result<String, String> {
+        ma_auth::login(url, username, password, device_name).map_err(|e| e.to_string())
+    }
+
+    fn players(&self, url: &str, token: &str) -> Result<Vec<PlayerSummary>, String> {
+        ma_auth::players(url, token)
+            .map(|list| {
+                list.into_iter()
+                    .map(|p| PlayerSummary {
+                        id: p.id,
+                        name: p.name,
+                    })
+                    .collect()
+            })
+            .map_err(|e| e.to_string())
+    }
+
+    fn same_endpoint(&self, a: &str, b: &str) -> bool {
+        ma_auth::same_endpoint(a, b)
+    }
+}
+
+/// the slint side of the UI port: op round-trips through
+/// `invoke_from_event_loop` (the handles are `!Sync`), progress
+/// hints fire and forget
+pub struct SlintUi {
+    ui: slint::Weak<Mestro>,
+}
+
+impl SlintUi {
+    pub fn new(ui: &Mestro) -> Self {
+        Self { ui: ui.as_weak() }
+    }
+}
+
+impl UiPort for SlintUi {
+    fn op(&self, envelope: &str) -> Result<String, String> {
+        let (tx, rx) = mpsc::channel();
+        let ui = self.ui.clone();
+        let envelope = envelope.to_string();
+        let _ = slint::invoke_from_event_loop(move || {
+            let out = ui
+                .upgrade()
+                .map(|u| u.invoke_web_op(envelope.as_str().into()).to_string());
+            let _ = tx.send(out);
+        });
+        rx.recv_timeout(Duration::from_secs(10))
+            .map_err(|_| "ui thread timeout".to_string())?
+            .ok_or_else(|| "ui unavailable".to_string())
+    }
+
+    fn notify(&self, update: UiUpdate) {
+        let ui = self.ui.clone();
+        let _ = slint::invoke_from_event_loop(move || {
+            if let Some(ui) = ui.upgrade() {
+                match update {
+                    UiUpdate::UpdateStatus { text, failure } => {
+                        show_update_status(&ui, &text, failure)
+                    }
+                }
+            }
+        });
+    }
+
+    fn control(&self, cmd: String) {
+        let ui = self.ui.clone();
+        let _ = slint::invoke_from_event_loop(move || {
+            if let Some(ui) = ui.upgrade() {
+                ui.invoke_control_command(cmd.as_str().into());
+            }
+        });
+    }
+}
+
+/// one view snapshot for the push pipeline: the kiosk view flags,
+/// the VU cycle, the backlight and the MA connection as the UI
+/// props hold them (UI thread only). The binary sends it into the
+/// view watch whenever a view-relevant property changes — the
+/// slint `changed` hooks fire `view-changed`, `wire_remote` and
+/// the settings dispatch are the Rust-side publishers
+pub fn view_of(ui: &Mestro, ma_ws_url: &str) -> UiView {
+    UiView {
+        np_open: ui.get_np_open(),
+        queue_open: ui.get_queue_open(),
+        vu_open: ui.get_vu_open(),
+        vu_index: ui.get_vu_view_index(),
+        vu_count: ui.get_vu_view_count(),
+        vu_skins: slint::Model::iter(&ui.get_vu_view_names())
+            .map(|name| name.to_string())
+            .collect(),
+        standby: ui.get_standby_showing(),
+        display_supported: ui.get_display_supported(),
+        brightness: ui.get_display_brightness().round() as i32,
+        connected: ui.get_provider_connected(),
+        ma_ws_url: ma_ws_url.to_string(),
+    }
+}
+
+/// install the UI-bound handler on the `web-op` callback. It runs
+/// on the UI thread (via [`SlintUi`]); `dispatch` is the shared
+/// command path (the same one touch UI and text protocol use),
+/// `player` carries the live state the `player` op's volume
+/// bookkeeping needs.
+pub fn wire(
+    ui: &Mestro,
+    settings: &Rc<Handle>,
+    dispatch: &Dispatch,
+    info: &WebInfo,
+    player: &PlayerCtx,
+    previews: &PreviewRenderer,
+) {
+    let ui_weak = ui.as_weak();
+    let settings = settings.clone();
+    let dispatch = dispatch.clone();
+    let info = info.clone();
+    let player = player.clone();
+    let previews = previews.clone();
+    ui.on_web_op(move |envelope| -> slint::SharedString {
+        let Some(ui) = ui_weak.upgrade() else {
+            return r#"{"id":0,"ok":false,"error":"ui unavailable"}"#.into();
+        };
+        handle_ui(
+            envelope.as_str(),
+            &ui,
+            &settings,
+            &dispatch,
+            &info,
+            &player,
+            &previews,
+        )
+        .into()
+    });
+}
+
+/// the device overlay: a failure text clears itself, unless a
+/// newer status replaced it meanwhile
+fn show_update_status(ui: &Mestro, text: &str, failure: bool) {
+    const FAILURE_VISIBLE: Duration = Duration::from_secs(8);
+    let text = slint::SharedString::from(text);
+    ui.set_update_status(text.clone());
+    if failure {
+        let ui = ui.as_weak();
+        slint::Timer::single_shot(FAILURE_VISIBLE, move || {
+            if let Some(ui) = ui.upgrade().filter(|ui| ui.get_update_status() == text) {
+                ui.set_update_status("".into());
+            }
+        });
+    }
+}
+
+/// one round on the UI thread: the UI-bound half of the protocol
+/// (settings reads/writes, ctl, the player volume, the timezone
+/// picker) plus the process-internal ops (the preview renderer,
+/// the stored MA token). `dispatch` is the shared command path
+/// (it owns the UI resync after a write), `previews` renders the
+/// settings thumbnails.
+pub fn handle_ui(
     text: &str,
     ui: &Mestro,
     settings: &Handle,
@@ -139,15 +338,23 @@ pub(crate) fn handle_ui(
                         Response::err(id, "factory reset not available")
                     }
                 }
-                Request::Ctl { cmd } => super::ctl::handle(
-                    id,
-                    &cmd,
-                    dispatch,
-                    ui.get_vu_view_count() as usize,
-                    ui.get_external_source().as_str(),
-                    &ui.get_transport_caps(),
-                ),
-                Request::Player { action } => super::player::handle(id, &action, player),
+                Request::Ctl { cmd } => {
+                    let caps = ui.get_transport_caps();
+                    ctl::handle(
+                        id,
+                        &cmd,
+                        dispatch,
+                        ui.get_vu_view_count() as usize,
+                        ui.get_external_source().as_str(),
+                        &ctl::TransportCaps {
+                            play_pause: caps.play_pause,
+                            next_previous: caps.next_previous,
+                            shuffle: caps.shuffle,
+                            repeat: caps.repeat,
+                        },
+                    )
+                }
+                Request::Player { action } => player::handle(id, &action, player),
                 Request::Timezone { action } => {
                     timezone_response(id, action, ui, settings, dispatch)
                 }
@@ -178,7 +385,7 @@ fn timezone_response(
         .map(|cfg| cfg.system.timezone)
         .unwrap_or_default();
     let tz_env = std::env::var("TZ").ok();
-    let outcome = super::timezone::run(id, action, &chosen, tz_env.as_deref());
+    let outcome = timezone::run(id, action, &chosen, tz_env.as_deref());
     if let Some(zone) = outcome.record {
         // restart.rs execs with the current environment and the init
         // script's mestro.env is not read again — the exec must carry
@@ -210,7 +417,7 @@ fn state_payload(ui: &Mestro, settings: &Handle, info: &WebInfo) -> serde_json::
         tracing::warn!("web: effective config: {e}");
         crate::config::Config::default()
     });
-    super::state_data::state_data(
+    state_data::state_data(
         &settings.merged(),
         &effective,
         &settings.override_keys(),
@@ -222,13 +429,11 @@ fn state_payload(ui: &Mestro, settings: &Handle, info: &WebInfo) -> serde_json::
         &info.remote_url(),
     )
 }
+
 /// the preview op's reply: PNG bytes as hex
 fn preview_response(previews: &PreviewRenderer, kind: &str, name: &str) -> Response {
     match previews(kind, name) {
-        Some(png) => Response::ok(
-            0,
-            serde_json::json!({ "png": super::http::hex_encode(&png) }),
-        ),
+        Some(png) => Response::ok(0, serde_json::json!({ "png": http::hex_encode(&png) })),
         None => Response::err(0, format!("unknown preview {kind}/{name}")),
     }
 }
