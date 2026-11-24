@@ -9,5 +9,3 @@ web/node_modules/
 # Buildroot build output (O=); the downloads + ccache live outside
 # the tree, under the container's /cache volume
 /output/
-# personal ssh key baked into local images — never in the repo
-image/board/mestro/rpi4/rootfs-overlay/root/.ssh/authorized_keys

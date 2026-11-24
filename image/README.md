@@ -189,16 +189,15 @@ upgrade only swaps the kernel image, never the data partition.
 From the web app: Settings → Info → System update, pick the
 `Image` file. The upload streams straight into the inactive slot.
 
-Over SSH — key-only access; root has no password and there is no
-console login. Two ways to get a key in:
-
-- **Bake it into your image** (git-ignored, never committed):
-  put your public key at
-  `board/mestro/rpi4/rootfs-overlay/root/.ssh/authorized_keys`
-  before building.
-- **Drop it on the data partition**: `/data/authorized_keys`
-  (FAT, editable from any PC) overrides the baked one at boot
-  (`S02data`).
+Over SSH — opt-in and key-only. No key ships in the image, root
+has no password, there is no console login, and dropbear refuses
+passwords (`-s`). To enable it, put your public key at
+`authorized_keys` on the `MESTRODATA` partition (FAT, editable from
+any PC, before or after the first boot); it becomes
+`/root/.ssh/authorized_keys` at boot (`S02data`). Without that file
+the daemon does not start and port 22 stays closed
+(`S50dropbear`). The host keys live on the data partition too, so
+`known_hosts` survives upgrades.
 
 The whole system is one file — the rootfs lives in the initramfs
 embedded in the kernel image. The boot partition holds two of them,
