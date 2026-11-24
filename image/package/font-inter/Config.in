@@ -1,0 +1,7 @@
+config BR2_PACKAGE_FONT_INTER
+	bool "font-inter"
+	help
+	  Inter — the text typeface of the kiosk UI (OFL). Installs
+	  the variable TTF that board/mestro/common/fonts.conf expects.
+
+	  https://rsms.me/inter/

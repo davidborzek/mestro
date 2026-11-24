@@ -1,0 +1,53 @@
+#!/bin/sh
+# S50dropbear — SSH for recovery, only when someone asked for it.
+#
+# No key ships in the image: access is opt-in by placing a public
+# key at /data/authorized_keys (the FAT data partition, editable on
+# any PC). S02data copies it to /root/.ssh at boot. Without a key
+# the daemon does not start and port 22 stays closed.
+#
+#   -s  no password logins at all, keys only
+#   -R  create the host key on first use; the keys live on /data
+#       (S02data links /etc/dropbear there), so they survive OTA
+
+KEYS=/root/.ssh/authorized_keys
+PIDFILE=/var/run/dropbear.pid
+
+start() {
+	if [ ! -s "$KEYS" ]; then
+		echo "dropbear: no /data/authorized_keys, SSH stays off"
+		return 0
+	fi
+	printf "Starting dropbear sshd: "
+	umask 077
+	if start-stop-daemon -S -q -p "$PIDFILE" \
+		--exec /usr/sbin/dropbear -- -R -s; then
+		echo "OK"
+	else
+		echo "FAIL"
+	fi
+}
+
+stop() {
+	printf "Stopping dropbear sshd: "
+	if start-stop-daemon -K -q -p "$PIDFILE"; then
+		echo "OK"
+	else
+		echo "FAIL"
+	fi
+}
+
+case "$1" in
+start | stop)
+	"$1"
+	;;
+restart | reload)
+	stop
+	sleep 1
+	start
+	;;
+*)
+	echo "Usage: $0 {start|stop|restart|reload}"
+	exit 1
+	;;
+esac

@@ -45,8 +45,9 @@ start)
 			echo "$TZ_NAME" >/etc/timezone
 		fi
 	fi
-	# dropbear: an authorized_keys on the data partition overrides
-	# the built-in recovery key
+	# SSH access is opt-in: a public key on the data partition is
+	# the only one (no key ships in the image) and S50dropbear only
+	# starts when it exists
 	if [ -f "$DATA_DIR/authorized_keys" ]; then
 		mkdir -p /root/.ssh
 		cp "$DATA_DIR/authorized_keys" /root/.ssh/authorized_keys

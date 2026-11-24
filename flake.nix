@@ -49,38 +49,16 @@
     in
     {
       # nix is dev setup only — no packages output. The player
-      # image is built with Buildroot (image/README.md), the
-      # aarch64 binary with plain cargo in the .#pi shell.
+      # image is built with Buildroot in a container (image/README.md),
+      # the aarch64 binary for live tests with plain cargo in the
+      # .#pi shell.
       devShells = forAll (pkgs: {
-        # buildroot host tooling for the kiosk image (see image/README.md)
-        image = pkgs.mkShell {
-          packages = with pkgs; [
-            gnumake
-            gcc
-            which
-            perl
-            rsync
-            unzip
-            file
-            bc
-            bison
-            flex
-            (writeShellScriptBin "python3" "exec ${python3}/bin/python3 \"\$@\"")
-            cpio
-            zstd
-            wget
-          ];
-          # NixOS has no /usr/include: cmake's find_path() (host-cmake
-          # bootstrap checks for iconv.h) only searches system prefixes
-          # plus this variable — point it at the glibc headers the gcc
-          # wrapper already compiles against
-          env.CMAKE_INCLUDE_PATH = "${pkgs.glibc.dev}/include";
-        };
         # fast kiosk iteration: plain `cargo build` for aarch64,
         # linked against the Buildroot toolchain + sysroot — the
         # exact libs/glibc the image ships, no pkgsCross closure.
-        # Needs a built Buildroot tree at $MESTRO_BUILDROOT
-        # (default ~/.cache/pi/buildroot/output). See image/README.md
+        # Needs a built Buildroot output at $MESTRO_BUILDROOT
+        # (default: output/ in this tree, built by the container —
+        # image/README.md).
         pi =
           let
             crossRust = pkgs.pkgsCross.aarch64-multiplatform.buildPackages;
@@ -91,7 +69,7 @@
               crossRust.cargo
             ];
             shellHook = ''
-              BR="''${MESTRO_BUILDROOT:-$HOME/.cache/pi/buildroot/output}"
+              BR="''${MESTRO_BUILDROOT:-$PWD/output}"
               if [ ! -x "$BR/host/bin/aarch64-linux-gcc" ]; then
                 echo "pi shell: no Buildroot toolchain at $BR — build the image once or set MESTRO_BUILDROOT" >&2
               fi

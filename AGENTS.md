@@ -36,6 +36,10 @@ nix develop -c bash -c 'cd web && bun run check && bun test && bun run build'
 
 # run locally: kiosk-sized window, web app on :8787
 nix develop -c bash -c 'SLINT_BACKEND=winit-skia ./target/debug/mestro --kiosk'
+
+# the Pi image: one build container (podman), caches outside the
+# tree — never nix, never on the host (image/README.md)
+image/scripts/enter.sh make mestro_pi4
 ```
 
 The `mestro-remote` crate embeds `web/dist/` at compile time: after a
