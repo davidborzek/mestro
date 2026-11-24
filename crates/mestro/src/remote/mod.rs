@@ -7,3 +7,6 @@ pub mod ipc;
 pub mod keyboard;
 pub mod qr;
 pub mod web;
+/// the binary's side of the web endpoint: the slint `UiPort`
+/// implementation and the UI-thread op glue
+pub mod web_ui;

@@ -8,8 +8,8 @@
 //! Threading: the socket side runs on its own tokio thread;
 //! settings and slint handles are `!Sync`, so every state op
 //! round-trips onto the UI thread through the `web-op` callback
-//! (`Bridge`). MA calls (`ma`) are plain HTTP and run on the
-//! socket thread.
+//! behind the [`UiPort`] (the binary implements it with slint).
+//! MA calls (`ma`) are plain HTTP and run on the socket thread.
 //!
 //! Auth: the kiosk URL carries a pairing PIN in the hash
 //! (`#pair=…` — never logged by HTTP middlemen); the PWA trades
@@ -20,7 +20,7 @@ mod identity;
 pub use identity::device_suffix;
 mod mdns;
 pub mod push;
-mod server;
+pub(crate) mod server;
 mod state;
 
 // wifi's own types (the ops channel, the shutdown/children
@@ -28,7 +28,7 @@ mod state;
 // re-exported here under the paths the web modules historically
 // use
 pub use mestro_os::wifi::{Children, MdnsGate, WifiChannel, WifiRequest, WifiShutdown, WIFI_QUEUE};
-pub use push::{Events, Push};
+pub use push::{Events, Push, UiView};
 
 /// MA's player id of this device's own squeezelite (see
 /// [`identity::own_player_id`])
@@ -36,32 +36,88 @@ pub fn own_player_id() -> Option<String> {
     identity::own_player_id(std::path::Path::new("/sys/class/net"))
 }
 
-use crate::providers::SourceCommand;
+use mestro_player::source::SourceCommand;
 
 /// what the `player` op touches on the UI thread: the player
 /// shell (volume bookkeeping) and the provider command channel.
 /// Built in main.rs before the web endpoint wires up
 #[derive(Clone)]
 pub struct PlayerCtx {
-    pub shell: crate::player::shell::Shell,
+    pub shell: mestro_player::shell::Shell,
     pub cmd_tx: tokio::sync::mpsc::UnboundedSender<SourceCommand>,
 }
 
-use crate::settings::Handle;
-use crate::Mestro;
-use mestro_ipc::command::Command;
-use slint::ComponentHandle as _;
-use std::rc::Rc;
-use std::sync::mpsc;
-use std::time::Duration;
+use std::sync::Arc;
 
-type Dispatch = Rc<dyn Fn(&Command)>;
+pub use server::ma::{AuthMode, MaAuth, PlayerSummary, ServerInfo};
 
-/// renders one settings-preview thumbnail (kind "vu" or
-/// "clock", name = skin/style) as PNG bytes on the UI thread;
-/// None when the name is unknown. Built in main.rs from the
-/// compiled skin registries and threaded into [`wire`]
-pub type PreviewRenderer = Rc<dyn Fn(&str, &str) -> Option<Vec<u8>>>;
+/// the endpoint's own knobs — the `[remote]` section distilled
+/// into plain data, so the web side never sees the config crate
+/// (the binary converts)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WebSettings {
+    /// serve the wizard + WS channel at all
+    pub enabled: bool,
+    /// TCP port on all interfaces
+    pub port: u16,
+}
+
+/// what the web thread needs from the UI side: op round-trips
+/// and progress notifications. The settings and slint handles
+/// live on the UI thread (`!Sync`) — the port is the only way
+/// across. The binary implements it against the `web-op`
+/// callback (slint's event loop); tests use a fake
+pub trait UiPort: Send + Sync + 'static {
+    /// one op round-trip. Blocking from the caller's view —
+    /// implementations with a thread hop must bound it (today:
+    /// 10 s), so callers wrap it in [`op_async`]
+    fn op(&self, envelope: &str) -> Result<String, String>;
+
+    /// fire-and-forget UI update (progress hints must never
+    /// stall the web runtime)
+    fn notify(&self, update: UiUpdate);
+}
+
+/// the updates [`UiPort::notify`] carries: today only the OTA
+/// overlay status (the text and whether it is a failure — a
+/// failure clears itself after a while)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UiUpdate {
+    UpdateStatus { text: String, failure: bool },
+}
+
+/// [`UiPort::op`] as an async boundary: the blocking UI
+/// round-trip runs on the blocking pool — one slow or hung UI
+/// op must not freeze the web runtime for every client
+pub async fn op_async(port: &Arc<dyn UiPort>, envelope: String) -> Result<String, String> {
+    let port = Arc::clone(port);
+    tokio::task::spawn_blocking(move || port.op(&envelope))
+        .await
+        .map_err(|_| "blocking pool gone".to_string())?
+}
+
+#[cfg(test)]
+pub(crate) mod test_port {
+    //! a [`UiPort`] to no UI for the server tests: every route
+    //! they exercise must never reach the UI thread, and one
+    //! that does fails fast instead of hanging for the timeout
+    use super::{UiPort, UiUpdate};
+    use std::sync::Arc;
+
+    struct Detached;
+
+    impl UiPort for Detached {
+        fn op(&self, _envelope: &str) -> Result<String, String> {
+            Err("ui unavailable".into())
+        }
+
+        fn notify(&self, _update: UiUpdate) {}
+    }
+
+    pub(crate) fn detached() -> Arc<dyn UiPort> {
+        Arc::new(Detached)
+    }
+}
 
 /// device-side facts the protocol reports (wizard chrome)
 #[derive(Debug, Clone)]
@@ -94,7 +150,7 @@ pub struct WebInfo {
     /// peer-side half of the AP trust boundary: a connection is
     /// hotspot-trusted when its peer address lies inside and the
     /// hotspot is confirmed up
-    pub ap_net: crate::config::ApNet,
+    pub ap_net: mestro_os::wifi::ApNet,
     /// what the diagnostics report collects
     pub diagnostics: server::diagnostics::Sources,
 }
@@ -127,84 +183,34 @@ impl WebInfo {
     }
 }
 
-/// cross-thread bridge: web thread → UI thread. The slint handles
-/// and the settings live on the UI thread (`!Sync`) — one request
-/// goes through `invoke_from_event_loop`, the reply comes back on
-/// a channel.
-#[derive(Clone)]
-pub struct Bridge {
-    ui: slint::Weak<Mestro>,
-}
-
-impl Bridge {
-    pub fn new(ui: &Mestro) -> Self {
-        Self { ui: ui.as_weak() }
-    }
-
-    /// [`Self::op`] as an async boundary: the blocking UI
-    /// roundtrip runs on the blocking pool — one slow or hung UI
-    /// op must not freeze the web runtime for every client
-    pub async fn op_async(&self, envelope: &str) -> Result<String, String> {
-        let this = self.clone();
-        let envelope = envelope.to_string();
-        tokio::task::spawn_blocking(move || this.op(&envelope))
-            .await
-            .map_err(|_| "blocking pool gone".to_string())?
-    }
-
-    /// fire-and-forget: run `update` on the UI thread, no reply
-    /// (progress hints must never stall the web runtime)
-    pub fn notify(&self, update: impl FnOnce(&Mestro) + Send + 'static) {
-        let ui = self.ui.clone();
-        let _ = slint::invoke_from_event_loop(move || {
-            if let Some(ui) = ui.upgrade() {
-                update(&ui);
-            }
-        });
-    }
-
-    /// run one JSON envelope on the UI thread, wait for the JSON
-    /// response (the wizard is interactive — latency is invisible)
-    pub fn op(&self, envelope: &str) -> Result<String, String> {
-        let (tx, rx) = mpsc::channel();
-        let ui = self.ui.clone();
-        let envelope = envelope.to_string();
-        let _ = slint::invoke_from_event_loop(move || {
-            let out = ui
-                .upgrade()
-                .map(|u| u.invoke_web_op(envelope.as_str().into()).to_string());
-            let _ = tx.send(out);
-        });
-        rx.recv_timeout(Duration::from_secs(10))
-            .map_err(|_| "ui thread timeout".to_string())?
-            .ok_or_else(|| "ui unavailable".to_string())
-    }
-}
-
 /// the device facts + the wizard URL (for the kiosk connection
 /// page and the SPA chrome). Computed BEFORE `wire` — see
-/// [`serve`]. With `[remote].enabled = false` the URL is empty and
+/// [`serve`]. With the endpoint disabled the URL is empty and
 /// no PIN file is written (the first-run overlay then points at
-/// config.toml instead of a dead end).
+/// config.toml instead of a dead end). `player` is the configured
+/// MA player name — the label falls back to the hostname, then
+/// "mestro" (the binary owns the config, this takes the
+/// distilled values)
 pub fn info(
-    config: &crate::config::Config,
+    settings: &WebSettings,
+    player: &str,
     app_version: &str,
     display_supported: bool,
+    ap_net: mestro_os::wifi::ApNet,
 ) -> (WebInfo, String) {
-    let remote = &config.remote;
     tracing::info!(
         "web: start: enabled={} port={}",
-        remote.enabled,
-        remote.port
+        settings.enabled,
+        settings.port
     );
-    let pin = if remote.enabled {
+    let pin = if settings.enabled {
         pairing_pin()
     } else {
         String::new()
     };
     let hostname = identity::hostname();
     let info = WebInfo {
-        port: remote.port,
+        port: settings.port,
         pin: pin.clone(),
         app_version: app_version.to_string(),
         id: identity::device_id(
@@ -212,11 +218,11 @@ pub fn info(
             &mestro_os::paths::state_dir(),
             &hostname,
         ),
-        name: identity::label(&config.music_assistant.player, &hostname),
+        name: identity::label(player, &hostname),
         display_supported,
-        ap_mode: std::sync::Arc::default(),
-        mdns_gate: std::sync::Arc::default(),
-        ap_net: config.wifi.ap_net(),
+        ap_mode: Arc::default(),
+        mdns_gate: Arc::default(),
+        ap_net,
         diagnostics: server::diagnostics::Sources::image(),
     };
     // the wizard URL carries the pairing PIN — the kiosk connection
@@ -281,18 +287,23 @@ impl Ingress {
 /// the start/wire window would hit an unset `web-op` handler.
 /// Errors (port busy, no permission) warn and continue — the
 /// kiosk must boot regardless.
+// the wiring is wide by nature (facts + the ports + the push
+// pipeline) — same allowance as the socket plumbing
+#[allow(clippy::too_many_arguments)]
 pub fn serve(
-    remote: &crate::config::Remote,
+    settings: &WebSettings,
     info: WebInfo,
-    bridge: Bridge,
+    ui: std::sync::Arc<dyn UiPort>,
+    ma_auth: std::sync::Arc<dyn MaAuth>,
     pin: String,
     events: Events,
+    push: Push,
     wifi: WifiChannel,
 ) {
-    if !remote.enabled {
+    if !settings.enabled {
         return;
     }
-    let port = remote.port;
+    let port = settings.port;
     mdns::spawn(info.clone());
     let spawned = std::thread::Builder::new()
         .name("mestro-web".into())
@@ -307,47 +318,18 @@ pub fn serve(
                     return;
                 }
             };
-            runtime.block_on(server::serve(port, info, bridge, pin, events, wifi));
+            runtime.block_on(async move {
+                // the push pipeline's own background tasks: the view
+                // watcher (change-driven, the binary publishes the
+                // snapshots) and the coalescing flush
+                tokio::spawn(push.clone().observe_views());
+                tokio::spawn(push.clone().run_flush());
+                server::serve(port, info, ui, ma_auth, pin, events, wifi).await
+            });
         });
     if let Err(e) = spawned {
         tracing::warn!("web: thread: {e}");
     }
-}
-
-/// install the UI-bound handler on the `web-op` callback. It runs
-/// on the UI thread (via [`Bridge`]); `dispatch` is the shared
-/// command path (the same one touch UI and text protocol use),
-/// `player` carries the live state the `player` op's volume
-/// bookkeeping needs.
-pub fn wire(
-    ui: &Mestro,
-    settings: &Rc<Handle>,
-    dispatch: &Dispatch,
-    info: &WebInfo,
-    player: &PlayerCtx,
-    previews: &PreviewRenderer,
-) {
-    let ui_weak = ui.as_weak();
-    let settings = settings.clone();
-    let dispatch = dispatch.clone();
-    let info = info.clone();
-    let player = player.clone();
-    let previews = previews.clone();
-    ui.on_web_op(move |envelope| -> slint::SharedString {
-        let Some(ui) = ui_weak.upgrade() else {
-            return r#"{"id":0,"ok":false,"error":"ui unavailable"}"#.into();
-        };
-        server::settings::handle_ui(
-            envelope.as_str(),
-            &ui,
-            &settings,
-            &dispatch,
-            &info,
-            &player,
-            &previews,
-        )
-        .into()
-    });
 }
 
 /// the pairing PIN: stable across restarts (the URL a phone
@@ -418,8 +400,8 @@ mod tests {
         );
     }
 
-    fn ap_net(ip: [u8; 4]) -> crate::config::ApNet {
-        crate::config::ApNet {
+    fn ap_net(ip: [u8; 4]) -> mestro_os::wifi::ApNet {
+        mestro_os::wifi::ApNet {
             ip: Ipv4Addr::from(ip),
             prefix: 24,
             net: Ipv4Addr::from([ip[0], ip[1], ip[2], 0]),

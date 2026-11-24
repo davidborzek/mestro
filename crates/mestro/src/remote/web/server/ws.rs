@@ -13,7 +13,8 @@
 #![deny(clippy::indexing_slicing)]
 
 use super::dispatch;
-use super::{Bridge, Ingress, WebInfo, WifiChannel};
+use super::ma::MaAuth;
+use super::{Ingress, UiPort, WebInfo, WifiChannel};
 use crate::remote::web::Events;
 use futures_util::{SinkExt, StreamExt};
 use std::io::Cursor;
@@ -23,10 +24,14 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
 
+// same allowance as the server plumbing: the loop carries every
+// shared dependency of the protocol
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn ws_loop(
     mut ws: tokio_tungstenite::WebSocketStream<Prefixed>,
     info: &WebInfo,
-    bridge: &Bridge,
+    ui: &std::sync::Arc<dyn UiPort>,
+    ma_auth: &std::sync::Arc<dyn MaAuth>,
     events: &Events,
     wifi: &WifiChannel,
     ingress: Ingress,
@@ -93,7 +98,7 @@ pub(super) async fn ws_loop(
                 // mid-op: the watch races the dispatch, a long
                 // scan/join cannot delay the close
                 let outcome = tokio::select! {
-                    response = dispatch(&text, info, bridge, wifi, ingress, paired) => Ok(response),
+                    response = dispatch(&text, info, ui, ma_auth, wifi, ingress, paired) => Ok(response),
                     true = ap_over(info), if !paired => Err(()),
                 };
                 match outcome {

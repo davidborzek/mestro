@@ -113,9 +113,10 @@ export component Mestro inherits Window {
     in property <int> vu-view-index: 0;
     // the cycle's skin names, in view-index order
     in property <[string]> vu-view-names: [];
-    // fires on every kiosk view flip (np/queue/vu/standby and
-    // the VU skin position) — Rust pushes the new view to the
-    // phones at once, no 250 ms poll wait
+    // fires on every view-relevant change (np/queue/vu/standby,
+    // the VU cycle and its skins, the backlight, the provider
+    // connection) — Rust publishes the new view snapshot to the
+    // phones' push pipeline at once, no poll
     callback view-changed();
     changed np-open => {
         root.view-changed();
@@ -127,6 +128,21 @@ export component Mestro inherits Window {
         root.view-changed();
     }
     changed vu-view-index => {
+        root.view-changed();
+    }
+    changed vu-view-count => {
+        root.view-changed();
+    }
+    changed vu-view-names => {
+        root.view-changed();
+    }
+    changed display-brightness => {
+        root.view-changed();
+    }
+    changed display-supported => {
+        root.view-changed();
+    }
+    changed provider-connected => {
         root.view-changed();
     }
     in property <[VuPreviewData]> vu-previews: [];

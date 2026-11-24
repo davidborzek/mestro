@@ -1,37 +1,33 @@
-//! The push pipeline: the UI thread owns the state (a `Push` hub
-//! fed by the update loop and a view-prop poll), the web thread
-//! owns the sockets. The seam is [`Events`]: the hub publishes
-//! serialized state frames into a broadcast channel (plus a
-//! latest-slot for the snapshot a fresh socket needs), and the
-//! cover slot carries the artwork the `/cover` endpoint encodes
-//! per version. Frames coalesce — at most one per 100 ms — and
-//! position corrections alone never push (the frame carries no
-//! position).
+//! The push pipeline: the hub is fed by the update loop (the
+//! player state, the covers) on the UI thread and by the view
+//! watcher on the web thread; the web thread owns the sockets.
+//! The seam is [`Events`]: the hub publishes serialized state
+//! frames into a broadcast channel (plus a latest-slot for the
+//! snapshot a fresh socket needs), and the cover slot carries
+//! the artwork the `/cover` endpoint encodes per version. The
+//! view state (kiosk view flags, backlight, connection) arrives
+//! through a `tokio` watch channel — the binary publishes a
+//! snapshot whenever one of the view properties changes, this
+//! side only reacts. Frames coalesce — at most one per 100 ms —
+//! and position corrections alone never push (the frame carries
+//! no position).
 
 use super::state::{
     self, RemoteArt, RemoteContext, RemoteDisplay, RemoteState, RemoteView, Throttle,
 };
-use crate::player::cover::CoverData;
-use crate::player::state::PlayerState;
-use crate::providers::ma;
-use crate::ui::palette::ArtworkPalette;
-use crate::Mestro;
-use parking_lot::{Mutex, RwLock};
-use slint::ComponentHandle as _;
-use std::cell::RefCell;
+use mestro_player::cover::CoverData;
+use mestro_player::palette::ArtworkPalette;
+use mestro_player::state::PlayerState;
+use parking_lot::Mutex;
 use std::collections::HashMap;
-use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, watch};
 
 /// how many frames may pile up before a slow client lags
 const CHANNEL_CAPACITY: usize = 16;
 /// the coalescing window
 const MIN_PUSH_INTERVAL: Duration = Duration::from_millis(100);
-/// the kiosk view-prop poll (they are plain slint properties,
-/// readable only on the UI thread, with no event stream)
-const VIEW_POLL: Duration = Duration::from_millis(250);
 
 /// how many preview PNGs the slot keeps before it resets —
 /// settings edits churn versions, one render re-fills it
@@ -212,23 +208,70 @@ fn encode_backdrop(backdrop: &CoverData) -> Option<Vec<u8>> {
     })
 }
 
-/// the UI-thread hub: accumulates the display's state, the
-/// kiosk view flags and the cover version, and pushes frames
-/// into [`Events`] whenever something changed. Frames are small
-/// and the throttle caps the send rate, so every PlayerUpdate
-/// can afford the roundtrip.
+/// the UI view state as the binary publishes it: a plain-data
+/// snapshot of the kiosk view flags, the VU cycle, the backlight,
+/// the provider connection and the configured MA ws endpoint.
+/// The binary samples it from the slint properties (UI thread)
+/// and sends it into the watch whenever one of them changes —
+/// that side owns every change hook, this side only reacts
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UiView {
+    pub np_open: bool,
+    pub queue_open: bool,
+    pub vu_open: bool,
+    pub vu_index: i32,
+    pub vu_count: i32,
+    /// the cycle's skin names, in `vu_index` order
+    pub vu_skins: Vec<String>,
+    pub standby: bool,
+    pub display_supported: bool,
+    /// 1..100, rounded
+    pub brightness: i32,
+    /// kiosk ↔ Music Assistant
+    pub connected: bool,
+    /// the configured MA ws endpoint ("" = unconfigured) — the
+    /// frame's `ma_url` derives from it
+    pub ma_ws_url: String,
+}
+
+impl Default for UiView {
+    fn default() -> Self {
+        Self {
+            np_open: false,
+            queue_open: false,
+            vu_open: false,
+            vu_index: 0,
+            vu_count: 0,
+            vu_skins: Vec::new(),
+            standby: false,
+            display_supported: false,
+            // the frame contract: 100 = the untouched default
+            brightness: 100,
+            connected: false,
+            ma_ws_url: String::new(),
+        }
+    }
+}
+
+/// the UI-thread-independent half of the pipeline: accumulates
+/// the display's state, the kiosk view flags and the cover
+/// version, and pushes frames into [`Events`] whenever
+/// something changed. Frames are small and the throttle caps the
+/// send rate, so every PlayerUpdate can afford a roundtrip.
+/// Cross-thread (UI thread writes, web thread flushes) behind a
+/// parking_lot lock.
 pub struct Push {
-    inner: Rc<RefCell<Hub>>,
+    inner: Arc<Mutex<Hub>>,
     events: Events,
-    ma_cfg: Arc<RwLock<ma::Config>>,
+    views: watch::Receiver<UiView>,
 }
 
 impl Clone for Push {
     fn clone(&self) -> Self {
         Self {
-            inner: Rc::clone(&self.inner),
+            inner: Arc::clone(&self.inner),
             events: self.events.clone(),
-            ma_cfg: Arc::clone(&self.ma_cfg),
+            views: self.views.clone(),
         }
     }
 }
@@ -244,30 +287,15 @@ struct Hub {
 }
 
 impl Push {
-    pub fn new(events: Events, ma_cfg: Arc<RwLock<ma::Config>>, player: &str) -> Self {
+    pub fn new(events: Events, player: &str, views: watch::Receiver<UiView>) -> Self {
+        let ctx = context_of(&views.borrow());
         Self {
             events,
-            ma_cfg,
-            inner: Rc::new(RefCell::new(Hub {
+            views,
+            inner: Arc::new(Mutex::new(Hub {
                 player: player.to_string(),
                 state: PlayerState::default(),
-                ctx: RemoteContext {
-                    connected: false,
-                    ma_url: String::new(),
-                    view: RemoteView {
-                        now_playing: false,
-                        queue: false,
-                        vu: false,
-                        standby: false,
-                        vu_index: 0,
-                        vu_count: 0,
-                        vu_skins: Vec::new(),
-                    },
-                    display: RemoteDisplay {
-                        supported: false,
-                        brightness: 100,
-                    },
-                },
+                ctx,
                 art: RemoteArt {
                     version: 0,
                     accent: String::new(),
@@ -281,26 +309,50 @@ impl Push {
         }
     }
 
-    /// the first frame, before the listener accepts a socket: the
-    /// view context sampled from the UI, the player still empty (a
-    /// minimal valid frame; the first PlayerUpdate follows normally)
-    pub fn publish_initial(&self, ui: &Mestro) {
-        let ctx = context_of(ui, &self.ma_cfg.read().ws_url);
-        self.inner.borrow_mut().ctx = ctx;
-        self.publish_snapshot();
+    /// the view watcher: feeds the binary's view snapshots from
+    /// the watch into the hub. Consumes one hub handle (clones
+    /// are cheap); [`super::serve`] spawns it on the endpoint's
+    /// runtime — it reacts to the published changes, never polls
+    pub(crate) async fn observe_views(self) {
+        let mut views = self.views.clone();
+        loop {
+            self.set_context(context_of(&views.borrow()));
+            if views.changed().await.is_err() {
+                // the publisher is gone — nothing left to observe
+                return;
+            }
+        }
+    }
+
+    /// the coalescing flush: a throttled change goes out as soon
+    /// as the window allows — without a fresh change to trigger
+    /// it. Runs on tokio time on the endpoint's runtime; consumes
+    /// one hub handle like [`Self::observe_views`]
+    pub(crate) async fn run_flush(self) {
+        let mut tick = tokio::time::interval(MIN_PUSH_INTERVAL);
+        loop {
+            tick.tick().await;
+            self.flush();
+        }
     }
 
     /// publish the current frame now, change check and throttle
     /// bypassed: it becomes the snapshot every fresh socket gets
-    pub(crate) fn publish_snapshot(&self) {
-        self.inner.borrow_mut().pending = true;
+    /// (the binary calls it once, before the endpoint serves).
+    /// Samples the view watch first — the binary publishes the
+    /// current props before the endpoint starts serving
+    pub fn publish_snapshot(&self) {
+        let mut hub = self.inner.lock();
+        hub.ctx = context_of(&self.views.borrow());
+        hub.pending = true;
+        drop(hub);
         self.push_if_changed(true);
     }
 
     /// the update loop's player state (every PlayerUpdate)
     pub fn update(&self, state: &PlayerState) {
         let changed = {
-            let mut hub = self.inner.borrow_mut();
+            let mut hub = self.inner.lock();
             // the frame carries no position — a correction alone
             // must not push, so the comparison runs position-free
             let mut state = state.clone();
@@ -324,7 +376,7 @@ impl Push {
     ) {
         let Some(cover) = cover else { return };
         let version = {
-            let mut hub = self.inner.borrow_mut();
+            let mut hub = self.inner.lock();
             hub.art.version += 1;
             hub.art.accent = palette.map_or_else(String::new, |p| hex(p.accent));
             hub.art.version
@@ -334,14 +386,12 @@ impl Push {
         self.push_if_changed(false);
     }
 
-    /// the kiosk view flags, the MA connection, the web UI URL
-    /// and the backlight (the 250 ms poll + the view-changed
-    /// callback). A VIEW change bypasses the throttle — a tile
-    /// tap must not wait out the coalescing window; everything
-    /// else stays throttled
-    pub fn set_context(&self, ctx: RemoteContext) {
+    /// a fresh view snapshot arrived. A VIEW change bypasses the
+    /// throttle — a tile tap must not wait out the coalescing
+    /// window; everything else stays throttled
+    pub(crate) fn set_context(&self, ctx: RemoteContext) {
         let (changed, view_changed) = {
-            let mut hub = self.inner.borrow_mut();
+            let mut hub = self.inner.lock();
             let view_changed = hub.ctx.view != ctx.view;
             let changed = hub.ctx != ctx;
             hub.ctx = ctx;
@@ -355,7 +405,7 @@ impl Push {
     /// the timer side: a throttled change goes out as soon as
     /// the window allows — without a fresh change to trigger it
     fn flush(&self) {
-        if self.inner.borrow().pending {
+        if self.inner.lock().pending {
             self.push_if_changed(false);
         }
     }
@@ -365,7 +415,7 @@ impl Push {
     /// the window); otherwise the pending flag keeps it queued
     /// for the next timer tick
     fn push_if_changed(&self, force: bool) {
-        let mut hub = self.inner.borrow_mut();
+        let mut hub = self.inner.lock();
         let frame = frame_of(&hub);
         hub.pending |= hub.last.as_ref().is_none_or(|last| *last != frame);
         if !hub.pending || (!force && !hub.throttle.permit(std::time::Instant::now())) {
@@ -385,55 +435,26 @@ impl Push {
             }
         }
     }
-
-    /// the background timers: the coalescing flush and the
-    /// view-prop poll (slint properties, readable only on this
-    /// thread). The poll is the SAFETY NET — the view-changed
-    /// callback (wired here) covers the view flips at once.
-    /// Call once, on the UI thread, before the event loop runs
-    pub fn start_timers(&self, ui: &Mestro) {
-        let push = self.clone();
-        let flush = slint::Timer::default();
-        flush.start(slint::TimerMode::Repeated, MIN_PUSH_INTERVAL, move || {
-            push.flush()
-        });
-        let push = self.clone();
-        let weak = ui.as_weak();
-        let poll = slint::Timer::default();
-        poll.start(slint::TimerMode::Repeated, VIEW_POLL, move || {
-            let Some(ui) = weak.upgrade() else { return };
-            push.set_context(context_of(&ui, &push.ma_cfg.read().ws_url));
-        });
-        let push = self.clone();
-        let weak = ui.as_weak();
-        ui.on_view_changed(move || {
-            let Some(ui) = weak.upgrade() else { return };
-            push.set_context(context_of(&ui, &push.ma_cfg.read().ws_url));
-        });
-        std::mem::forget((flush, poll));
-    }
 }
 
 /// the kiosk view flags, the MA connection and the backlight as
-/// sampled from the UI's properties
-fn context_of(ui: &Mestro, ws_url: &str) -> RemoteContext {
+/// the binary published them
+fn context_of(view: &UiView) -> RemoteContext {
     RemoteContext {
-        connected: ui.get_provider_connected(),
-        ma_url: state::ma_web_url(ws_url),
+        connected: view.connected,
+        ma_url: state::ma_web_url(&view.ma_ws_url),
         view: RemoteView {
-            now_playing: ui.get_np_open(),
-            queue: ui.get_queue_open(),
-            vu: ui.get_vu_open(),
-            standby: ui.get_standby_showing(),
-            vu_index: ui.get_vu_view_index(),
-            vu_count: ui.get_vu_view_count(),
-            vu_skins: slint::Model::iter(&ui.get_vu_view_names())
-                .map(|name| name.to_string())
-                .collect(),
+            now_playing: view.np_open,
+            queue: view.queue_open,
+            vu: view.vu_open,
+            standby: view.standby,
+            vu_index: view.vu_index,
+            vu_count: view.vu_count,
+            vu_skins: view.vu_skins.clone(),
         },
         display: RemoteDisplay {
-            supported: ui.get_display_supported(),
-            brightness: ui.get_display_brightness().round() as i32,
+            supported: view.display_supported,
+            brightness: view.brightness,
         },
     }
 }
@@ -451,21 +472,18 @@ fn hex([r, g, b]: [u8; 3]) -> String {
 mod tests {
     use super::*;
 
-    fn ma_cfg() -> Arc<RwLock<ma::Config>> {
-        Arc::new(RwLock::new(ma::Config {
-            ws_url: "ws://ma.local:8095/ws".into(),
-            token: String::new(),
-            player_name: "wohnzimmer".into(),
-            own_player_id: None,
-        }))
-    }
-
-    // a hub with a live player, without the timers; the receiver
-    // counts what actually goes on the wire
+    // a hub with a live player, without the background tasks; the
+    // receiver counts what actually goes on the wire
     fn push() -> (Push, broadcast::Receiver<String>) {
         let events = Events::new();
         let rx = events.subscribe();
-        (Push::new(events, ma_cfg(), "wohnzimmer"), rx)
+        (Push::new(events, "wohnzimmer", watch_views()), rx)
+    }
+
+    /// a watch at the default view (the binary replaces the value
+    /// before the endpoint serves)
+    fn watch_views() -> watch::Receiver<UiView> {
+        watch::channel(UiView::default()).1
     }
 
     fn playing(title: &str) -> PlayerState {
@@ -580,7 +598,7 @@ mod tests {
     #[test]
     fn the_initial_snapshot_is_a_minimal_valid_state_frame() {
         let events = Events::new();
-        let push = Push::new(events.clone(), ma_cfg(), "wohnzimmer");
+        let push = Push::new(events.clone(), "wohnzimmer", watch_views());
         assert!(events.snapshot().is_none(), "nothing before the publish");
         push.publish_snapshot();
         let frame: serde_json::Value =
@@ -591,6 +609,46 @@ mod tests {
         assert_eq!(frame["data"]["player"]["has_media"], false);
         assert_eq!(frame["data"]["view"]["vu_skins"], serde_json::json!([]));
         // the first real update still publishes (nothing is held back)
+        let mut rx = events.subscribe();
+        push.update(&playing("Track"));
+        assert!(next_frame(&mut rx).contains("\"title\":\"Track\""));
+    }
+
+    #[test]
+    fn the_initial_snapshot_samples_the_view_watch() {
+        // the binary publishes the current props into the watch
+        // before the endpoint serves; the initial frame is built
+        // from that snapshot
+        let events = Events::new();
+        let (_views_tx, views_rx) = watch::channel(UiView {
+            vu_open: true,
+            vu_index: 1,
+            vu_count: 3,
+            vu_skins: vec!["night".into(), "cream".into(), "round".into()],
+            display_supported: true,
+            brightness: 60,
+            connected: true,
+            ma_ws_url: "ws://ma.local:8095/ws".into(),
+            ..UiView::default()
+        });
+        let push = Push::new(events.clone(), "wohnzimmer", views_rx);
+        push.publish_snapshot();
+        let frame: serde_json::Value =
+            serde_json::from_str(&events.snapshot().expect("the snapshot exists")).unwrap();
+        assert_eq!(frame["data"]["connected"], true);
+        assert_eq!(frame["data"]["ma_url"], "http://ma.local:8095");
+        assert_eq!(frame["data"]["view"]["vu"], true);
+        assert_eq!(frame["data"]["view"]["vu_index"], 1);
+        assert_eq!(frame["data"]["view"]["vu_count"], 3);
+        assert_eq!(
+            frame["data"]["view"]["vu_skins"],
+            serde_json::json!(["night", "cream", "round"])
+        );
+        assert_eq!(
+            frame["data"]["display"],
+            serde_json::json!({"supported": true, "brightness": 60})
+        );
+        // nothing changed since the snapshot: no further frame
         let mut rx = events.subscribe();
         push.update(&playing("Track"));
         assert!(next_frame(&mut rx).contains("\"title\":\"Track\""));
@@ -627,7 +685,7 @@ mod tests {
             danger: [0; 3],
         };
         push.cover(Some(&cover), Some(&backdrop), Some(&palette));
-        assert_eq!(push.inner.borrow().art.version, 1);
+        assert_eq!(push.inner.lock().art.version, 1);
         let frame = next_frame(&mut rx);
         assert!(
             frame.contains("/cover?v=") && frame.contains("-1\""),
@@ -668,7 +726,7 @@ mod tests {
     fn a_missing_cover_stays_none_in_the_slot() {
         let (push, _) = push();
         push.cover(None, None, None);
-        assert_eq!(push.inner.borrow().art.version, 0);
+        assert_eq!(push.inner.lock().art.version, 0);
         assert!(push.events.backdrop_jpeg().is_none());
     }
 

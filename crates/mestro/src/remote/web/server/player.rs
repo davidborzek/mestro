@@ -5,9 +5,9 @@
 //! lives in the shared state, guarded there.
 
 use super::super::PlayerCtx;
-use crate::player::state::Event;
-use crate::providers::SourceCommand;
 use mestro_ipc::web::{PlayerAction, Response};
+use mestro_player::source::SourceCommand;
+use mestro_player::state::Event;
 
 /// one player round on the UI thread: dispatch + ack
 pub(crate) fn handle(id: u64, action: &PlayerAction, ctx: &PlayerCtx) -> Response {
@@ -27,10 +27,12 @@ pub(crate) fn handle(id: u64, action: &PlayerAction, ctx: &PlayerCtx) -> Respons
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::player::cover::{CoverSource, HttpCovers};
-    use crate::player::shell::Shell;
-    use crate::player::state::Live;
-    use crate::player::state::PlayerState;
+    use mestro_player::cover::CoverSource;
+    use mestro_player::shell::Shell;
+    use mestro_player::state::Live;
+    use mestro_player::state::PlayerState;
+    // the production HTTP fetcher stays in the binary
+    use crate::player::cover::HttpCovers;
     use parking_lot::Mutex;
     use std::sync::Arc;
 
@@ -41,7 +43,7 @@ mod tests {
             update_tx,
             CoverSource {
                 fetcher: Arc::new(HttpCovers),
-                variant: crate::ui::palette::Variant::TonalSpot,
+                variant: mestro_player::palette::Variant::TonalSpot,
             },
         )
     }

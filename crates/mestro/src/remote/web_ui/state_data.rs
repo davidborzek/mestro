@@ -1,7 +1,7 @@
 //! The `state` op's payload: the redacted config trees the settings
-//! editor and the wizard render. It takes the effective
-//! `config::Config`, so it stays with the server (the wire types
-//! are in `mestro_ipc::web`).
+//! editor and the wizard render. It serializes the binary's
+//! effective `config::Config`, so it lives with the binary's web
+//! glue (the wire types are in `mestro_ipc::web`).
 
 use serde_json::{json, Map, Value};
 

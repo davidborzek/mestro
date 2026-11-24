@@ -9,7 +9,7 @@ use mestro::config::{Config, Osd};
 use mestro::display::Display;
 use mestro::player::nowplaying::QualityVals;
 use mestro::providers::{ma, SourceCommand};
-use mestro::remote::web::Events;
+use mestro::remote::web::{Events, UiView};
 use mestro::settings::{Handle, NpState, VuState};
 use mestro::ui::navigation::Navigation;
 use mestro::vu::wire::Vui;
@@ -41,6 +41,10 @@ pub struct Dispatch {
     /// the settings push: every successful settings command (from
     /// any source — web, slint, ctl) tells the sockets to refetch
     pub events: Events,
+    /// the view watch: connection settings also change the state
+    /// frame (its ma_url), so a fresh view snapshot goes out with
+    /// every connection edit
+    pub views: tokio::sync::watch::Sender<UiView>,
 }
 
 /// which settings families an edit touched
@@ -196,6 +200,14 @@ impl Dispatch {
             // factory re-reads them per attempt)
             *self.ma_cfg.write() = ma::Config::from_music_assistant(&effective.music_assistant);
             let _ = self.cmd_tx.send(SourceCommand::Reconnect);
+            // the state frame's ma_url follows the connection
+            // settings — publish a fresh view snapshot
+            if let Some(ui) = self.ui.upgrade() {
+                let _ = self.views.send_replace(mestro::remote::web_ui::view_of(
+                    &ui,
+                    &self.ma_cfg.read().ws_url,
+                ));
+            }
         }
         // squeezelite's env file follows the audio settings and the
         // url its SERVER derives from

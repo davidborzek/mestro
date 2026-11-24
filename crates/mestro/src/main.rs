@@ -281,16 +281,16 @@ fn main() {
     let ma_cfg = Arc::new(RwLock::new(
         mestro::providers::ma::Config::from_music_assistant(&config.music_assistant),
     ));
-    // the remote-control push pipeline: the hub lives on this
-    // (UI) thread, the events side crosses into the web thread.
-    // Built before the update loop and wire_remote so both can
-    // feed it
+    // the remote-control push pipeline: the hub is fed by the
+    // update loop (UI thread) and the view watcher (web thread).
+    // The view state arrives through the watch: the binary
+    // publishes a snapshot whenever a view-relevant UI property
+    // changes (the slint `changed` hooks fire view-changed), the
+    // pipeline reacts — change-driven, no poll
     let events = mestro::remote::web::Events::new();
-    let push = mestro::remote::web::Push::new(
-        events.clone(),
-        ma_cfg.clone(),
-        &config.music_assistant.player,
-    );
+    let (views_tx, views_rx) = tokio::sync::watch::channel(mestro::remote::web::UiView::default());
+    let push =
+        mestro::remote::web::Push::new(events.clone(), &config.music_assistant.player, views_rx);
     spawn_update_loop(
         &ui,
         update_rx,
@@ -334,6 +334,7 @@ fn main() {
         ma_cfg: ma_cfg.clone(),
         cmd_tx: cmd_tx.clone(),
         events: events.clone(),
+        views: views_tx.clone(),
     });
     let dispatch_fn: Rc<dyn Fn(&Command)> = {
         let dispatch = dispatch.clone();
@@ -353,6 +354,8 @@ fn main() {
         &dispatch_fn,
         &events,
         &push,
+        &views_tx,
+        &ma_cfg,
         &mestro::remote::web::PlayerCtx {
             shell: shell.clone(),
             cmd_tx: cmd_tx.clone(),
@@ -626,6 +629,8 @@ fn wire_remote(
     dispatch: &Rc<dyn Fn(&Command)>,
     events: &mestro::remote::web::Events,
     push: &mestro::remote::web::Push,
+    views: &tokio::sync::watch::Sender<mestro::remote::web::UiView>,
+    ma_cfg: &Arc<RwLock<mestro::providers::ma::Config>>,
     player: &mestro::remote::web::PlayerCtx,
     vui: &vu::wire::Vui,
     clock: &Rc<app::clock::StandbyClock>,
@@ -633,12 +638,21 @@ fn wire_remote(
     // display-supported is up (app::display::sync ran first);
     // the trust boundary needs the hotspot's subnet (`[wifi]
     // ap-address`) — the peer check derives from it
-    let (web_info, web_pin) =
-        mestro::remote::web::info(config, &mestro::app_version(), ui.get_display_supported());
+    let web_settings = mestro::remote::web::WebSettings {
+        enabled: config.remote.enabled,
+        port: config.remote.port,
+    };
+    let (web_info, web_pin) = mestro::remote::web::info(
+        &web_settings,
+        &config.music_assistant.player,
+        &mestro::app_version(),
+        ui.get_display_supported(),
+        config.wifi.ap_net(),
+    );
     // the settings-preview thumbnails: rendered on this (UI)
     // thread from the compiled registries, on demand through the
     // bridge; the effective config keeps them in sync with edits
-    let previews: mestro::remote::web::PreviewRenderer = {
+    let previews: mestro::remote::web_ui::PreviewRenderer = {
         let vui = vui.clone();
         let clock = clock.clone();
         let settings = settings.clone();
@@ -653,7 +667,7 @@ fn wire_remote(
             _ => None,
         })
     };
-    mestro::remote::web::wire(ui, settings, dispatch, &web_info, player, &previews);
+    mestro::remote::web_ui::wire(ui, settings, dispatch, &web_info, player, &previews);
     #[cfg(all(feature = "audio-output", feature = "wifi-setup"))]
     let name_suffix = mestro_os::wifi::name_suffix(
         &mestro_os::wifi::backend::Roots::default(),
@@ -723,19 +737,34 @@ fn wire_remote(
     };
     #[cfg(not(feature = "wifi-setup"))]
     let (wifi, wifi_stop) = (mestro::remote::web::WifiChannel::unavailable(), None);
+    // the view publisher: the slint `changed` hooks on the
+    // view-relevant properties fire view-changed, every one
+    // samples the props into the watch the push pipeline reads
+    {
+        let views = views.clone();
+        let ma_cfg = ma_cfg.clone();
+        let weak = ui.as_weak();
+        ui.on_view_changed(move || {
+            let Some(ui) = weak.upgrade() else { return };
+            let _ = views.send_replace(mestro::remote::web_ui::view_of(&ui, &ma_cfg.read().ws_url));
+        });
+    }
+    // the initial snapshot: the first frame and the view watcher
+    // both start from the current props
+    let _ = views.send_replace(mestro::remote::web_ui::view_of(ui, &ma_cfg.read().ws_url));
     // the snapshot exists before the first socket can connect:
     // every paired WS starts with a state frame
-    push.publish_initial(ui);
+    push.publish_snapshot();
     mestro::remote::web::serve(
-        &config.remote,
+        &web_settings,
         web_info.clone(),
-        mestro::remote::web::Bridge::new(ui),
+        std::sync::Arc::new(mestro::remote::web_ui::SlintUiPort::new(ui)),
+        std::sync::Arc::new(mestro::remote::web_ui::MaAuthClient),
         web_pin,
         events.clone(),
+        push.clone(),
         wifi,
     );
-    // the push timers (coalescing flush + the view-prop poll)
-    push.start_timers(ui);
     // the local control socket: `mestro ctl <command>`
     mestro::remote::ipc::serve(ui.as_weak());
     // the connection page shows the wizard URL (incl. pairing PIN)
