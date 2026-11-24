@@ -237,7 +237,8 @@ Every trial leaves its logs on the data partition in
 `ota.log`, `mestro.log`, `dmesg.txt`; snapshotted every ten
 seconds while the trial runs, so a trial that dies still leaves
 them), overwritten by the next trial — a rolled-back upgrade can
-still be diagnosed over SSH or from the SD card.
+still be diagnosed (over SSH, from the SD card, or in the
+diagnostics download, which includes them).
 
 `mestro-upgrade --status` shows the running and a pending slot.
 Without `--reboot` the trial starts at the next
@@ -320,14 +321,15 @@ To pin your own, set `audio.name` / `audio.server` (Settings → Audio).
 The web app's Settings → Info → *Download diagnostics* saves one
 JSON file (`GET /diagnostics`, paired phones only): the version,
 the redacted settings, the wifi status, the tail of `/tmp/mestro.log`
-(and `.old`, the previous run) and `/tmp/ota.log`, `/proc/version`,
+(and `.old`, the previous run) and `/tmp/ota.log`, the last trial
+boot's copies from `/data/state/mestro/trial-boot/`, `/proc/version`,
 `/proc/asound/cards` and the output of `mestro-upgrade --status`.
 Tokens, the pairing PIN and wifi passphrases are removed; host
 keys, `wpa_supplicant.conf` and the settings overlay are never read.
-The paths are `[diagnostics]` in the config
-([configuration.md](../docs/configuration.md#diagnostics)); the log
-files live in RAM, so the report has to be taken before a reboot
-to contain the crash it is about.
+The log locations are build settings (`MESTRO_LOG_DIR`,
+`MESTRO_STATUS_COMMAND`, CONTRIBUTING.md). The live logs are in
+RAM: take the report before a reboot to keep the crash it is
+about. A rolled-back upgrade survives in the trial-boot copies.
 
 ## Known limits
 

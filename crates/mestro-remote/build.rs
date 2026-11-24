@@ -5,14 +5,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 fn main() {
-    // the image's diagnostics build-time variables are read with
-    // option_env! (src/server/diagnostics.rs); a changed variable
-    // must recompile. Listed in CONTRIBUTING.md "Building for
-    // another image"
-    for var in ["MESTRO_DIAG_LOGS", "MESTRO_DIAG_STATUS"] {
-        println!("cargo:rerun-if-env-changed={var}");
-    }
-
     // ── the embedded web app (PWA) ──
     // pattern: the build/release process runs the Vite build first
     // (`bun run build` in web/), this only embeds the result.
