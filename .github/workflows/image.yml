@@ -73,8 +73,11 @@ jobs:
           sudo mount --bind /mnt/output output
           df -h / /mnt
 
+      # restore and save are separate steps: the caches are saved even
+      # when the build fails, so a retry doesn't start cold
       - name: "Restore cache: downloads"
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: dl
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /mnt/cache/dl
           key: image-dl-${{ hashFiles('image/configs/*_defconfig', 'image/package/**/*.mk', 'image/package/**/*.hash', 'image/patches/**', 'Cargo.lock') }}-${{ github.sha }}
@@ -83,14 +86,45 @@ jobs:
             image-dl-
 
       - name: "Restore cache: ccache"
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: cc
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /mnt/cache/cc
           key: image-cc-${{ github.sha }}
           restore-keys: image-cc-
 
+      # the full Buildroot output is hundreds of thousands of lines —
+      # past what a GitHub step log shows. It goes to build.log; the
+      # step log keeps Buildroot's per-package progress lines
       - name: Build the image
-        run: image/scripts/enter.sh make mestro_pi4 JOBS="$(nproc)"
+        run: |
+          set -euo pipefail
+          # pipefail: the step fails with the build; grep finding no
+          # line is not a failure
+          image/scripts/enter.sh make mestro_pi4 JOBS="$(nproc)" 2>&1 \
+            | tee build.log | { grep --line-buffered -E '^>>> |\*\*\*|ERROR|Error [0-9]' || true; }
+
+      - name: Upload the build log
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: build-log
+          path: build.log
+          retention-days: 7
+
+      - name: "Save cache: downloads"
+        if: always() && steps.dl.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /mnt/cache/dl
+          key: ${{ steps.dl.outputs.cache-primary-key }}
+
+      - name: "Save cache: ccache"
+        if: always() && steps.cc.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /mnt/cache/cc
+          key: ${{ steps.cc.outputs.cache-primary-key }}
 
       - name: Package
         run: |
