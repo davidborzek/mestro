@@ -9,12 +9,12 @@ use mestro::config::{Config, Osd};
 use mestro::display::Display;
 use mestro::player::nowplaying::QualityVals;
 use mestro::providers::{ma, SourceCommand};
-use mestro::remote::web::{Events, UiView};
 use mestro::settings::{Handle, NpState, VuState};
 use mestro::ui::navigation::Navigation;
 use mestro::vu::wire::Vui;
 use mestro::{player::nowplaying, Mestro};
 use mestro_ipc::command::Command;
+use mestro_remote::{Events, UiView};
 use parking_lot::RwLock;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -203,7 +203,7 @@ impl Dispatch {
             // the state frame's ma_url follows the connection
             // settings — publish a fresh view snapshot
             if let Some(ui) = self.ui.upgrade() {
-                let _ = self.views.send_replace(mestro::remote::web_ui::view_of(
+                let _ = self.views.send_replace(mestro::remote::ports::view_of(
                     &ui,
                     &self.ma_cfg.read().ws_url,
                 ));

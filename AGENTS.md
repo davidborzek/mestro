@@ -1,7 +1,8 @@
 # AGENTS.md
 
 mestro: a Music Assistant player for a small touch panel (Rust +
-Slint), a companion web app (Svelte 5) served by the binary, and a
+Slint), a companion web app (Svelte 5) served by the `mestro-remote`
+crate, and a
 Buildroot image for the Raspberry Pi 4. Layout, Slint pinning, the
 MA protocol quirks and UI rules are in [CONTRIBUTING.md](CONTRIBUTING.md);
 read the matching section before touching that area.
@@ -13,16 +14,19 @@ not on the host.
 
 ```sh
 # Rust: both feature sets — CI-equivalent. The feature flags
-# live on the binary crate (crates/mestro) and on mestro-os
+# live on the binary crate (crates/mestro) and on mestro-os and
+# mestro-remote
 # (`wifi-setup`/`audio-output`/`timezone`, forwarded by the
 # binary's features of the same names): -p scopes them
 nix develop -c cargo test
 nix develop -c cargo test -p mestro --features ota,wifi-setup,audio-output,timezone
 nix develop -c cargo test -p mestro-os --features wifi-setup,audio-output,timezone
+nix develop -c cargo test -p mestro-remote --features ota,wifi-setup,audio-output,timezone
 nix develop -c cargo test -p mestro-ipc              # the wire protocol + its golden
 nix develop -c cargo clippy --all-targets
 nix develop -c cargo clippy -p mestro --no-default-features --features linuxkms,ota,wifi-setup,audio-output,timezone --all-targets
 nix develop -c cargo clippy -p mestro-os --features wifi-setup,audio-output,timezone --all-targets
+nix develop -c cargo clippy -p mestro-remote --features ota,wifi-setup,audio-output,timezone --all-targets
 nix develop -c cargo test --test np_layout          # one integration test
 nix develop -c cargo deny check                     # advisories, licenses, bans, sources
 nix develop -c cargo machete                        # unused dependencies
@@ -34,7 +38,8 @@ nix develop -c bash -c 'cd web && bun run check && bun test && bun run build'
 nix develop -c bash -c 'SLINT_BACKEND=winit-skia ./target/debug/mestro --kiosk'
 ```
 
-The binary embeds `web/dist/` at compile time: after a web change,
+The `mestro-remote` crate embeds `web/dist/` at compile time: after a
+web change,
 `bun run build` **before** `cargo build`, or the binary serves the old app.
 
 ## Definition of done
@@ -99,7 +104,7 @@ The binary embeds `web/dist/` at compile time: after a web change,
 
 Changes here need a test for the auth matrix and a note in `docs/remote.md`:
 
-- `crates/mestro/src/remote/web/` — pairing cookie, unpaired hotspot access
+- `crates/mestro-remote/src/` — pairing cookie, unpaired hotspot access
   (`Ingress::of_peer`), the captive portal
 - `crates/mestro-os/src/wifi/` — wifi credentials, the hotspot, the
   web↔wifi trust contract (the factory reset's wifi half lives

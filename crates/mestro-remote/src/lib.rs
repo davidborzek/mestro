@@ -1,32 +1,49 @@
-//! The embedded web endpoint: one port, two faces — `GET /ws`
-//! upgrades to the JSON protocol for browser clients, everything
-//! else serves the PWA (the Vite build `web/dist`, embedded at
-//! compile time): static assets, SPA fallback, pairing, cover.
-//! The remote-control state reaches the sockets through the push
-//! pipeline ([`push`]).
+//! The device's remote-control surface, no UI in it:
+//!
+//! - the embedded web endpoint — one port, two faces: `GET /ws`
+//!   upgrades to the JSON protocol for the PWA and Home
+//!   Assistant, everything else serves the PWA (the Vite build
+//!   `web/dist`, embedded at compile time): static assets, SPA
+//!   fallback, pairing, cover. The remote-control state reaches
+//!   the sockets through the push pipeline ([`push`]).
+//! - mDNS discovery of the endpoint (the HA integration browses
+//!   `_mestro._tcp`)
+//! - the local ctl socket ([`ctl`]): `mestro ctl <command>` on
+//!   the running instance
+//!
+//! No UI here: everything that needs the display, the settings or
+//! the Music Assistant provider crosses through the ports the
+//! binary implements ([`UiPort`], [`MaAuth`]) or arrives as plain
+//! data ([`WebSettings`], [`UiView`]) — so the auth matrix, the
+//! pairing, the captive portal and the push pipeline all build
+//! and test without slint or the config crate.
 //!
 //! Threading: the socket side runs on its own tokio thread;
 //! settings and slint handles are `!Sync`, so every state op
 //! round-trips onto the UI thread through the `web-op` callback
 //! behind the [`UiPort`] (the binary implements it with slint).
-//! MA calls (`ma`) are plain HTTP and run on the socket thread.
+//! MA calls (`ma`) are plain HTTP on the binary's side of the
+//! [`MaAuth`] port.
 //!
 //! Auth: the kiosk URL carries a pairing PIN in the hash
 //! (`#pair=…` — never logged by HTTP middlemen); the PWA trades
 //! it once for the `mestro_pair` cookie (see the `pair` module),
 //! and either opens `/ws`, `/ota` and `/cover`.
 
+// a network endpoint: no unsafe, ever (see [lints] in Cargo.toml)
+#![forbid(unsafe_code)]
+
+pub mod ctl;
 mod identity;
 pub use identity::device_suffix;
 mod mdns;
 pub mod push;
-pub(crate) mod server;
+pub mod server;
 mod state;
 
 // wifi's own types (the ops channel, the shutdown/children
 // registry, the mDNS pause gate) live in `mestro-os`;
-// re-exported here under the paths the web modules historically
-// use
+// re-exported for the endpoint's signatures
 pub use mestro_os::wifi::{Children, MdnsGate, WifiChannel, WifiRequest, WifiShutdown, WIFI_QUEUE};
 pub use push::{Events, Push, UiView};
 
@@ -62,11 +79,13 @@ pub struct WebSettings {
     pub port: u16,
 }
 
-/// what the web thread needs from the UI side: op round-trips
-/// and progress notifications. The settings and slint handles
+/// what the remote surface needs from the UI side: op
+/// round-trips, progress notifications and fire-and-forget
+/// control commands. The settings and slint handles
 /// live on the UI thread (`!Sync`) — the port is the only way
-/// across. The binary implements it against the `web-op`
-/// callback (slint's event loop); tests use a fake
+/// across. The binary implements it against the `web-op` and
+/// `control-command` callbacks (slint's event loop); tests use
+/// a fake
 pub trait UiPort: Send + Sync + 'static {
     /// one op round-trip. Blocking from the caller's view —
     /// implementations with a thread hop must bound it (today:
@@ -76,6 +95,11 @@ pub trait UiPort: Send + Sync + 'static {
     /// fire-and-forget UI update (progress hints must never
     /// stall the web runtime)
     fn notify(&self, update: UiUpdate);
+
+    /// fire-and-forget control command (the ctl socket's
+    /// vocabulary — `mestro_ipc::command::Command`): run it on
+    /// the UI thread, no reply
+    fn control(&self, cmd: String);
 }
 
 /// the updates [`UiPort::notify`] carries: today only the OTA
@@ -112,6 +136,8 @@ pub(crate) mod test_port {
         }
 
         fn notify(&self, _update: UiUpdate) {}
+
+        fn control(&self, _cmd: String) {}
     }
 
     pub(crate) fn detached() -> Arc<dyn UiPort> {
@@ -233,7 +259,7 @@ pub fn info(
 }
 
 /// the port in URL form: nothing on 80 (the URL default, the
-/// kiosk image's port), ":<port>" on every other port — every
+/// kiosk image's port), "`:<port>`" on every other port — every
 /// URL mestro shows or advertises (the wizard URL, the captive
 /// portal URI, the hotspot overlay's address) uses it
 pub fn url_port_suffix(port: u16) -> String {
@@ -283,7 +309,8 @@ impl Ingress {
     }
 }
 
-/// spawn the endpoint thread. Call AFTER [`wire`] — a request in
+/// spawn the endpoint thread. Call AFTER the binary's port wiring
+/// (remote/ports::wire) — a request in
 /// the start/wire window would hit an unset `web-op` handler.
 /// Errors (port busy, no permission) warn and continue — the
 /// kiosk must boot regardless.
@@ -306,7 +333,7 @@ pub fn serve(
     let port = settings.port;
     mdns::spawn(info.clone());
     let spawned = std::thread::Builder::new()
-        .name("mestro-web".into())
+        .name("mestro-remote".into())
         .spawn(move || {
             let runtime = match tokio::runtime::Builder::new_current_thread()
                 .enable_all()

@@ -18,13 +18,16 @@ Not structure for its own sake:
   protocol crates `#![forbid]` it, the binary crate denies it —
   slint's generated code carries its own local `allow`.
   Dependency direction is checked by cargo, not review:
-  `mestro → {player, os, ipc}` and `os → ipc`; `ipc` depends on
+  `mestro → {player, os, ipc, web}`, `os → ipc` and
+  `web → {player, os, ipc}`; `ipc` depends on
   no sibling crate, and no crate ever reaches back into the app.
 - **tests without Slint.** The player domain (state machine, shell,
   the source contract) is pure logic plus tokio channels; its tests
   used to drag in the whole UI build. In the workspace they compile
   and run without Slint (`cargo test -p mestro-player`). The same
-  holds for the OS crate's device logic.
+  holds for the OS crate's device logic — and for the web
+  endpoint's auth matrix, pairing, captive portal and push tests
+  (`cargo test -p mestro-remote`).
 - **blast radius.** A backlight regression can only be in
   `mestro-os::display`; a squeezelite env-file regression only in
   `mestro-os::audio::squeezelite`.
@@ -33,18 +36,43 @@ Not structure for its own sake:
 
 ```mermaid
 graph TD
-  mestro["mestro — binary + UI + web endpoint"] --> player["mestro-player — playback domain"]
+  mestro["mestro — binary + UI"] --> player["mestro-player — playback domain"]
   mestro --> os["mestro-os — device: OS + hardware"]
   mestro --> ipc["mestro-ipc — wire protocol"]
+  mestro --> web["mestro-remote — remote surface: web + ctl + push"]
   os --> ipc
+  web --> ipc
+  web --> os
+  web --> player
 ```
 
 ```
 crates/
-  mestro/            the binary + UI + web endpoint: app wiring,
+  mestro/            the binary + UI: app wiring,
                     config, settings, library, standby, vu (FFT,
-                    skins, the meter loop), providers/ma, remote/,
-                    the slint views (ui/, skins/)
+                    skins, the meter loop), providers/ma, the
+                    slint views (ui/, skins/), the remote
+                    surface's port implementations (remote/ports: the
+                    slint UiPort, the MA auth client, the web-op
+                    and control-command handlers) and the
+                    keyboard map + pairing QR (remote/)
+  mestro-remote/   the device's remote-control surface, without
+                    Slint or the config crate: the HTTP/WS server
+                    (the PWA and Home Assistant speak it), the
+                    auth matrix (the pairing cookie), the unpaired
+                    hotspot gate (`Ingress::of_peer`), the captive
+                    portal, mDNS discovery, the OTA upload,
+                    diagnostics, the push pipeline, the local ctl
+                    socket and the embedded web app (web/dist,
+                    its build.rs embeds $MESTRO_WEB_DIST).
+                    Everything UI- or provider-bound crosses
+                    through the `UiPort` (ops, control commands,
+                    the OTA overlay), the `MaAuth` port
+                    (probe/login/players) or plain data
+                    (`WebSettings`, the `UiView` watch) — the
+                    binary implements the ports; the tests
+                    (auth, pairing, captive, OTA, push) run
+                    without the Slint build
   mestro-player/    the playback domain: the source contract
                     (TrackMeta, QueueItem, MediaEntry, SourceEvent,
                     PlaybackSource, SourceCaps, RepeatMode, …), the
@@ -64,10 +92,10 @@ crates/
                       `Response`, `SettingsOp`, `WifiOp`, …)
                     - [ctl]: the ctl socket's line framing (`ok` /
                       `err <reason>`, `answer_for`)
-                    The sockets (ctl server/client, the web server),
-                    the keyboard map, and everything that needs the
-                    effective config (`state_data`) stay in the
-                    binary; a JSON golden test
+                    The keyboard map and everything that needs the
+                    effective config (`state_data`) stay with the
+                    binary; the web server and the ctl sockets live
+                    in `mestro-remote`. A JSON golden test
                     (`tests/protocol-golden.json`) pins the shapes
   mestro-os/         everything that talks to the device's OS or
                     hardware; nothing about MA, the UI or the web
@@ -125,13 +153,18 @@ throttling of backlight writes (`Display`) stays with the UI.
 
 Feature flags are unchanged in shape: `desktop`/`linuxkms` on the
 binary, and the capability features `wifi-setup`,
-`audio-output` and `timezone` live on `mestro-os` — the binary
-forwards each (`wifi-setup = ["mestro-os/wifi-setup"]`, …) and
+`audio-output` and `timezone` live on `mestro-os` and
+`mestro-remote` (the endpoint's own gates: the ota upload, the
+audio picker, the timezone picker, the capability hello
+reports) — the binary
+forwards each (`wifi-setup = ["mestro-os/wifi-setup",
+"mestro-remote/wifi-setup"]`, …) and
 its own features carry the same names. Without them mestro-os
 compiles the base, the display backends, the wifi contract and
 the visexport ring — exactly what the desktop build needs; the
 OS crate's own test/clippy runs are `-p mestro-os --features
-wifi-setup,audio-output,timezone`.
+wifi-setup,audio-output,timezone`, the web crate's are
+`-p mestro-remote --features ota,wifi-setup,audio-output,timezone`.
 
 ## Later stages
 
@@ -148,14 +181,7 @@ shippable:
    and its golden): the web app contract and the Rust schema are
    tested together without the UI. The schema golden then moves
    with it.
-4. **mestro-web**: the embedded web endpoint (`remote/web`: the
-   server, auth, pairing, the captive portal, the OTA endpoint,
-   diagnostics) without Slint; the push pipeline becomes an event
-   feed the crate owns. Prerequisite: `remote/web` stops reaching
-   into `crate::Mestro` for previews — an injected renderer seam
-   already exists (`PreviewRenderer`) — and `state_data` takes
-   config as data.
-5. **mestro-ma**, later: the Music Assistant client
+4. **mestro-ma**, later: the Music Assistant client
    (`providers/ma`) as a PlaybackSource implementation, then the
    scenarios move out of the binary into that crate. Prerequisite:
    the private parser types (`parse`) settle behind the crate's
@@ -165,7 +191,8 @@ Beside that line, without a fixed slot:
 
 - **mestro-testkit**: the scenario harness (fixtures, the scripted
   MA server) for out-of-tree provider tests.
-- **mestro-ota**: the update lane (`remote/web/server/ota.rs`,
+- **mestro-ota**: the update lane (`mestro-remote`'s
+  `server/ota.rs`,
   the image-side scripts) once the upload path is a stable seam.
 - **xtask**: the image/tooling helpers (snapshot exports, the
   golden-schema check, the aarch64 staging script) behind `cargo
@@ -174,16 +201,19 @@ Beside that line, without a fixed slot:
   a plugin trait for playback sources would land on the
   `PlaybackSource` contract in mestro-player.
 
-## Prerequisites for stage 2 (beyond stage 1)
+## Prerequisites for the ma stage
 
-Stage 2 (web, ma out of the binary) cannot be a pure move:
-these must be resolved first.
+The remote surface has left the binary (`mestro-remote`: the
+web endpoint and the ctl socket crossed behind the
+`UiPort`/`MaAuth` ports and plain-data inputs; the push pipeline
+owns its event feed — the binary publishes view snapshots into a
+watch channel). What remains before `providers/ma` can follow:
 
-1. **Remove the module cycles.** `settings ↔ ui` (the schema
-   golden test reads `ui/settings/*.slint` by path) and
-   `remote/web ↔ player` (the bridge reaches into `Mestro`
-   properties) are the two remaining reach-backs; each needs an
-   injected seam, not a crate edge.
+1. **Remove the module cycle.** `settings ↔ ui` (the schema
+   golden test reads `ui/settings/*.slint` by path) is the
+   remaining reach-back; it needs an injected seam, not a crate
+   edge. (`remote/web ↔ player` is resolved: the bridge became
+   the `UiPort` port, the push context a `UiView` watch.)
 2. **Push `Mestro` out of the domain logic.** `nowplaying`,
    `osd`, `vu/wire` take `&Mestro` deep into rendering helpers;
    until they take narrow ports (an update sink, a model handle),
@@ -192,8 +222,3 @@ these must be resolved first.
    `providers::ma::parse` internals; a public event surface for
    mestro-ma has to come first, or the scenario crate duplicates
    the harness.
-4. **Config types cross the seams as data.** Stage 1 introduced
-   `AudioSettings` for this; the wifi settings did the same
-   (`WifiSettings`/`ApNet` live in `mestro-os::wifi`, the config
-   embeds them). The web settings still need it before mestro-web
-   can stand alone.

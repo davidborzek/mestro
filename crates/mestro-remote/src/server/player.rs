@@ -10,7 +10,7 @@ use mestro_player::source::SourceCommand;
 use mestro_player::state::Event;
 
 /// one player round on the UI thread: dispatch + ack
-pub(crate) fn handle(id: u64, action: &PlayerAction, ctx: &PlayerCtx) -> Response {
+pub fn handle(id: u64, action: &PlayerAction, ctx: &PlayerCtx) -> Response {
     let PlayerAction::Volume { value } = action;
     let value = (*value).clamp(0, 100);
     // local origin: the transport echo of THIS change must
@@ -27,14 +27,19 @@ pub(crate) fn handle(id: u64, action: &PlayerAction, ctx: &PlayerCtx) -> Respons
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mestro_player::cover::CoverSource;
+    use mestro_player::cover::{CoverFetcher, CoverLanded, CoverSource};
     use mestro_player::shell::Shell;
     use mestro_player::state::Live;
     use mestro_player::state::PlayerState;
-    // the production HTTP fetcher stays in the binary
-    use crate::player::cover::HttpCovers;
     use parking_lot::Mutex;
     use std::sync::Arc;
+
+    /// the volume bookkeeping never asks for artwork
+    struct NoFetch;
+
+    impl CoverFetcher for NoFetch {
+        fn fetch(&self, _url: String, _landed: CoverLanded) {}
+    }
 
     fn shell(live: Option<Live>) -> Shell {
         let (update_tx, _) = tokio::sync::mpsc::unbounded_channel();
@@ -42,7 +47,7 @@ mod tests {
             Arc::new(Mutex::new(live)),
             update_tx,
             CoverSource {
-                fetcher: Arc::new(HttpCovers),
+                fetcher: Arc::new(NoFetch),
                 variant: mestro_player::palette::Variant::TonalSpot,
             },
         )

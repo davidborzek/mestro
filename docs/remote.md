@@ -571,9 +571,12 @@ overlay (QR code + wizard URL) until a verified connection exists.
 
 The socket side runs on its own tokio thread. Settings and slint
 handles are `!Sync`, so every state op round-trips onto the UI
-thread through the `web-op` callback (`Bridge`); blocking work (UI
-roundtrips, `ureq`, cover JPEG encodes) runs on the blocking pool
-or the socket thread, never on the async worker. The state frames
-are built on the UI thread (the player update loop plus a 250 ms
-poll of the player view props) and cross into the web thread via a
+thread through the `UiPort` the binary implements; blocking work
+(UI roundtrips, `ureq`, cover JPEG encodes) runs on the blocking
+pool or the socket thread, never on the async worker. The binary
+publishes a `UiView` snapshot on a watch channel whenever a view
+property changes; the push hub is shared by the UI thread (player
+updates, covers) and the web runtime (view watcher, flush) and
+serialized by one lock — frames are built and published under it,
+coalesced to one per 100 ms, and reach the sockets via a
 broadcast channel.

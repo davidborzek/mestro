@@ -256,7 +256,7 @@ pub(super) fn query_param(query: &str, name: &str) -> Option<String> {
 
 /// PNG bytes as hex over the JSON bridge (keeps the internal
 /// preview op's reply a plain string — no base64 dependency)
-pub(crate) fn hex_encode(bytes: &[u8]) -> String {
+pub fn hex_encode(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
         out.push_str(&format!("{byte:02x}"));

@@ -1,24 +1,26 @@
-//! The binary's side of the web endpoint: the slint [`UiPort`]
-//! implementation, the `web-op` handler glue (settings, ctl,
-//! player, timezone — everything that needs `&Mestro` or the
-//! settings handle on the UI thread) and the OTA overlay
-//! updater. The server, auth and push pipeline live in
-//! [`crate::remote::web`] behind the port — this module is the
-//! only code there that touches slint.
+//! The binary's implementation of the mestro-remote ports: the
+//! slint [`UiPort`] implementation (`SlintUi`), the MA auth client
+//! (the provider's REST calls), the `web-op` handler glue
+//! (settings, ctl, player,
+//! timezone — everything that needs `&Mestro` or the settings
+//! handle on the UI thread) and the OTA overlay updater. The
+//! server, auth and push pipeline live in the `mestro-remote`
+//! crate behind the ports — this module is the only remote
+//! code that touches slint or the provider.
 
 use crate::providers::ma::auth as ma_auth;
-use crate::remote::web::server::ctl;
-use crate::remote::web::server::http;
-use crate::remote::web::server::player;
-use crate::remote::web::server::timezone;
-use crate::remote::web::server::Dispatch;
-use crate::remote::web::{
-    AuthMode, MaAuth, PlayerCtx, PlayerSummary, ServerInfo, UiPort, UiUpdate, UiView, WebInfo,
-};
 use crate::settings::Handle;
 use crate::Mestro;
 use mestro_ipc::command::Command;
 use mestro_ipc::web::{Envelope, InternalOp, Request, Response, SettingsOp};
+use mestro_remote::server::ctl;
+use mestro_remote::server::http;
+use mestro_remote::server::player;
+use mestro_remote::server::timezone;
+use mestro_remote::server::Dispatch;
+use mestro_remote::{
+    AuthMode, MaAuth, PlayerCtx, PlayerSummary, ServerInfo, UiPort, UiUpdate, UiView, WebInfo,
+};
 use slint::ComponentHandle as _;
 use std::rc::Rc;
 use std::sync::mpsc;
@@ -82,17 +84,17 @@ impl MaAuth for MaAuthClient {
 /// the slint side of the UI port: op round-trips through
 /// `invoke_from_event_loop` (the handles are `!Sync`), progress
 /// hints fire and forget
-pub struct SlintUiPort {
+pub struct SlintUi {
     ui: slint::Weak<Mestro>,
 }
 
-impl SlintUiPort {
+impl SlintUi {
     pub fn new(ui: &Mestro) -> Self {
         Self { ui: ui.as_weak() }
     }
 }
 
-impl UiPort for SlintUiPort {
+impl UiPort for SlintUi {
     fn op(&self, envelope: &str) -> Result<String, String> {
         let (tx, rx) = mpsc::channel();
         let ui = self.ui.clone();
@@ -117,6 +119,15 @@ impl UiPort for SlintUiPort {
                         show_update_status(&ui, &text, failure)
                     }
                 }
+            }
+        });
+    }
+
+    fn control(&self, cmd: String) {
+        let ui = self.ui.clone();
+        let _ = slint::invoke_from_event_loop(move || {
+            if let Some(ui) = ui.upgrade() {
+                ui.invoke_control_command(cmd.as_str().into());
             }
         });
     }
@@ -147,7 +158,7 @@ pub fn view_of(ui: &Mestro, ma_ws_url: &str) -> UiView {
 }
 
 /// install the UI-bound handler on the `web-op` callback. It runs
-/// on the UI thread (via [`SlintUiPort`]); `dispatch` is the shared
+/// on the UI thread (via [`SlintUi`]); `dispatch` is the shared
 /// command path (the same one touch UI and text protocol use),
 /// `player` carries the live state the `player` op's volume
 /// bookkeeping needs.
@@ -327,14 +338,22 @@ pub fn handle_ui(
                         Response::err(id, "factory reset not available")
                     }
                 }
-                Request::Ctl { cmd } => ctl::handle(
-                    id,
-                    &cmd,
-                    dispatch,
-                    ui.get_vu_view_count() as usize,
-                    ui.get_external_source().as_str(),
-                    &ui.get_transport_caps(),
-                ),
+                Request::Ctl { cmd } => {
+                    let caps = ui.get_transport_caps();
+                    ctl::handle(
+                        id,
+                        &cmd,
+                        dispatch,
+                        ui.get_vu_view_count() as usize,
+                        ui.get_external_source().as_str(),
+                        &ctl::TransportCaps {
+                            play_pause: caps.play_pause,
+                            next_previous: caps.next_previous,
+                            shuffle: caps.shuffle,
+                            repeat: caps.repeat,
+                        },
+                    )
+                }
                 Request::Player { action } => player::handle(id, &action, player),
                 Request::Timezone { action } => {
                     timezone_response(id, action, ui, settings, dispatch)

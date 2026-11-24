@@ -7,7 +7,7 @@
 //! went down).
 
 use super::http::json;
-use crate::remote::web::{Ingress, WebInfo, WifiChannel};
+use crate::{Ingress, WebInfo, WifiChannel};
 use mestro_ipc::web::{Response, WifiOp};
 use std::time::Duration;
 

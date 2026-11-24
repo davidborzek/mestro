@@ -25,7 +25,7 @@ if [ "${1:-}" = "--dev" ]; then
 fi
 STAGE="${1:-$HOME/.cache/pi/mestro-image-bin}"
 
-# the embedded web app first — build.rs embeds web/dist at
+# the embedded web app first — mestro-remote's build.rs embeds web/dist at
 # compile time, so cargo would otherwise embed a stale one
 nix develop -c bash -c \
 	'cd web && { [ -d node_modules ] || bun install --frozen-lockfile; } && bun run build'

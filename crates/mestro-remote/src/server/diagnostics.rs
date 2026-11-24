@@ -23,7 +23,7 @@
 use super::http;
 use super::http::json;
 use super::pair::Pairing;
-use crate::remote::web::{UiPort, WebInfo, WifiChannel};
+use crate::{UiPort, WebInfo, WifiChannel};
 use mestro_ipc::web::{Envelope, Request, Response, SettingsOp, WifiOp};
 use mestro_os::paths::setting;
 use serde_json::{json, Map, Value};
@@ -573,7 +573,7 @@ async fn fetch_state(ui: &Arc<dyn UiPort>) -> Result<Value, String> {
             action: SettingsOp::State,
         },
     };
-    let body = crate::remote::web::op_async(ui, json(&envelope)).await?;
+    let body = crate::op_async(ui, json(&envelope)).await?;
     let reply: Response = serde_json::from_str(&body).map_err(|e| e.to_string())?;
     if reply.ok {
         reply.data.ok_or_else(|| "empty state".to_string())
@@ -721,7 +721,7 @@ mod tests {
 
     #[test]
     fn build_rs_reruns_on_every_variable_read_here() {
-        let build_rs = include_str!("../../../../build.rs");
+        let build_rs = include_str!("../../build.rs");
         let source = include_str!("diagnostics.rs");
         let vars: Vec<&str> = source
             .split("option_env!(\"")

@@ -15,7 +15,7 @@
 use super::dispatch;
 use super::ma::MaAuth;
 use super::{Ingress, UiPort, WebInfo, WifiChannel};
-use crate::remote::web::Events;
+use crate::Events;
 use futures_util::{SinkExt, StreamExt};
 use std::io::Cursor;
 use std::pin::Pin;

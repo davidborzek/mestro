@@ -19,6 +19,11 @@ mestro-ipc = { path = "../mestro-ipc", version = "0.1.0" }
 # the player domain: source contract, state machine, shell, cover
 # seam, artwork palette (RGB)
 mestro-player = { path = "../mestro-player", version = "0.1.0" }
+# the remote-control surface: the web endpoint (server, auth,
+# pairing, captive portal, OTA, push pipeline) and the ctl
+# socket — behind the ports this binary implements (the slint UI
+# port, the MA auth client)
+mestro-remote = { path = "../mestro-remote", version = "0.1.0" }
 # exact pin: all slint crates move as one (renovate.json groups
 # them); a bump needs the snapshot tests re-run (CONTRIBUTING.md)
 slint = { version = "=1.19.0", default-features = false, features = ["std", "compat-1-2", "accessibility", "renderer-femtovg", "renderer-software"] }
@@ -47,10 +52,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 rustfft = "6.4.1"
 qrcode = { version = "0.15", default-features = false }
-# the pairing cookie token (web/): hex sha256 over the pairing PIN
-sha2.workspace = true
-mdns-sd = "0.22.0"
-
 [features]
 # default = dev/desktop: the winit backend under a compositor.
 # The linuxkms feature adds the straight-on-DRM kiosk backend
@@ -66,20 +67,20 @@ desktop = ["slint/backend-winit", "slint/renderer-skia"]
 linuxkms = ["slint/backend-linuxkms", "slint-interpreter/backend-linuxkms"]
 # the web endpoint's POST /ota: streams an uploaded system image
 # into mestro-upgrade (the Pi image enables it)
-ota = []
+ota = ["mestro-remote/ota"]
 # the wifi setup lane (mestro-os): wpa_supplicant ctrl client,
 # AP mode + captive portal policy, the join state machine and
 # the factory reset's wifi half. Kiosk builds enable it next
 # to `ota`; desktop builds stay without it (the factory reset
 # op is a wifi-setup capability of the binary)
-wifi-setup = ["mestro-os/wifi-setup"]
+wifi-setup = ["mestro-os/wifi-setup", "mestro-remote/wifi-setup"]
 # the web app's audio output picker: lists the ALSA playback
 # devices, sets the audio.* settings and writes squeezelite's env
 # file from them (image only)
-audio-output = ["mestro-os/audio-output"]
+audio-output = ["mestro-os/audio-output", "mestro-remote/audio-output"]
 # the web app's timezone picker: writes TZ into mestro's env file and
 # restarts the player (image only; a desktop follows the OS zone)
-timezone = ["mestro-os/timezone"]
+timezone = ["mestro-os/timezone", "mestro-remote/timezone"]
 
 # developer tools, not shipped (cargo run --example <name>)
 [[example]]

@@ -4,18 +4,30 @@ use super::Dispatch;
 use mestro_ipc::command::Command;
 use mestro_ipc::web::Response;
 
+/// what the playing source lets the transport do — the UI's
+/// projection of `mestro_player::source::SourceCaps` (the seek
+/// flag never reaches the ctl vocabulary). The binary converts
+/// from its slint struct when the ctl op lands
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TransportCaps {
+    pub play_pause: bool,
+    pub next_previous: bool,
+    pub shuffle: bool,
+    pub repeat: bool,
+}
+
 /// one ctl round on the UI thread. `vu_views` is the size of the VU
 /// cycle: a `vu-select` outside it is an error reply, never a dispatch.
 /// `external` names the external source playing ("" = the MA queue):
 /// the queue view does not exist then, and the transport commands
 /// are refused the source cannot do (`caps`)
-pub(crate) fn handle(
+pub fn handle(
     id: u64,
     cmd: &str,
     dispatch: &Dispatch,
     vu_views: usize,
     external: &str,
-    caps: &crate::TransportCaps,
+    caps: &TransportCaps,
 ) -> Response {
     let cmd = cmd.trim();
     if cmd.is_empty() {
@@ -51,8 +63,8 @@ mod tests {
 
     const VU_VIEWS: usize = 3;
 
-    fn all() -> crate::TransportCaps {
-        crate::TransportCaps {
+    fn all() -> TransportCaps {
+        TransportCaps {
             play_pause: true,
             next_previous: true,
             shuffle: true,
@@ -100,7 +112,7 @@ mod tests {
     #[test]
     fn transport_the_source_cannot_do_is_refused_like_the_queue() {
         let dispatch: Dispatch = Rc::new(|_| panic!("unexpected dispatch"));
-        let nothing = crate::TransportCaps {
+        let nothing = TransportCaps {
             play_pause: false,
             next_previous: false,
             shuffle: false,
@@ -124,7 +136,7 @@ mod tests {
         let seen = Rc::new(RefCell::new(Vec::new()));
         let sink = seen.clone();
         let dispatch: Dispatch = Rc::new(move |cmd| sink.borrow_mut().push(cmd.clone()));
-        let skip_only = crate::TransportCaps {
+        let skip_only = TransportCaps {
             play_pause: false,
             next_previous: true,
             shuffle: false,

@@ -79,7 +79,7 @@ impl Events {
         let _ = self.inner.tx.send(frame);
     }
 
-    /// the settings-changed event ([`super::state::SETTINGS_EVENT`]):
+    /// the settings-changed event (`state::SETTINGS_EVENT`):
     /// broadcast only — never the latest slot, that holds the
     /// player state frame a fresh or lagged socket starts with
     pub fn publish_settings(&self) {
@@ -160,6 +160,12 @@ impl Events {
         }
         cache.insert(key, bytes.clone());
         Some(bytes)
+    }
+
+    /// test-only: the cover slot's version (0 = no image)
+    #[cfg(test)]
+    pub(crate) fn cover_version(&self) -> u64 {
+        self.inner.cover.lock().as_ref().map_or(0, |(v, _)| *v)
     }
 }
 
@@ -375,14 +381,17 @@ impl Push {
         palette: Option<&ArtworkPalette>,
     ) {
         let Some(cover) = cover else { return };
-        let version = {
+        {
             let mut hub = self.inner.lock();
             hub.art.version += 1;
             hub.art.accent = palette.map_or_else(String::new, |p| hex(p.accent));
-            hub.art.version
-        };
-        self.events
-            .set_cover(version, cover.clone(), backdrop.cloned());
+            #[cfg(test)]
+            gate_wait(&COVER_GATE);
+            // install the image before the new version can reach a
+            // frame: /cover is cached forever per version URL
+            self.events
+                .set_cover(hub.art.version, cover.clone(), backdrop.cloned());
+        }
         self.push_if_changed(false);
     }
 
@@ -425,7 +434,11 @@ impl Push {
         match serde_json::to_string(&state::PushFrame::state(frame.clone())) {
             Ok(text) => {
                 hub.last = Some(frame);
-                drop(hub);
+                #[cfg(test)]
+                gate_wait(&PUBLISH_GATE);
+                // publish under the hub lock: the UI thread and the
+                // view watcher both push, and an older frame must
+                // never land after a newer one
                 self.events.publish(text);
             }
             Err(e) => {
@@ -466,6 +479,49 @@ fn frame_of(hub: &Hub) -> RemoteState {
 
 fn hex([r, g, b]: [u8; 3]) -> String {
     format!("#{r:02x}{g:02x}{b:02x}")
+}
+
+/// test-only seam: freezes the calling publisher at one exact
+/// point of the pipeline so a test can interleave a second
+/// publisher — the window the hub lock keeps closed in production
+/// (each gate is one-shot and thread-local: parallel tests never
+/// see each other's, production threads carry `None`)
+#[cfg(test)]
+struct Gate {
+    arrived: std::sync::mpsc::Sender<()>,
+    release: std::sync::mpsc::Receiver<()>,
+}
+
+#[cfg(test)]
+thread_local! {
+    /// [`Push::push_if_changed`]: just before the frame goes on
+    /// the wire — under the hub lock, so a gated publisher also
+    /// holds the lock (what the fix guarantees)
+    static PUBLISH_GATE: std::cell::RefCell<Option<Gate>> =
+        const { std::cell::RefCell::new(None) };
+    /// [`Push::cover`]: between the version bump and the image
+    /// install
+    static COVER_GATE: std::cell::RefCell<Option<Gate>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn gate_install(
+    key: &'static std::thread::LocalKey<std::cell::RefCell<Option<Gate>>>,
+    arrived: std::sync::mpsc::Sender<()>,
+    release: std::sync::mpsc::Receiver<()>,
+) {
+    key.with(|gate| *gate.borrow_mut() = Some(Gate { arrived, release }));
+}
+
+#[cfg(test)]
+fn gate_wait(key: &'static std::thread::LocalKey<std::cell::RefCell<Option<Gate>>>) {
+    key.with(|gate| {
+        if let Some(gate) = gate.borrow_mut().take() {
+            let _ = gate.arrived.send(());
+            let _ = gate.release.recv();
+        }
+    });
 }
 
 #[cfg(test)]
@@ -742,6 +798,275 @@ mod tests {
         // the snapshot a fresh socket starts with stays the state
         // frame, not the settings event
         assert_eq!(events.snapshot().as_deref(), Some(state));
+    }
+
+    fn playing_at(volume: i32) -> PlayerState {
+        PlayerState {
+            playing: true,
+            title: "Track".into(),
+            has_media: true,
+            duration_ms: 100_000,
+            volume,
+            ..Default::default()
+        }
+    }
+
+    fn context_vu(vu_index: i32) -> RemoteContext {
+        RemoteContext {
+            connected: true,
+            ma_url: "http://ma.local:8095".into(),
+            view: RemoteView {
+                now_playing: false,
+                queue: false,
+                vu: true,
+                standby: false,
+                vu_index,
+                vu_count: 3,
+                vu_skins: vec!["night".into(), "cream".into(), "round".into()],
+            },
+            display: RemoteDisplay {
+                supported: true,
+                brightness: 60,
+            },
+        }
+    }
+
+    fn cover_data(rgba: Vec<u8>) -> CoverData {
+        CoverData {
+            rgba,
+            width: 1,
+            height: 1,
+        }
+    }
+
+    fn palette() -> ArtworkPalette {
+        ArtworkPalette {
+            accent: [0xf3, 0xbd, 0x6e],
+            tertiary: [0; 3],
+            danger: [0; 3],
+        }
+    }
+
+    fn volume_of(frame: &str) -> i32 {
+        serde_json::from_str::<serde_json::Value>(frame).unwrap()["data"]["player"]["volume"]
+            .as_i64()
+            .unwrap() as i32
+    }
+
+    fn vu_of(frame: &str) -> i32 {
+        serde_json::from_str::<serde_json::Value>(frame).unwrap()["data"]["view"]["vu_index"]
+            .as_i64()
+            .unwrap() as i32
+    }
+
+    /// the cover URL is "/cover?v=<boot tag>-<version>": the
+    /// artwork version a frame carries
+    fn art_version_of(frame: &str) -> Option<u64> {
+        let value: serde_json::Value = serde_json::from_str(frame).ok()?;
+        let cover = value["data"]["player"]["cover"].as_str()?;
+        cover.rsplit('-').next()?.parse().ok()
+    }
+
+    /// the wire's monotone triple: (volume, vu_index, art version)
+    /// — the hub's fields a test owns and only ever increases
+    fn record_wire(rx: &mut broadcast::Receiver<String>, frames: &Mutex<Vec<(i32, i32, u64)>>) {
+        while let Ok(frame) = rx.try_recv() {
+            frames.lock().push((
+                volume_of(&frame),
+                vu_of(&frame),
+                art_version_of(&frame).unwrap_or(0),
+            ));
+        }
+    }
+
+    /// regression (review finding: an older frame can overwrite a
+    /// newer one): the UI thread (player state, covers) and the
+    /// web runtime (view watcher) both publish, and the hub lock
+    /// must keep framing and publishing one atomic step — an
+    /// older frame may never land after a newer one. The gate
+    /// freezes the first publisher right before the wire; before
+    /// the fix that point sat after the hub lock was dropped, so
+    /// the second publisher's frame went out first and the frozen
+    /// one overwrote it (phase 1). The stress run (phase 2) then
+    /// hammers both publishers against each other while a
+    /// subscriber watches the wire
+    #[test]
+    fn concurrent_publishers_never_put_an_older_frame_back_on_the_wire() {
+        let (push, rx) = push();
+
+        // phase 1 (deterministic): freeze a publisher just before
+        // its frame goes on the wire
+        let (arrived_tx, arrived_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let push_a = push.clone();
+        let a = std::thread::Builder::new()
+            .spawn(move || {
+                gate_install(&PUBLISH_GATE, arrived_tx, release_rx);
+                push_a.update(&playing_at(1));
+            })
+            .unwrap();
+        arrived_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("the publisher froze at the wire");
+
+        // the second publisher (the view watcher's role): frames
+        // the hub and publishes while the first is frozen — only
+        // possible when the hub lock is not held across publish
+        let push_b = push.clone();
+        let b = std::thread::spawn(move || push_b.set_context(context_vu(1)));
+        let deadline = std::time::Instant::now() + Duration::from_millis(300);
+        while std::time::Instant::now() < deadline {
+            if push
+                .events
+                .snapshot()
+                .is_some_and(|frame| vu_of(&frame) >= 1)
+            {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        release_tx.send(()).expect("the gate opens");
+        a.join().unwrap();
+        b.join().unwrap();
+
+        // phase 2 (stress): both sides publish many changes while
+        // a subscriber records every frame that goes out
+        let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let frames: Arc<Mutex<Vec<(i32, i32, u64)>>> = Arc::new(Mutex::new(Vec::new()));
+        let wire = {
+            let (done, frames) = (done.clone(), frames.clone());
+            let mut rx = rx;
+            std::thread::spawn(move || {
+                while !done.load(std::sync::atomic::Ordering::SeqCst) {
+                    record_wire(&mut rx, &frames);
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                record_wire(&mut rx, &frames);
+            })
+        };
+        let iterations = 100u32;
+        let push_state = push.clone();
+        let a2 = std::thread::spawn(move || {
+            for i in 1..=iterations {
+                push_state.update(&playing_at(i as i32 + 1));
+                if i % 2 == 0 {
+                    push_state.cover(
+                        Some(&cover_data(vec![255, 0, 0, 255])),
+                        Some(&cover_data(vec![255, 255, 255, 255])),
+                        Some(&palette()),
+                    );
+                }
+            }
+        });
+        let push_ctx = push.clone();
+        let b2 = std::thread::spawn(move || {
+            for i in 2..=iterations + 1 {
+                push_ctx.set_context(context_vu(i as i32));
+            }
+        });
+        a2.join().unwrap();
+        b2.join().unwrap();
+        done.store(true, std::sync::atomic::Ordering::SeqCst);
+        wire.join().unwrap();
+
+        // the broadcast sequence never carries an older frame
+        // after a newer one
+        let frames = frames.lock().clone();
+        let mut last = (i32::MIN, i32::MIN, 0u64);
+        for current in &frames {
+            assert!(
+                current.0 >= last.0 && current.1 >= last.1 && current.2 >= last.2,
+                "the wire went back to an older frame: {last:?} then {current:?}"
+            );
+            last = *current;
+        }
+
+        // the snapshot must equal the frame of the hub's final
+        // state — whatever coalesced pend, one flush past the
+        // window publishes it
+        std::thread::sleep(MIN_PUSH_INTERVAL + Duration::from_millis(10));
+        push.flush();
+        let hub_frame = frame_of(&push.inner.lock());
+        let expected = serde_json::to_string(&state::PushFrame::state(hub_frame)).unwrap();
+        assert_eq!(
+            push.events.snapshot().as_deref(),
+            Some(expected.as_str()),
+            "the snapshot must be the hub's final frame"
+        );
+        assert!(
+            push.events.cover_version() >= art_version_of(&expected).unwrap_or(0),
+            "every version a frame carried is installed in the cover slot"
+        );
+    }
+
+    /// regression (review finding: a new cover version can serve
+    /// old image data): the version bump and the image install
+    /// must be one step under the hub lock — /cover is cached
+    /// forever per version URL, so a frame may never carry a
+    /// version whose image is not in the slot yet. The gate
+    /// freezes the cover publisher between the bump and the
+    /// install; before the fix that window sat outside the hub
+    /// lock, so the view watcher published a frame with the new
+    /// version while the slot still held nothing
+    #[test]
+    fn a_frame_never_carries_a_cover_version_whose_image_is_not_installed() {
+        let (push, _rx) = push();
+
+        let (arrived_tx, arrived_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let push_a = push.clone();
+        let a = std::thread::Builder::new()
+            .spawn(move || {
+                gate_install(&COVER_GATE, arrived_tx, release_rx);
+                push_a.cover(
+                    Some(&cover_data(vec![255, 0, 0, 255])),
+                    Some(&cover_data(vec![255, 255, 255, 255])),
+                    Some(&palette()),
+                );
+            })
+            .unwrap();
+        arrived_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("the cover publisher froze between bump and install");
+
+        // the view watcher's role: frame and publish whatever the
+        // hub holds — the version is bumped already
+        let push_b = push.clone();
+        let b = std::thread::spawn(move || push_b.set_context(context_vu(1)));
+
+        // the invariant: whenever a frame with version N is
+        // observed, the slot must already hold at least N
+        let mut violation = None;
+        let deadline = std::time::Instant::now() + Duration::from_millis(300);
+        while std::time::Instant::now() < deadline {
+            if let Some(n) = push.events.snapshot().as_deref().and_then(art_version_of) {
+                let installed = push.events.cover_version();
+                if installed < n {
+                    violation = Some((n, installed));
+                }
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        release_tx.send(()).expect("the gate opens");
+        a.join().unwrap();
+        b.join().unwrap();
+        if let Some((n, installed)) = violation {
+            panic!("a frame carried cover version {n} while the slot held {installed}");
+        }
+
+        // let the window pass and flush whatever pends: the final
+        // frame and the slot must agree too
+        std::thread::sleep(MIN_PUSH_INTERVAL + Duration::from_millis(10));
+        push.flush();
+        let frame = push.events.snapshot().expect("a state frame");
+        let n = art_version_of(&frame).expect("the frame carries a cover version");
+        assert_eq!(push.events.cover_version(), 1);
+        assert!(
+            push.events.cover_version() >= n,
+            "the slot serves every version the frame carries"
+        );
+        assert!(push.events.cover_jpeg().is_some());
     }
 }
 

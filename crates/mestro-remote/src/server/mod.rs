@@ -8,34 +8,34 @@
 //!
 //! Domain split:
 //! - `settings`: the UI-bound ops live in the BINARY
-//!   (`crate::remote::web_ui::handle_ui` behind [`UiPort::op`])
-//!   — everything that touches `&Mestro` or the settings handle
+//!   (the binary's port implementation behind the UiPort op) — everything
+//!   that touches `&Mestro` or the settings handle
 //! - [`ma`]: the wizard's Music Assistant calls (probe/login/
 //!   players) — plain HTTP, on the blocking pool of this thread
 //! - `ota` (feature `ota`): the system-image upload, streamed into
 //!   `mestro-upgrade`
-//! - [`assets`]/[`pair`]/[`http`]/[`ws`]/[`auth`]: transport plumbing
+//! - assets/pair/http/ws/auth/wifi: transport plumbing
 
-mod assets;
-mod audio;
-mod auth;
-mod captive;
-pub(crate) mod ctl;
+pub(crate) mod assets;
+pub(crate) mod audio;
+pub(crate) mod auth;
+pub(crate) mod captive;
+pub mod ctl;
 pub(crate) mod diagnostics;
-pub(crate) mod http;
-pub(crate) mod ma;
+pub mod http;
+pub mod ma;
 #[cfg(feature = "ota")]
 mod ota;
-mod pair;
-pub(crate) mod player;
+pub(crate) mod pair;
+pub mod player;
 
-pub(crate) mod timezone;
-mod wifi;
-mod ws;
+pub mod timezone;
+pub(crate) mod wifi;
+pub(crate) mod ws;
 
 /// the shared command path onto the UI thread (owned by the
 /// wiring in main.rs; used by the UI-bound op handlers)
-pub(crate) type Dispatch = std::rc::Rc<dyn Fn(&mestro_ipc::command::Command)>;
+pub type Dispatch = std::rc::Rc<dyn Fn(&mestro_ipc::command::Command)>;
 
 #[cfg(feature = "ota")]
 use super::UiUpdate;
@@ -107,7 +107,7 @@ pub async fn serve(
 }
 
 // the plumbing is wide by nature (stream + facts + the shared
-// state every route needs) — same allowance as web::wire
+// state every route needs) — same allowance as the lib wiring
 #[allow(clippy::too_many_arguments)]
 async fn handle(
     mut stream: TcpStream,
@@ -386,7 +386,8 @@ pub(crate) fn hello_data(info: &WebInfo, paired: bool) -> serde_json::Value {
 }
 
 /// one protocol round: the MA and wifi domains run here, everything
-/// else goes through the port onto the UI thread (crate::remote::web_ui).
+/// else goes through the port onto the UI thread (the binary's
+/// ports module).
 /// `paired` carries the HTTP route's verdict: unpaired callers only
 /// come through on the hotspot, and there only hello + wifi answer —
 /// the setup hotspot is the trust boundary, not the device data
@@ -439,7 +440,7 @@ pub(crate) async fn dispatch(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::remote::web::Events;
+    use crate::Events;
     use futures_util::{SinkExt, StreamExt};
     use mestro_ipc::web::WifiOp;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -500,7 +501,7 @@ mod tests {
         WifiChannel,
         tokio::sync::mpsc::Receiver<super::super::WifiRequest>,
     ) {
-        let (tx, rx) = tokio::sync::mpsc::channel(crate::remote::web::WIFI_QUEUE);
+        let (tx, rx) = tokio::sync::mpsc::channel(crate::WIFI_QUEUE);
         (WifiChannel::new(std::sync::Arc::new(tx)), rx)
     }
 
@@ -893,10 +894,10 @@ mod tests {
         // startup order: the initial snapshot is published before the
         // listener accepts — no player update has happened yet
         let events = Events::new();
-        crate::remote::web::Push::new(
+        crate::Push::new(
             events.clone(),
             "wohnzimmer",
-            tokio::sync::watch::channel(crate::remote::web::UiView::default()).1,
+            tokio::sync::watch::channel(crate::UiView::default()).1,
         )
         .publish_snapshot();
         tokio::runtime::Builder::new_current_thread()
@@ -1479,9 +1480,9 @@ mod tests {
             .build()
             .unwrap()
             .block_on(async {
-                let (tx, _undrained) = tokio::sync::mpsc::channel(crate::remote::web::WIFI_QUEUE);
+                let (tx, _undrained) = tokio::sync::mpsc::channel(crate::WIFI_QUEUE);
                 let wifi = WifiChannel::new(std::sync::Arc::new(tx));
-                for _ in 0..crate::remote::web::WIFI_QUEUE {
+                for _ in 0..crate::WIFI_QUEUE {
                     let out = wifi
                         .request(
                             WifiOp::Scan,

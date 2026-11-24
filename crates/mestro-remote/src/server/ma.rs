@@ -7,7 +7,7 @@
 //! goes to the stored server (the redaction model).
 
 use super::http::json;
-use crate::remote::web::{UiPort, WebInfo};
+use crate::{UiPort, WebInfo};
 use mestro_ipc::web::{Envelope, MaOp, Request, Response, SettingsOp};
 use serde_json::{json as sj, Value};
 use std::sync::Arc;
@@ -126,7 +126,7 @@ pub(super) async fn handle(
                                 },
                             },
                         };
-                        match crate::remote::web::op_async(ui, json(&envelope)).await {
+                        match crate::op_async(ui, json(&envelope)).await {
                             Ok(body) => match serde_json::from_str::<Response>(&body) {
                                 Ok(r) if r.ok => last = r,
                                 Ok(r) => return json(&r),
@@ -174,8 +174,7 @@ pub(super) async fn handle(
 /// Never wire-visible: `dispatch` only forwards ops from the
 /// public [`Request`] vocabulary, this shape is rejected there.
 pub(super) async fn fetch_conn(ui: &Arc<dyn UiPort>) -> Result<(String, String), String> {
-    let body =
-        crate::remote::web::op_async(ui, json(&mestro_ipc::web::InternalOp::MaToken)).await?;
+    let body = crate::op_async(ui, json(&mestro_ipc::web::InternalOp::MaToken)).await?;
     let value: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
     if value["ok"] != sj!(true) {
         return Err(value["error"]

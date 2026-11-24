@@ -7,7 +7,7 @@
 //! on the blocking pool, never on the async worker.
 
 use super::http::json;
-use crate::remote::web::UiPort;
+use crate::UiPort;
 use mestro_ipc::web::{AudioOp, Response};
 
 pub(super) async fn handle(id: u64, action: AudioOp, ui: &std::sync::Arc<dyn UiPort>) -> String {
