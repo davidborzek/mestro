@@ -213,18 +213,31 @@ cat output/images/Image | \
 
 The trial uses the firmware's one-shot `tryboot`: that boot reads
 `tryboot.txt` (a copy of `config.txt` pointing at the new slot)
-and starts with the SoC watchdog armed. `S99ota` feeds the
-watchdog while it checks that mestro runs stably for a minute,
-then commits — `config.txt` switches to the new slot and the
-watchdog turns off again. Anything else goes back to the previous
-slot on its own:
+and starts with the SoC watchdog armed. `S04trial` takes the
+watchdog over right after the data partition is mounted (a slow
+boot can't trip it) and feeds it until three minutes after boot.
+`S99ota` checks the new image: mestro has to run stably, the device
+has to be on a network (an address and a default route on wlan0 or
+eth0, or the setup hotspot), and mestro's web endpoint has to
+answer. It retries until two minutes after boot, then commits —
+`config.txt` switches to the new slot and the watchdog turns off
+again. Anything else goes back to the previous slot on its own:
 
 | the new image … | what happens |
 |---|---|
-| runs, mestro stays up | committed after ~70 s |
+| runs, on the network, web endpoint answers | committed (usually within a minute) |
 | boots, mestro crashes | S99ota reboots → previous slot |
-| hangs (kernel, init) | the watchdog resets after 60 s → previous slot |
+| no network or no web endpoint 2 min after boot | S99ota reboots → previous slot |
+| hangs before userspace (kernel, early init) | the watchdog resets after 60 s → previous slot |
+| hangs later, no decision 3 min after boot | `S04trial` stops feeding, the watchdog resets → previous slot |
 | power cut during the trial | next boot reads `config.txt` → previous slot |
+
+Every trial leaves its logs on the data partition in
+`/data/state/mestro/trial-boot/` (`summary.txt` with the result,
+`ota.log`, `mestro.log`, `dmesg.txt`; snapshotted every ten
+seconds while the trial runs, so a trial that dies still leaves
+them), overwritten by the next trial — a rolled-back upgrade can
+still be diagnosed over SSH or from the SD card.
 
 `mestro-upgrade --status` shows the running and a pending slot.
 Without `--reboot` the trial starts at the next
