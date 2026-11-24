@@ -109,8 +109,12 @@ BR2_PACKAGE_HOST_KMOD_XZ=y
 # the data partition, see S39wifi). AP support: mestro's setup
 # hotspot runs on wpa_supplicant itself; dnsmasq (spawned and
 # owned by mestro in AP mode) hands out DNS + DHCP there
-BR2_PACKAGE_LINUX_FIRMWARE=y
-BR2_PACKAGE_LINUX_FIRMWARE_BRCM_BCM43XXX=y
+# The firmware is the one Raspberry Pi OS ships (LibreELEC's sync of
+# RPi-Distro, as Home Assistant OS uses): linux-firmware's generic
+# BCM43455 blob in Buildroot 2026.08.x dates from 2021 and drops the
+# connection minutes after it comes up.
+BR2_PACKAGE_BRCMFMAC_SDIO_FIRMWARE_RPI=y
+BR2_PACKAGE_BRCMFMAC_SDIO_FIRMWARE_RPI_WIFI=y
 BR2_PACKAGE_WPA_SUPPLICANT=y
 BR2_PACKAGE_WPA_SUPPLICANT_AP_SUPPORT=y
 # mestro talks to the supplicant over its control socket (crates/mestro-os)
