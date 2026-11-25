@@ -45,14 +45,10 @@ struct Inner {
     preview_cache: RefCell<Vec<Option<slint::Image>>>,
     // built-in skin indices for the info-field + options tables
     b: Builtins,
-    spectrum_options: BTreeMap<String, toml::Value>,
-    bars_options: BTreeMap<String, toml::Value>,
-    skin_options: BTreeMap<String, toml::Value>,
-    night_info: Vec<MetadataField>,
-    cream_info: Vec<MetadataField>,
-    round_info: Vec<MetadataField>,
-    spectrum_info: Vec<MetadataField>,
-    bars_info: Vec<MetadataField>,
+    // the per-skin options derived from the effective config
+    // (info lines, meters/gradient, glow) — rebuilt by
+    // apply_options on every settings change
+    state: RefCell<SkinState>,
     theme_cover: bool,
     palette_cell: Rc<RefCell<Option<ArtworkPalette>>>,
     info_lines_model: Rc<RefCell<slint::ModelRc<slint::SharedString>>>,
@@ -99,20 +95,7 @@ impl Vui {
             })
             .collect::<Vec<_>>();
 
-        let skin_options = config.vu.skin_options.clone();
-        // the analyzers' meters knob rides the same passthrough as
-        // [vu.skin-options] — per built-in, resolved once
-        let mut spectrum_options = skin_options.clone();
-        spectrum_options.insert(
-            "meters".into(),
-            toml::Value::Boolean(config.vu.spectrum.meters),
-        );
-        spectrum_options.insert(
-            "gradient".into(),
-            toml::Value::Boolean(config.vu.spectrum.gradient),
-        );
-        let mut bars_options = skin_options.clone();
-        bars_options.insert("meters".into(), toml::Value::Boolean(config.vu.bars.meters));
+        let state = SkinState::from_config(config, &b, compiled.len());
         let preview_cache = RefCell::new(vec![None; compiled.len()]);
 
         Self(Rc::new(Inner {
@@ -124,14 +107,7 @@ impl Vui {
             hint_until: Rc::new(RefCell::new(Instant::now() - Duration::from_secs(10))),
             preview_cache,
             b,
-            spectrum_options,
-            bars_options,
-            skin_options,
-            night_info: config.vu.night.info.clone(),
-            cream_info: config.vu.cream.info.clone(),
-            round_info: config.vu.round.info.clone(),
-            spectrum_info: config.vu.spectrum.info.clone(),
-            bars_info: config.vu.bars.info.clone(),
+            state: RefCell::new(state),
             theme_cover: matches!(config.theme.palette, ThemePalette::Cover),
             palette_cell,
             info_lines_model: Rc::new(RefCell::new(slint::ModelRc::default())),
@@ -250,6 +226,38 @@ impl Vui {
         true
     }
 
+    /// apply the effective config's per-skin options: the settings
+    /// path (sync_vu) calls this after every edit. Info lines and
+    /// the analyzers' meters/gradient ride the next tick's push;
+    /// glow lands on the attached faceplate now, and every future
+    /// activation starts at the new value
+    pub fn apply_options(&self, config: &Config) {
+        let inner = &self.0;
+        let next = SkinState::from_config(config, &inner.b, inner.compiled.len());
+        let active = inner
+            .views
+            .get(inner.view_state.get())
+            .copied()
+            .and_then(|view| next.glow[view]);
+        *inner.state.borrow_mut() = next;
+        if let Some(glow) = active {
+            skin::push_glow(&inner.skin_slot, glow);
+        }
+    }
+
+    /// the attached skin instance's property value — the live-apply
+    /// tests read the pushed options off the faceplate; None while
+    /// no skin is attached or the skin doesn't declare the property
+    pub fn live_property(&self, name: &str) -> Option<slint_interpreter::Value> {
+        let skin = self
+            .0
+            .skin_slot
+            .borrow()
+            .as_ref()
+            .and_then(|w| w.upgrade())?;
+        skin.get_property(name).ok()
+    }
+
     /// activate a view: every view embeds its skin through a
     /// fresh factory; light plates flip the ghost-arrow ink
     fn activate(&self, ui: &Mestro, view: View) {
@@ -264,6 +272,7 @@ impl Vui {
             &self.0.nav,
             Some(&self.0.compiled[view]),
             direction,
+            self.0.state.borrow().glow[view],
         );
     }
 
@@ -298,37 +307,21 @@ impl Vui {
     /// lines follow the per-skin config tables.
     pub fn previews(&self) -> Vec<crate::VuPreviewData> {
         let inner = &self.0;
+        let state = inner.state.borrow();
         let mut cache = inner.preview_cache.borrow_mut();
         inner
             .views
             .iter()
             .enumerate()
             .map(|(index, &view)| {
-                let info: &[MetadataField] = match Some(view) {
-                    Some(i) if Some(i) == inner.b.night => &inner.night_info,
-                    Some(i) if Some(i) == inner.b.cream => &inner.cream_info,
-                    Some(i) if Some(i) == inner.b.round => &inner.round_info,
-                    Some(i) if Some(i) == inner.b.spectrum => &inner.spectrum_info,
-                    Some(i) if Some(i) == inner.b.bars => &inner.bars_info,
-                    _ => &[],
-                };
+                let info = state.info(Some(view), &inner.b);
                 let image = cache[view].get_or_insert_with(|| {
-                    let options = if Some(view) == inner.b.spectrum {
-                        Some(&inner.spectrum_options)
-                    } else if Some(view) == inner.b.bars {
-                        Some(&inner.bars_options)
-                    } else {
-                        None
-                    };
-                    let bool_option = |key: &str| {
-                        options
-                            .and_then(|o| o.get(key))
-                            .and_then(toml::Value::as_bool)
-                    };
+                    let options = state.options(Some(view), &inner.b);
+                    let bool_option = |key: &str| options.get(key).and_then(toml::Value::as_bool);
                     super::preview::render_with_options(
                         &inner.compiled[view],
                         info,
-                        None,
+                        state.glow[view],
                         bool_option("meters"),
                         bool_option("gradient"),
                     )
@@ -434,15 +427,9 @@ impl Vui {
         }
         // the active view's info lines, by skin identity
         // (built-in manifest skins map to [vu.<name>])
-        let active = inner.views.get(inner.view_state.get());
-        let active_fields: &[MetadataField] = match active {
-            Some(i) if Some(*i) == inner.b.night => &inner.night_info,
-            Some(i) if Some(*i) == inner.b.cream => &inner.cream_info,
-            Some(i) if Some(*i) == inner.b.round => &inner.round_info,
-            Some(i) if Some(*i) == inner.b.spectrum => &inner.spectrum_info,
-            Some(i) if Some(*i) == inner.b.bars => &inner.bars_info,
-            _ => &[],
-        };
+        let state = inner.state.borrow();
+        let active = inner.views.get(inner.view_state.get()).copied();
+        let active_fields: &[MetadataField] = state.info(active, &inner.b);
         let value = |f: &MetadataField| -> String {
             match f {
                 MetadataField::Title => ui.get_track_title().to_string(),
@@ -518,11 +505,7 @@ impl Vui {
             // accent saturation/value)
             palette,
             danger,
-            match active {
-                Some(i) if Some(*i) == inner.b.spectrum => &inner.spectrum_options,
-                Some(i) if Some(*i) == inner.b.bars => &inner.bars_options,
-                _ => &inner.skin_options,
-            },
+            state.options(active, &inner.b),
         );
     }
 }
@@ -582,6 +565,93 @@ struct Builtins {
     bars: Option<usize>,
 }
 
+/// the per-skin option tables derived from the effective config:
+/// info lines, the analyzers' meters/gradient, the passthrough
+/// [vu.skin-options] and the built-in glow values. One source of
+/// truth: [`Vui::new`] derives it from the boot config,
+/// [`Vui::apply_options`] rebuilds it on every settings change
+struct SkinState {
+    night_info: Vec<MetadataField>,
+    cream_info: Vec<MetadataField>,
+    round_info: Vec<MetadataField>,
+    spectrum_info: Vec<MetadataField>,
+    bars_info: Vec<MetadataField>,
+    skin_options: BTreeMap<String, toml::Value>,
+    spectrum_options: BTreeMap<String, toml::Value>,
+    bars_options: BTreeMap<String, toml::Value>,
+    /// per compiled view: the built-in glow dials' current value
+    /// (cream, round, wall-light); custom manifest skins keep
+    /// their manifest default (None — nothing pushes over it)
+    glow: Vec<Option<f64>>,
+}
+
+impl SkinState {
+    fn from_config(config: &Config, b: &Builtins, views: usize) -> Self {
+        let skin_options = config.vu.skin_options.clone();
+        // the analyzers' meters/gradient knobs ride the same
+        // passthrough as [vu.skin-options] — per built-in
+        let mut spectrum_options = skin_options.clone();
+        spectrum_options.insert(
+            "meters".into(),
+            toml::Value::Boolean(config.vu.spectrum.meters),
+        );
+        spectrum_options.insert(
+            "gradient".into(),
+            toml::Value::Boolean(config.vu.spectrum.gradient),
+        );
+        let mut bars_options = skin_options.clone();
+        bars_options.insert("meters".into(), toml::Value::Boolean(config.vu.bars.meters));
+        bars_options.insert(
+            "gradient".into(),
+            toml::Value::Boolean(config.vu.bars.gradient),
+        );
+        let mut glow = vec![None; views];
+        for (view, value) in [
+            (b.cream, config.vu.cream.glow),
+            (b.round, config.vu.round.glow),
+            (b.wall_light, config.vu.wall_light.glow),
+        ] {
+            if let Some(view) = view {
+                glow[view] = Some(value);
+            }
+        }
+        Self {
+            night_info: config.vu.night.info.clone(),
+            cream_info: config.vu.cream.info.clone(),
+            round_info: config.vu.round.info.clone(),
+            spectrum_info: config.vu.spectrum.info.clone(),
+            bars_info: config.vu.bars.info.clone(),
+            skin_options,
+            spectrum_options,
+            bars_options,
+            glow,
+        }
+    }
+
+    /// the view's info fields — empty for skins without a config
+    /// table (the cycle may hold custom skins)
+    fn info(&self, view: Option<usize>, b: &Builtins) -> &[MetadataField] {
+        match view {
+            Some(i) if Some(i) == b.night => &self.night_info,
+            Some(i) if Some(i) == b.cream => &self.cream_info,
+            Some(i) if Some(i) == b.round => &self.round_info,
+            Some(i) if Some(i) == b.spectrum => &self.spectrum_info,
+            Some(i) if Some(i) == b.bars => &self.bars_info,
+            _ => &[],
+        }
+    }
+
+    /// the view's passthrough options table ([vu.skin-options],
+    /// with the analyzers' meters/gradient folded in)
+    fn options(&self, view: Option<usize>, b: &Builtins) -> &BTreeMap<String, toml::Value> {
+        match view {
+            Some(i) if Some(i) == b.spectrum => &self.spectrum_options,
+            Some(i) if Some(i) == b.bars => &self.bars_options,
+            _ => &self.skin_options,
+        }
+    }
+}
+
 fn registry(config: &Config) -> (Vec<Skin>, Builtins) {
     let mut compiled: Vec<Skin> = config
         .vu
@@ -609,18 +679,10 @@ fn registry(config: &Config) -> (Vec<Skin>, Builtins) {
                 compiled.len() - 1
             });
         }
-        let glow = match name {
-            "night" => 0.0,
-            "cream" => config.vu.cream.glow as f32,
-            "round" => config.vu.round.glow as f32,
-            "wall" => 0.0,
-            "wall-light" => config.vu.wall_light.glow as f32,
-            "arc" => 0.0,
-            "orbit" => 0.0,
-            "modern" => 0.0,
-            _ => return None,
-        };
-        super::manifest::builtin_named(name, glow).map(|s| {
+        // the config's [vu.<name>] glow rides the live state
+        // (SkinState), not the compiled skin — edits apply
+        // without a recompile, custom skins keep their default
+        super::manifest::builtin_named(name).map(|s| {
             compiled.push(s);
             compiled.len() - 1
         })

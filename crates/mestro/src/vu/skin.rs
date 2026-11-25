@@ -85,15 +85,18 @@ pub fn compile_source(name: &str, source: &str) -> Option<Skin> {
 /// its instance lands in the slot for push_skin); None clears the
 /// factory so the built-in presets render again
 pub fn activate(ui: &Mestro, slot: &SkinSlot, nav: &Navigation, skin: Option<&Skin>) {
-    activate_direction(ui, slot, nav, skin, 0);
+    activate_direction(ui, slot, nav, skin, 0, None);
 }
 
+/// `glow` starts the instance at the current glow value (the
+/// built-in glow skins); None leaves the skin's own default
 pub fn activate_direction(
     ui: &Mestro,
     slot: &SkinSlot,
     nav: &Navigation,
     skin: Option<&Skin>,
     direction: i32,
+    glow: Option<f64>,
 ) {
     let Some(skin) = skin else {
         ui.set_vu_skin_factory(ComponentFactory::default());
@@ -127,6 +130,11 @@ pub fn activate_direction(
         if let Some(setup) = &setup {
             setup(&instance);
         }
+        // the glow dial follows the live config, not the value
+        // baked at compile time — an edit must survive a cycle
+        if let Some(glow) = glow {
+            let _ = instance.set_property("glow", slint_interpreter::Value::Number(glow));
+        }
         // attach the spectrum models once per instance — later
         // pushes only update rows in place (a fresh model per
         // tick re-instantiates the whole segment grid)
@@ -149,6 +157,16 @@ pub fn activate_direction(
     });
     ui.set_vu_skin_factory(factory);
     ui.invoke_vu_present(direction);
+}
+
+/// push the glow dial onto the attached skin instance — the
+/// settings path applies glow edits to the live faceplate
+/// without waiting for the next activation
+pub fn push_glow(slot: &SkinSlot, glow: f64) {
+    let Some(skin) = slot.borrow().as_ref().and_then(|w| w.upgrade()) else {
+        return;
+    };
+    let _ = skin.set_property("glow", slint_interpreter::Value::Number(glow));
 }
 
 /// push the meter data into the runtime skin; missing properties

@@ -448,7 +448,7 @@ pub fn load(name: &str, path: &Path) -> Option<super::skin::Skin> {
 /// code path as user skins (eat your own dogfood). Every skin
 /// directory under skins/ embeds wholesale: manifest plus
 /// whatever art it references
-fn builtin(name: &'static str, glow: f32) -> Option<super::skin::Skin> {
+fn builtin(name: &'static str) -> Option<super::skin::Skin> {
     // the asset registry is generated per-skin at compile
     // time; see skins/README.md for adding one
     let (manifest, art): (&str, &[(&str, &[u8])]) = match name {
@@ -632,9 +632,11 @@ fn builtin(name: &'static str, glow: f32) -> Option<super::skin::Skin> {
         .map(|(k, v)| (k.to_string(), v.to_vec()))
         .collect();
     let read = move |src: &str| -> Option<Vec<u8>> { art_map.get(src).cloned() };
-    let (mut manifest, parsed_art) = parse(manifest, &read)?;
-    // the config's [vu.<name>] glow drives the built-in skin
-    manifest.glow = glow as f64;
+    let (manifest, parsed_art) = parse(manifest, &read)?;
+    // the built-in glow skins take their glow from the live
+    // config (vu::wire::SkinState), applied at activation and on
+    // every settings edit — the manifest value stays the
+    // compile-time default a fresh instance falls back to
     let definition = compile_engine()?;
     let live = setup(&manifest, &parsed_art, &read, false);
     let preview = setup(&manifest, &parsed_art, &read, true);
@@ -648,8 +650,8 @@ fn builtin(name: &'static str, glow: f32) -> Option<super::skin::Skin> {
 }
 
 /// built-in manifest skins by name
-pub fn builtin_named(name: &'static str, glow: f32) -> Option<super::skin::Skin> {
-    builtin(name, glow)
+pub fn builtin_named(name: &'static str) -> Option<super::skin::Skin> {
+    builtin(name)
 }
 
 #[cfg(test)]
