@@ -12,8 +12,9 @@
 //!   that touches `&Mestro` or the settings handle
 //! - [`ma`]: the wizard's Music Assistant calls (probe/login/
 //!   players) — plain HTTP, on the blocking pool of this thread
-//! - `ota` (feature `ota`): the system-image upload, streamed into
-//!   `mestro-upgrade`
+//! - `ota` (feature `ota`; the binary's `rpi` supplies the boot control):
+//!   the system-image upload, streamed into the inactive slot through
+//!   `mestro-update`
 //! - assets/pair/http/ws/auth/wifi: transport plumbing
 
 pub(crate) mod assets;
@@ -161,13 +162,28 @@ async fn handle(
         if !authorized {
             return http::reply(&mut stream, "401 Unauthorized", "pairing required").await;
         }
-        return ota::handle(&mut stream, &head, &ota::OtaCmds::from_env(), |phase| {
-            ui.notify(UiUpdate::UpdateStatus {
-                text: phase.status_text(),
-                failure: phase.is_failure(),
-            });
-        })
-        .await;
+        // the boot control is detected at runtime: a board the
+        // image cannot update answers unavailable instead
+        return match ota::Ota::detect() {
+            Some(ota) => {
+                // the socket goes to the update's blocking task
+                ota::handle(stream, &head, &ota, move |phase| {
+                    ui.notify(UiUpdate::UpdateStatus {
+                        text: phase.status_text(),
+                        failure: phase.is_failure(),
+                    });
+                })
+                .await
+            }
+            None => {
+                http::reply(
+                    &mut stream,
+                    "503 Service Unavailable",
+                    "no supported boot control on this board",
+                )
+                .await
+            }
+        };
     }
     match path.as_str() {
         "/pair" if method == "POST" => pair::handle(&mut stream, &head, &pairing).await,
@@ -358,6 +374,24 @@ async fn preview_png(
     .flatten()
 }
 
+/// whether this build can update a system image: the feature, and
+/// — beyond it — a boot control the update supports on this board
+/// (detected at runtime; on the image there is one, compiled in by
+/// the binary's `rpi` feature)
+fn ota_capable() -> bool {
+    #[cfg(feature = "ota")]
+    {
+        matches!(
+            mestro_update::detect(),
+            mestro_update::Detection::Backend(_)
+        )
+    }
+    #[cfg(not(feature = "ota"))]
+    {
+        false
+    }
+}
+
 /// the `hello` payload; the wizard URL carries the pairing PIN and
 /// is only filled in for a paired caller
 pub(crate) fn hello_data(info: &WebInfo, paired: bool) -> serde_json::Value {
@@ -373,9 +407,9 @@ pub(crate) fn hello_data(info: &WebInfo, paired: bool) -> serde_json::Value {
         "id": info.id,
         "name": info.name,
         "remote_url": remote_url,
-        "ota": cfg!(feature = "ota"),
+        "ota": ota_capable(),
         "capabilities": {
-            "ota": cfg!(feature = "ota"),
+            "ota": ota_capable(),
             "display": info.display_supported,
             "wifi": cfg!(feature = "wifi-setup"),
             "factory_reset": cfg!(feature = "wifi-setup"),
@@ -639,8 +673,8 @@ mod tests {
             "{id}"
         );
         assert!(!reply["data"]["name"].as_str().unwrap().is_empty());
-        assert_eq!(reply["data"]["ota"], cfg!(feature = "ota"));
-        assert_eq!(reply["data"]["capabilities"]["ota"], cfg!(feature = "ota"));
+        assert_eq!(reply["data"]["ota"], ota_capable());
+        assert_eq!(reply["data"]["capabilities"]["ota"], ota_capable());
         assert_eq!(reply["data"]["capabilities"]["display"], true);
         assert_eq!(
             reply["data"]["capabilities"]["wifi"],

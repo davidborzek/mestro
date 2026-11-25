@@ -3,6 +3,5 @@ menu "mestro kiosk image"
 source "$BR2_EXTERNAL_MESTROIMAGE_PATH/package/font-inter/Config.in"
 source "$BR2_EXTERNAL_MESTROIMAGE_PATH/package/font-material-symbols/Config.in"
 source "$BR2_EXTERNAL_MESTROIMAGE_PATH/package/mestro/Config.in"
-source "$BR2_EXTERNAL_MESTROIMAGE_PATH/package/rpi-tryboot/Config.in"
 
 endmenu

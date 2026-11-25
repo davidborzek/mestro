@@ -24,6 +24,9 @@ mestro-player = { path = "../mestro-player", version = "0.1.0" }
 # socket — behind the ports this binary implements (the slint UI
 # port, the MA auth client)
 mestro-remote = { path = "../mestro-remote", version = "0.1.0" }
+# the A/B update's boot backend: only the `rpi` feature reaches it from
+# here (the OTA endpoint brings the library, backend-less)
+mestro-update = { path = "../mestro-update", version = "0.1.0", default-features = false, optional = true }
 # exact pin: all slint crates move as one (renovate.json groups
 # them); a bump needs the snapshot tests re-run (CONTRIBUTING.md)
 slint = { version = "=1.19.0", default-features = false, features = ["std", "compat-1-2", "accessibility", "renderer-femtovg", "renderer-software"] }
@@ -65,9 +68,14 @@ default = ["desktop"]
 # The kiosk (linuxkms/GBM) stays on femtovg.
 desktop = ["slint/backend-winit", "slint/renderer-skia"]
 linuxkms = ["slint/backend-linuxkms", "slint-interpreter/backend-linuxkms"]
-# the web endpoint's POST /ota: streams an uploaded system image
-# into mestro-upgrade (the Pi image enables it)
+# the web endpoint's POST /ota: the A/B system update (mestro-update
+# through mestro-remote). Without a boot backend (`rpi`) it answers
+# unavailable
 ota = ["mestro-remote/ota"]
+# the Raspberry Pi firmware boot control for the A/B update: the
+# config.txt/tryboot.txt slots and the one-shot tryboot reboot — the
+# Pi image enables it next to `ota`
+rpi = ["dep:mestro-update", "mestro-update/rpi"]
 # the wifi setup lane (mestro-os): wpa_supplicant ctrl client,
 # AP mode + captive portal policy, the join state machine and
 # the factory reset's wifi half. Kiosk builds enable it next
@@ -97,6 +105,11 @@ slint-build = { version = "=1.19.0" }
 [dev-dependencies]
 # temp-dir state for the conf-writer and factory-reset tests
 tempfile = "3"
+
+# mestro-update is only here to switch its `rpi` backend on (feature
+# `rpi`); the code reaches the library through mestro-remote
+[package.metadata.cargo-machete]
+ignored = ["mestro-update"]
 
 [lints.rust]
 # the audited unsafe sites live in mestro-os (pinned by its

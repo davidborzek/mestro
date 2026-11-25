@@ -2862,6 +2862,7 @@ dependencies = [
  "mestro-os",
  "mestro-player",
  "mestro-remote",
+ "mestro-update",
  "parking_lot",
  "qrcode",
  "rustfft",
@@ -2931,6 +2932,7 @@ dependencies = [
  "mestro-ipc",
  "mestro-os",
  "mestro-player",
+ "mestro-update",
  "parking_lot",
  "serde",
  "serde_json",
@@ -2940,6 +2942,16 @@ dependencies = [
  "tokio-tungstenite",
  "toml",
  "tracing",
+]
+
+[[package]]
+name = "mestro-update"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "libc",
+ "sha2",
+ "tempfile",
 ]
 
 [[package]]

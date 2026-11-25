@@ -10,8 +10,10 @@ publish = false
 # one capability per feature, additive — the binary's features
 # carry the same names and forward each
 #
-# the system-image upload (POST /ota): streams into mestro-upgrade
-ota = []
+# the system-image upload (POST /ota): the A/B update in process
+# (mestro_update). The boot control it updates through is the
+# binary's choice (its `rpi` feature) — this crate names no board
+ota = ["dep:mestro-update"]
 # the capability hello reports (the factory reset itself is the
 # binary's settings glue over mestro-os)
 wifi-setup = []
@@ -32,9 +34,12 @@ mestro-os = { path = "../mestro-os", version = "0.1.0" }
 # the player domain: the state frame's source contract, the player
 # op's shell and command channel, the cover seam, the palette
 mestro-player = { path = "../mestro-player", version = "0.1.0" }
+# the A/B system update the OTA endpoint streams an upload into —
+# the library only (no clap, no binary, no boot backend)
+mestro-update = { path = "../mestro-update", version = "0.1.0", default-features = false, optional = true }
 # the endpoint's own runtime: sockets, the push pipeline's
-# broadcast/watch channels, the OTA child process
-tokio = { version = "1", features = ["rt", "macros", "time", "sync", "net", "process", "io-util"] }
+# broadcast/watch channels, the OTA update's blocking task
+tokio = { version = "1", features = ["rt", "macros", "time", "sync", "net", "io-util"] }
 tokio-tungstenite = "0.30"
 futures-util = "0.3"
 serde.workspace = true

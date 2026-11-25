@@ -14,7 +14,7 @@ config BR2_PACKAGE_MESTRO
 	help
 	  mestro — the Music Assistant player. Built from this
 	  repository with Buildroot's Rust toolchain, with the kiosk
-	  features (linuxkms, ota, wifi-setup, audio-output, timezone);
+	  features (linuxkms, ota, rpi, wifi-setup, audio-output, timezone);
 	  see image/README.md. The dependencies are the binary's
 	  runtime libs (libseat, libxkbcommon, libudev, libinput,
 	  libgbm, libfontconfig); the GL stack providing libgbm is

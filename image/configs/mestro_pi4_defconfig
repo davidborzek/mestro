@@ -91,7 +91,6 @@ BR2_PACKAGE_ALSA_UTILS_AMIXER=y
 
 # the kiosk
 BR2_PACKAGE_MESTRO=y
-BR2_PACKAGE_RPI_TRYBOOT=y
 
 # boot splash: logo on the panel from the first frame vc4 can draw
 # until mestro takes over (custom logo via the image path)
