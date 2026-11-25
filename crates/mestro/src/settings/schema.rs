@@ -692,13 +692,23 @@ fn vu_meters(config: &Config) -> Section {
         }
     }
     let cycle_options: Vec<Choice> = cycle_options.into_iter().map(with_preview).collect();
-    let mut fields = vec![field(
-        "vu.cycle",
-        "Cycle",
-        Kind::OrderedSubset {
-            options: cycle_options,
-        },
-    )];
+    let mut fields = vec![
+        field(
+            "vu.cycle",
+            "Cycle",
+            Kind::OrderedSubset {
+                options: cycle_options,
+            },
+        ),
+        number(
+            "vu.rail-autohide",
+            "Rail auto-hide",
+            0.0,
+            30.0,
+            1.0,
+            Some("s"),
+        ),
+    ];
     // the cycle may repeat a skin; its options appear once
     let mut seen = std::collections::BTreeSet::new();
     for skin in &config.vu.cycle {
@@ -774,15 +784,18 @@ mod tests {
     }
 
     #[test]
-    fn the_editable_surface_stays_at_45_static_keys() {
-        // the 45 keys the device settings UI edits; the per-skin
+    fn the_editable_surface_stays_at_46_static_keys() {
+        // the 46 keys the device settings UI edits; the per-skin
         // vu.<skin>.* fields are dynamic on top of these, the audio.*
         // ones are web-only
         let keys: Vec<String> = schema_keys(&schema(&Config::default()))
             .into_iter()
-            .filter(|k| (!k.starts_with("vu.") || k == "vu.cycle") && !k.starts_with("audio."))
+            .filter(|k| {
+                (!k.starts_with("vu.") || k == "vu.cycle" || k == "vu.rail-autohide")
+                    && !k.starts_with("audio.")
+            })
             .collect();
-        assert_eq!(keys.len(), 45, "keys: {keys:?}");
+        assert_eq!(keys.len(), 46, "keys: {keys:?}");
     }
 
     /// settings keys the slint pages write: `key:` literals and
@@ -832,11 +845,15 @@ mod tests {
             }
         }
         // the vu family is Rust-written (wire_vu owns the array
-        // arithmetic) and the per-skin keys are dynamic; the audio
-        // section is web-only
+        // arithmetic) and the per-skin keys are dynamic — the one
+        // static vu key (rail-autohide) the settings page edits
+        // rides the generic stepper path; vu.cycle is built in
+        // Rust, the audio section is web-only
         let schema: BTreeSet<String> = schema_keys(&schema(&Config::default()))
             .into_iter()
-            .filter(|k| !k.starts_with("vu.") && !k.starts_with("audio."))
+            .filter(|k| {
+                (!k.starts_with("vu.") || k == "vu.rail-autohide") && !k.starts_with("audio.")
+            })
             .collect();
         let missing: Vec<_> = slint.difference(&schema).collect();
         let extra: Vec<_> = schema.difference(&slint).collect();
@@ -896,8 +913,9 @@ mod tests {
         let vu = &schema.sections[6];
         let keys: Vec<&str> = vu.fields.iter().map(|f| f.key.as_str()).collect();
         // a custom skin has no option tables (the config schema
-        // rejects vu.<custom>.*), night keeps its info list
-        assert_eq!(keys, ["vu.cycle", "vu.night.info"]);
+        // rejects vu.<custom>.*), night keeps its info list; the
+        // rail auto-hide is cycle-independent
+        assert_eq!(keys, ["vu.cycle", "vu.rail-autohide", "vu.night.info"]);
     }
 
     #[test]

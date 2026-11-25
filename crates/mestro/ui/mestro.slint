@@ -98,6 +98,12 @@ export component Mestro inherits Window {
     // ghost-arrow hint on the VU faceplate (auto-hide, 2s)
     in property <bool> vu-hint: false;
     callback vu-activity();
+    // [vu.rail-autohide]: Rust hides the rail after this many
+    // idle seconds on the faceplate (0 = always shown); the
+    // zone grows to the full width while it is hidden
+    in property <bool> vu-rail-hidden: false;
+    in property <float> vu-rail-autohide: 0;
+    in property <bool> vu-rail-autohide-overridden: false;
     // swiping the faceplate horizontally cycles the views
     callback vu-cycle();
     callback vu-cycle-back();
@@ -440,6 +446,13 @@ export component Mestro inherits Window {
     // the one view that intentionally runs under it (np fullbleed
     // — bezel glow) reference it
     property <length> rail-width: 56px;
+    // 0 = the rail in its place, 1 = tucked off the right bezel
+    // (the VU auto-hide) — animated, the zone grows with it
+    property <float> rail-tuck: root.vu-open && root.vu-rail-hidden ? 1 : 0;
+    animate rail-tuck {
+        duration: 250ms;
+        easing: ease-in-out;
+    }
     // the hub destinations, ordered per [hub] order
     in property <[HubEntryData]> hub-entries: [];
     callback hub-entry(int);
@@ -826,6 +839,8 @@ export component Mestro inherits Window {
                             vu-meters-overridden: root.vu-meters-overridden;
                             vu-gradient-value: root.vu-gradient-value;
                             vu-gradient-overridden: root.vu-gradient-overridden;
+                            vu-rail-autohide: root.vu-rail-autohide;
+                            vu-rail-autohide-overridden: root.vu-rail-autohide-overridden;
                             vu-move(n, d) => {
                                 root.vu-move(n, d);
                             }
@@ -1055,6 +1070,7 @@ export component Mestro inherits Window {
                     info-lines: root.vu-info-lines;
                     info-count: root.vu-info-count;
                     hint: root.vu-hint;
+                    rail-hidden: root.vu-rail-hidden;
                     view-count: root.vu-view-count;
                     view-index: root.vu-view-index;
                     previews: root.vu-previews;
@@ -1111,9 +1127,10 @@ export component Mestro inherits Window {
     // zone inset while the rail itself paints at root level —
     // above the zone content, over the np fullbleed art underhang.
     // Layouts skip invisible children: gone on standby the zone
-    // takes the full width again
+    // takes the full width again; tucked by the VU auto-hide the
+    // spacer's width eases to zero with the rail's slide
     if root.powered || root.provider-status != "": Rectangle {
-            width: root.rail-width;
+            width: root.rail-width * (1 - root.rail-tuck);
         }
     }
 
@@ -1122,11 +1139,12 @@ export component Mestro inherits Window {
     // layers; the glass variant shows the blurred-cover backdrop
     // through (root-level, fullscreen) with a bottom gradient
     NavRail {
-        x: root.width - root.rail-width;
+        x: root.width - root.rail-width + root.rail-tuck * root.rail-width;
         y: 0;
         width: root.rail-width;
         height: 100%;
-        visible: root.powered || root.provider-status != "";
+        opacity: 1 - root.rail-tuck;
+        visible: (root.powered || root.provider-status != "") && root.rail-tuck < 1;
         playing: root.playing;
         // nav buttons only away from the pure hub — with an
         // overlay (np/queue/vu) back must stay reachable

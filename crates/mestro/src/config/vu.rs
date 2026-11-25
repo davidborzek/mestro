@@ -34,6 +34,11 @@ pub struct Vu {
     /// skin side are ignored)
     #[serde(rename = "skin-options", default)]
     pub skin_options: std::collections::BTreeMap<String, toml::Value>,
+    /// hide the nav rail on the VU faceplate after this many
+    /// seconds without touch (a tap brings it back); 0 = always
+    /// shown
+    #[serde(rename = "rail-autohide", default)]
+    pub rail_autohide: u64,
     /// per-preset option tables; only the active preset's is read
     #[serde(default)]
     pub night: NightOptions,
@@ -81,6 +86,7 @@ impl Default for Vu {
             skins: Default::default(),
             cycle: default_cycle(),
             skin_options: Default::default(),
+            rail_autohide: 0,
             night: Default::default(),
             cream: Default::default(),
             round: Default::default(),

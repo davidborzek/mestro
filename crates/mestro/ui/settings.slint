@@ -116,6 +116,8 @@ export component SettingsView {
     in property <bool> vu-meters-overridden: false;
     in property <bool> vu-gradient-value: false;
     in property <bool> vu-gradient-overridden: false;
+    in property <float> vu-rail-autohide: 0;
+    in property <bool> vu-rail-autohide-overridden: false;
     callback vu-move(string, int);
     callback vu-toggle-cycle(string);
     callback vu-open-options(string);
@@ -731,6 +733,8 @@ export component SettingsView {
                 meters-overridden: root.vu-meters-overridden;
                 gradient-value: root.vu-gradient-value;
                 gradient-overridden: root.vu-gradient-overridden;
+                rail-autohide: root.vu-rail-autohide;
+                rail-autohide-overridden: root.vu-rail-autohide-overridden;
                 vu-move(n, d) => {
                     root.vu-move(n, d);
                 }
