@@ -18,11 +18,13 @@
 //! library in process (mestro runs as root on the image) — web
 //! upload and SSH update share one writer.
 
+pub mod external;
 mod install;
 mod lock;
 
 #[cfg(feature = "rpi")]
 pub mod rpi;
+pub mod trial;
 
 use std::fmt::Write as _;
 use std::io;
@@ -121,7 +123,7 @@ pub fn detect() -> Detection {
 }
 
 /// the update status, exactly the lines the player image reports
-/// (the diagnostics download and the S99ota init script parse them)
+/// (the diagnostics download and the trial's summary parse them)
 pub fn status(backend: &dyn BootControl) -> io::Result<String> {
     let mut out = format!("active:  {}\n", backend.active()?);
     if let Some(pending) = backend.pending()? {
@@ -136,7 +138,7 @@ pub fn status(backend: &dyn BootControl) -> io::Result<String> {
 }
 
 /// this boot is a trial that has not been decided yet: the
-/// commit (S99ota) or the abandon still needs the pending
+/// commit (the trial guard) or the abandon still needs the pending
 /// `tryboot.txt`, and an install would delete exactly that — the
 /// caller refuses instead
 pub fn undecided_trial(backend: &dyn BootControl) -> io::Result<bool> {

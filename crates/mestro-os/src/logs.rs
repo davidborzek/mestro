@@ -4,8 +4,9 @@
 //!
 //! - `S50mestro` logs mestro to `LOG_DIR/mestro.log` and moves the
 //!   previous run to `mestro.log.old` (what a crash leaves)
-//! - `S04trial`/`S99ota` and the update commands (`mestro-update`,
-//!   reachable as `mestro-upgrade`) log to `LOG_DIR/ota.log`
+//! - `S04trial` (starting `mestro-update trial`) and the update
+//!   commands (`mestro-update`, reachable as `mestro-upgrade`) log
+//!   to `LOG_DIR/ota.log`
 //! - a trial boot snapshots its logs to [`trial_boot_dir`] on the
 //!   data partition, so a rolled-back upgrade can be diagnosed
 //!

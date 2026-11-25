@@ -1,7 +1,7 @@
 #!/bin/sh
 # mestro-upgrade — thin wrapper: the A/B upgrade lives in
 # /usr/sbin/mestro-update (Rust, mestro-update); these flags keep
-# their old names (SSH habits, S04trial/S99ota, the README). The
+# their old names (SSH habits, the README). The
 # status output is unchanged, line for line.
 case "$1" in
 --commit)

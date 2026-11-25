@@ -21,7 +21,7 @@
 //! not an approximation. The CLI's own stdout lines ("writing …",
 //! "ready: …") are pinned in the binary crate's unit tests; this
 //! test pins the tree and the status output, the parts the
-//! diagnostics download and S99ota parse.
+//! diagnostics download and the trial's summary parse.
 
 use mestro_update::{install, status, BootControl, Commit, RpiFirmware};
 use sha2::{Digest, Sha256};

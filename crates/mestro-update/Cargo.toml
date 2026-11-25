@@ -25,6 +25,10 @@ required-features = ["cli"]
 [dependencies]
 # hashing the streamed image (sha256, in the sha256sum format)
 sha2.workspace = true
+# the image's log locations (ota.log, the trial-boot snapshots) —
+# the trial command reports and snapshots where the image keeps
+# its logs; no default feature is needed, only paths
+mestro-os = { path = "../mestro-os", version = "0.1.0", default-features = false }
 # the rpi backend's reboot(2): the crate's one audited unsafe site
 libc = { workspace = true, optional = true }
 # the command line (already pinned in the workspace for the mestro

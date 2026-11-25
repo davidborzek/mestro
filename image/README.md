@@ -207,13 +207,13 @@ trial, no re-flashing. The upgrade itself is Rust —
 `/usr/sbin/mestro-update` (`crates/mestro-update`, the Raspberry Pi
 firmware's config.txt/tryboot.txt A/B scheme behind a boot-control
 trait); `/usr/sbin/mestro-upgrade` and `mestro-reboot` stay as thin
-wrappers with the old flags (SSH habits, `S04trial`/`S99ota`).
-One updater at a time, across processes: the CLI, the web OTA and
-S99ota serialize on a lock at `/run/mestro-update.lock`. An
+wrappers with the old flags (SSH habits). One updater at a time,
+across processes: the CLI, the web OTA and the trial guard
+serialize on a lock at `/run/mestro-update.lock`. An
 install never waits for the lock — the second caller is told an
 update runs (the web answers 409); commit and abandon wait a
 bounded 30 s instead of failing, so an upload that just finished
-cannot make S99ota's commit miss. Installs are also refused while
+cannot make the trial's commit miss. Installs are also refused while
 this boot is an undecided trial — a new upload would delete the
 tryboot.txt its own decision still needs. That refusal runs under
 the lock, after the boot store is mounted, so no install can be
@@ -228,23 +228,26 @@ cat output/images/Image | \
 
 The trial uses the firmware's one-shot `tryboot`: that boot reads
 `tryboot.txt` (a copy of `config.txt` pointing at the new slot)
-and starts with the SoC watchdog armed. `S04trial` takes the
-watchdog over right after the data partition is mounted (a slow
-boot can't trip it) and feeds it until three minutes after boot.
-`S99ota` checks the new image: mestro has to run stably, the device
+and starts with the SoC watchdog armed. `S04trial` starts
+`mestro-update trial` right after the data partition is mounted —
+one process that takes the watchdog over (a slow boot can't trip
+it), feeds it until three minutes after boot, and checks the new
+image every five seconds: mestro has to run stably, the device
 has to be on a network (an address and a default route on wlan0 or
 eth0, or the setup hotspot), and mestro's web endpoint has to
 answer. It retries until two minutes after boot, then commits —
 `config.txt` switches to the new slot and the watchdog turns off
-again. Anything else goes back to the previous slot on its own:
+again. On a normal boot the same command just drops a trial that
+never committed. Anything else goes back to the previous slot on
+its own:
 
 | the new image … | what happens |
 |---|---|
 | runs, on the network, web endpoint answers | committed (usually within a minute) |
-| boots, mestro crashes | S99ota reboots → previous slot |
-| no network or no web endpoint 2 min after boot | S99ota reboots → previous slot |
+| boots, mestro crashes | the trial guard reboots → previous slot |
+| no network or no web endpoint 2 min after boot | the trial guard reboots → previous slot |
 | hangs before userspace (kernel, early init) | the watchdog resets after 60 s → previous slot |
-| hangs later, no decision 3 min after boot | `S04trial` stops feeding, the watchdog resets → previous slot |
+| hangs later, no decision 3 min after boot | the guard stops feeding, the watchdog resets → previous slot |
 | power cut during the trial | next boot reads `config.txt` → previous slot |
 
 Every trial leaves its logs on the data partition in

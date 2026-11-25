@@ -1,5 +1,5 @@
 //! The process-wide update lock: one updater at a time, across the
-//! CLI, the web OTA and S99ota — different processes on the same
+//! CLI, the web OTA and the trial guard — different processes on the same
 //! boot store, so only the kernel can arbitrate between them. A
 //! non-blocking lock on `/run/mestro-update.lock` (tmpfs: it does
 //! not survive a reboot, and a stale one from a crashed process is
@@ -25,7 +25,8 @@ pub struct UpdateLock {
 impl UpdateLock {
     /// the image's lock, at its fixed path — every write operation
     /// of the CLI takes this. Held by someone else (the web OTA,
-    /// S99ota, another CLI run): the caller refuses, it never waits
+    /// the trial guard, another CLI run): the caller refuses, it
+    /// never waits
     pub fn try_acquire() -> io::Result<Self> {
         Self::try_acquire_at(LOCK_FILE)
     }
@@ -98,7 +99,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let lock = dir.path().join("mestro-update.lock");
         // another updater holds the lock for a moment, then goes —
-        // like S99ota's commit arriving right after an upload
+        // like the trial guard's commit arriving right after an upload
         let holder = {
             let lock = lock.clone();
             std::thread::spawn(move || {

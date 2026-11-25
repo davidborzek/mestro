@@ -10,13 +10,14 @@
 //! as text in config.rs, the restart of the board in reboot.rs.
 
 use sha2::{Digest, Sha256};
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsString;
 use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::process::Command;
+use std::time::Duration;
 
+use crate::external::run_bounded;
 use crate::install::Error;
 use crate::{sha256_hex, BootControl, Commit, UpdateTarget};
 #[cfg(test)]
@@ -55,8 +56,6 @@ const MOUNT_TIMEOUT: Duration = Duration::from_secs(10);
 const SYNC_TIMEOUT: Duration = Duration::from_secs(30);
 /// the unmount of the store this control mounted itself
 const UMOUNT_TIMEOUT: Duration = Duration::from_secs(10);
-/// how often a bounded command is polled for its exit
-const WAIT_POLL: Duration = Duration::from_millis(50);
 
 /// the external commands the real backend runs, by slot (fixed
 /// paths would be the hard way — these are root's PATH on the
@@ -376,35 +375,6 @@ fn dir_sync_injection(dir: &Path) -> bool {
     true
 }
 
-/// run an external command with a deadline: spawn it, poll for its
-/// exit, and kill it when its budget is up. Nothing ever waits on a
-/// child that ignores the kill — a process stuck in the kernel (a
-/// hung sync in D state) cannot be reaped and must not be waited
-/// for, or it would hang the whole update task. The zombie it
-/// leaves is inherited and reaped by PID 1 instead
-fn run_bounded(
-    program: &OsStr,
-    args: impl FnOnce(&mut Command) -> &mut Command,
-    timeout: Duration,
-) -> io::Result<std::process::ExitStatus> {
-    let mut command = Command::new(program);
-    let _ = args(command.stdin(Stdio::null()));
-    let mut child = command.spawn()?;
-    let deadline = Instant::now() + timeout;
-    while Instant::now() < deadline {
-        match child.try_wait()? {
-            Some(status) => return Ok(status),
-            None => std::thread::sleep(WAIT_POLL),
-        }
-    }
-    // best effort — a kill that does not take is not waited on
-    let _ = child.kill();
-    Err(io::Error::new(
-        io::ErrorKind::TimedOut,
-        format!("{} did not finish in time", program.to_string_lossy()),
-    ))
-}
-
 /// whether /proc/mounts lists `dir` as a mount point
 fn boot_is_mounted(dir: &Path) -> bool {
     fs::read_to_string("/proc/mounts")
@@ -419,8 +389,10 @@ fn boot_is_mounted(dir: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsStr;
     use std::io::Write as _;
     use std::os::unix::fs::PermissionsExt as _;
+    use std::time::Instant;
 
     /// a boot-partition fixture with the given files
     fn rig(files: &[(&str, &[u8])]) -> (tempfile::TempDir, RpiFirmware) {

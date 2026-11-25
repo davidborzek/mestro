@@ -2950,6 +2950,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "libc",
+ "mestro-os",
  "sha2",
  "tempfile",
 ]

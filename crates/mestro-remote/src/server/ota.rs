@@ -207,7 +207,7 @@ pub(super) async fn handle(
     };
     // the cross-process lock, taken only now — headers and magic
     // passed: a client that never sends its magic must not keep the
-    // CLI and S99ota out of an update (never a wait, same 409)
+    // CLI and the trial guard out of an update (never a wait, same 409)
     let lock = match update::UpdateLock::try_acquire_at(&ota.lock_path) {
         Ok(lock) => lock,
         Err(e) => {
@@ -226,7 +226,7 @@ pub(super) async fn handle(
     // from here the guard belongs to the blocking task — the
     // undecided-trial refusal runs there too, after the mount and
     // under this lock: an install can never start during an
-    // undecided trial, so S99ota's commit cannot collide with one
+    // undecided trial, so the trial guard's commit cannot collide with one
     let guard = Guard {
         _busy: busy,
         _lock: lock,
@@ -1157,7 +1157,7 @@ mod tests {
         run(async {
             let rig = Rig::new();
             let mut server = start(rig.ota.clone()).await;
-            // the CLI or S99ota is mid-update
+            // the CLI or the trial guard is mid-update
             let other_process = update::UpdateLock::try_acquire_at(rig.lock_path()).unwrap();
             let head = request_head(Some(5 * MIB), "");
             let mut client = connect(server.addr, &head, &image(4096)).await;
@@ -1183,7 +1183,7 @@ mod tests {
             // headers are fine, the socket goes quiet
             let head = request_head(Some(5 * MIB), "");
             let client = connect(server.addr, &head, &[0u8; 32]).await;
-            // the CLI or S99ota can still take the lock while this
+            // the CLI or the trial guard can still take the lock while this
             // upload idles — it never made it past the magic check
             assert!(lock_is_free(&rig.lock_path()), "held by the idle upload");
             drop(client);

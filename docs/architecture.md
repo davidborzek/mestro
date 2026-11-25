@@ -109,8 +109,11 @@ crates/
                     cross-process update lock (/run/mestro-update.lock)
                     — plus the `rpi` backend (config.txt/tryboot.txt
                     slots, the one-shot tryboot reboot, the audited
-                    reboot(2)) and the `mestro-update` CLI behind the
-                    `cli` feature. The web OTA uploads through the
+                    reboot(2)), the `mestro-update` CLI behind the
+                    `cli` feature, and the trial boot's guard and
+                    health check (`trial`, one process for the
+                    S04trial/S99ota init scripts it replaces). The
+                    web OTA uploads through the
                     same library in process; a golden test runs the
                     old `mestro-upgrade` shell script against the
                     port on identical fixtures
