@@ -22,7 +22,8 @@ GET  /cover?v=<n>         the current cover as JPEG (auth);
 GET  /vu-preview?skin=<name>&v=<hash>   a VU skin's preview PNG (auth)
 GET  /clock-preview?style=<name>&v=<hash>   a clock style's preview PNG (auth)
 GET  /ws                  WS upgrade → JSON protocol (auth)
-POST /ota                 system-image upload (feature `ota`, auth)
+POST /ota                 system-image upload (features `ota` + `rpi`,
+                          a detected boot control, auth)
 GET  /diagnostics         the bug-report file, JSON attachment (auth)
 anything else             404 (missing files, non-GET)
 ```
@@ -413,7 +414,7 @@ the tree through the UI stack).
   "wifi": { "state": "sta", "ssid": "Home", … },  // status only, never a PSK
   "files": { "/proc/version": [ … ], "/proc/asound/cards": [ … ] },
   "logs": { "/tmp/mestro.log": [ last N lines ], "/tmp/mestro.log.old": [ … ], "/tmp/ota.log": [ … ] },
-  "upgrade_status": { "command": "/usr/sbin/mestro-upgrade --status", "output": [ … ] },
+  "upgrade_status": { "command": "/usr/sbin/mestro-update status", "output": [ … ] },
   "skipped": { "missing": [ … ], "refused": [ … ] }
 }
 ```
@@ -421,7 +422,7 @@ the tree through the UI stack).
 What is collected is fixed per image (build settings, CONTRIBUTING.md
 "Building for another image"): the last 200 lines of mestro's and
 the OTA scripts' logs (at most 256 KiB read per file), `/proc/version`,
-`/proc/asound/cards` and the output of `mestro-upgrade --status`. A file that is
+`/proc/asound/cards` and the output of `mestro-update status`. A file that is
 not there is listed under `skipped.missing` and the download goes
 on. Whatever the UI thread or the wifi manager does not answer in
 time is reported as `{"error": …}` in its slot.

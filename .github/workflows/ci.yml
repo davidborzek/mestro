@@ -128,12 +128,15 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: kiosk
-      - run: cargo clippy -p mestro --no-default-features --features linuxkms,ota,wifi-setup,audio-output,timezone --all-targets -- -D warnings
+      - run: cargo clippy -p mestro --no-default-features --features linuxkms,ota,rpi,wifi-setup,audio-output,timezone --all-targets -- -D warnings
       # the OS crate's own clippy run: -p mestro compiles it (the
       # feature forwards) but lints only the binary. The web crate's
       # run is the same idea
       - run: cargo clippy -p mestro-os --features wifi-setup,audio-output,timezone --all-targets -- -D warnings
       - run: cargo clippy -p mestro-remote --features ota,wifi-setup,audio-output,timezone --all-targets -- -D warnings
+      # mestro-update with its Pi boot backend (the desktop clippy
+      # run above covers the no-backend build)
+      - run: cargo clippy -p mestro-update --features cli,rpi --all-targets -- -D warnings
 
   # the fonts mirror the dev shell's FONTCONFIG_FILE for the
   # #[ignore]d visual snapshot tests (they need any text font;
@@ -179,9 +182,12 @@ jobs:
       # and on mestro-os/mestro-remote (`wifi-setup`/`audio-output`/
       # `timezone`, forwarded by the binary's features of the same
       # names); -p scopes them there
-      - run: cargo test -p mestro --features ota,wifi-setup,audio-output,timezone
+      - run: cargo test -p mestro --features ota,rpi,wifi-setup,audio-output,timezone
       - run: cargo test -p mestro-os --features wifi-setup,audio-output,timezone
       - run: cargo test -p mestro-remote --features ota,wifi-setup,audio-output,timezone
+      # the A/B update, its CLI and the golden test against the old
+      # shell script, with the Pi boot backend
+      - run: cargo test -p mestro-update --features cli,rpi
 
   web:
     runs-on: ubuntu-24.04

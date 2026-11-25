@@ -1,70 +1,14 @@
 #!/bin/sh
-# S04trial — guard a trial boot from the start (mestro-upgrade).
-#
-# A trial boots with the SoC watchdog armed (tryboot.txt
-# kernel_watchdog_timeout); the kernel feeds it only until userspace
-# opens /dev/watchdog (watchdog.open_timeout). This script opens it
-# right after the data partition is mounted, so a slow boot (DHCP
-# waiting for a missing cable, wifi coming up) cannot trip it, and
-# keeps feeding until S99ota has decided — or until GUARD_MAX seconds
-# after boot, when it stops feeding and the watchdog resets into the previous
-# slot (a boot that hangs before S99ota ever runs).
-#
-# While the trial runs it snapshots the logs to TRIAL_LOG_DIR on the
-# data partition every few seconds: a trial that dies or hangs still
-# leaves what it saw (/tmp is RAM, gone after the reset).
-#
-# S99ota talks to it through DECISION: "commit" (disarm the watchdog
-# with the magic 'V', stop) or "reboot" (keep feeding, S99ota
-# reboots).
-
-DECISION=/run/trial-decision
-TRIAL_LOG_DIR=/data/state/mestro/trial-boot
-GUARD_MAX=180
-STEP=5
-
-trial_boot() {
-	[ "$(hexdump -v -e '4/1 "%02x"' /proc/device-tree/chosen/bootloader/tryboot 2>/dev/null)" = "00000001" ]
-}
-
-snapshot() {
-	mkdir -p "$TRIAL_LOG_DIR" || return
-	cp /tmp/ota.log "$TRIAL_LOG_DIR/ota.log" 2>/dev/null
-	cp /tmp/mestro.log "$TRIAL_LOG_DIR/mestro.log" 2>/dev/null
-	dmesg >"$TRIAL_LOG_DIR/dmesg.txt" 2>/dev/null
-	sync
-}
-
-guard() {
-	exec 3>/dev/watchdog || echo "no /dev/watchdog, the trial runs unguarded"
-	n=0
-	while [ "$(cut -d. -f1 /proc/uptime)" -lt "$GUARD_MAX" ]; do
-		printf . >&3
-		case "$(cat "$DECISION" 2>/dev/null)" in
-		commit)
-			snapshot
-			printf V >&3
-			exec 3>&-
-			echo "trial guard: committed, watchdog off"
-			return
-			;;
-		esac
-		[ $((n % 2)) -eq 0 ] && snapshot
-		sleep "$STEP"
-		n=$((n + 1))
-	done
-	echo "trial guard: no decision ${GUARD_MAX}s after boot, letting the watchdog reset"
-	snapshot
-	# stop feeding without the magic close: the watchdog fires
-	sleep 3600
-}
+# S04trial — the trial boot's guard and decision
+# (mestro-update trial, in the background: the process itself knows
+# whether this is a trial boot — on a normal boot it only drops a
+# trial that never committed).
 
 case "$1" in
 start)
-	trial_boot || exit 0
-	rm -f "$DECISION"
-	rm -rf "$TRIAL_LOG_DIR"
-	echo "trial boot: guard armed until ${GUARD_MAX}s after boot" >>/tmp/ota.log
-	guard >>/tmp/ota.log 2>&1 </dev/null &
+	# the trial logs go to the state dir on the data partition (the
+	# same XDG_STATE_HOME S50mestro gives the player); without it
+	# they would land in RAM and be gone after a rollback
+	XDG_STATE_HOME=/data/state mestro-update trial >>/tmp/ota.log 2>&1 </dev/null &
 	;;
 esac

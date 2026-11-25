@@ -55,11 +55,15 @@ MESTRO_CARGO_ENV = \
 	CARGO_PROFILE_RELEASE_LTO="true"
 
 # the kiosk feature set (the feature flags live on the binary
-# crate) — release profile, the vendored deps, Cargo.lock as-is
+# crate and on mestro-os/mestro-remote) — release profile, the
+# vendored deps, Cargo.lock as-is. `ota` is the web upload, `rpi` the
+# boot backend it (and the update binary, with its CLI) updates through
 MESTRO_CARGO_BUILD_OPTS = \
 	-p mestro \
 	--no-default-features \
-	--features linuxkms,ota,wifi-setup,audio-output,timezone
+	--features linuxkms,ota,rpi,wifi-setup,audio-output,timezone \
+	-p mestro-update \
+	--features cli,rpi
 
 # same vendoring as support/download/cargo-post-process: crates
 # land in BR_CARGO_HOME (DL_DIR, on the cache volume) and the
@@ -77,6 +81,9 @@ define MESTRO_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0755 \
 		$(@D)/target/$(RUSTC_TARGET_NAME)/release/mestro \
 		$(TARGET_DIR)/usr/bin/mestro
+	$(INSTALL) -D -m 0755 \
+		$(@D)/target/$(RUSTC_TARGET_NAME)/release/mestro-update \
+		$(TARGET_DIR)/usr/sbin/mestro-update
 	$(INSTALL) -D -m 0644 \
 		$(BR2_EXTERNAL_MESTROIMAGE_PATH)/board/mestro/common/fonts.conf \
 		$(TARGET_DIR)/etc/fonts.conf

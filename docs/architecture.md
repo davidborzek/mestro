@@ -13,14 +13,17 @@ before the later stages can happen.
 Not structure for its own sake:
 
 - **compiler-enforced boundaries.** `unsafe` is allowed only in
-  the two audited leaf sites (the Pi firmware ioctl and the
-  `kill(2)` wrapper, both in `mestro-os`); the domain and the
-  protocol crates `#![forbid]` it, the binary crate denies it —
-  slint's generated code carries its own local `allow`.
+  the three audited leaf sites (the Pi firmware ioctl and the
+  `kill(2)` wrapper in `mestro-os`, the raw `reboot(2)` of the
+  update's `rpi` backend in `mestro-update`); the domain and the
+  protocol crates `#![forbid]` it, the binary crates deny it —
+  slint's generated code carries its own local `allow`. Each OS
+  crate pins its sites in a scanner test (`tests/unsafe_pin.rs`).
   Dependency direction is checked by cargo, not review:
-  `mestro → {player, os, ipc, web}`, `os → ipc` and
-  `web → {player, os, ipc}`; `ipc` depends on
-  no sibling crate, and no crate ever reaches back into the app.
+  `mestro → {player, os, ipc, web}`, `os → ipc`,
+  `web → {player, os, ipc, update}`; `ipc` and `update` depend on
+  no sibling crate, and no crate ever reaches back
+  into the app.
 - **tests without Slint.** The player domain (state machine, shell,
   the source contract) is pure logic plus tokio channels; its tests
   used to drag in the whole UI build. In the workspace they compile
@@ -40,6 +43,7 @@ graph TD
   mestro --> os["mestro-os — device: OS + hardware"]
   mestro --> ipc["mestro-ipc — wire protocol"]
   mestro --> web["mestro-remote — remote surface: web + ctl + push"]
+  web --> update["mestro-update — A/B system update"]
   os --> ipc
   web --> ipc
   web --> os
@@ -97,6 +101,22 @@ crates/
                     binary; the web server and the ctl sockets live
                     in `mestro-remote`. A JSON golden test
                     (`tests/protocol-golden.json`) pins the shapes
+  mestro-update/    the image's A/B system update, neutral over the
+                    board's boot chain (the `BootControl` trait):
+                    streaming an image into the inactive slot,
+                    verifying it twice (sha256, read-back off the
+                    card), the status report, and the
+                    cross-process update lock (/run/mestro-update.lock)
+                    — plus the `rpi` backend (config.txt/tryboot.txt
+                    slots, the one-shot tryboot reboot, the audited
+                    reboot(2)), the `mestro-update` CLI behind the
+                    `cli` feature, and the trial boot's guard and
+                    health check (`trial`, one process for the
+                    S04trial/S99ota init scripts it replaces). The
+                    web OTA uploads through the
+                    same library in process; a golden test runs the
+                    old `mestro-upgrade` shell script against the
+                    port on identical fixtures
   mestro-os/         everything that talks to the device's OS or
                     hardware; nothing about MA, the UI or the web
                     protocol. One OS crate, a module per capability,
@@ -165,6 +185,14 @@ the visexport ring — exactly what the desktop build needs; the
 OS crate's own test/clippy runs are `-p mestro-os --features
 wifi-setup,audio-output,timezone`, the web crate's are
 `-p mestro-remote --features ota,wifi-setup,audio-output,timezone`.
+`mestro-update` adds two of its own: `cli` (default — the
+`mestro-update` binary; mestro-remote opts out and uses the
+library) and `rpi` (the Raspberry Pi firmware boot backend; its
+own test/clippy runs are `-p mestro-update --features cli,rpi`).
+The web upload (`ota`) knows no board: the binary's `rpi`
+feature (`rpi = ["dep:mestro-update", "mestro-update/rpi"]`)
+compiles the backend in, and the image enables both — `ota`
+without `rpi` finds no boot control and answers 503.
 
 ## Later stages
 

@@ -1,0 +1,54 @@
+[package]
+name = "mestro-update"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+# never published to crates.io
+publish = false
+
+[features]
+# the CLI (and with it the binary): on by default so `cargo test`
+# covers it; mestro-remote uses the library in process and opts
+# out — no clap, no binary
+default = ["cli"]
+cli = ["dep:clap"]
+# the Raspberry Pi firmware boot control: the config.txt/tryboot.txt
+# A/B slots and the one-shot tryboot reboot. The binary crate's
+# `rpi` feature forwards here; without it no backend is compiled
+# in and detect() finds none (the desktop build)
+rpi = ["dep:libc"]
+
+[[bin]]
+name = "mestro-update"
+required-features = ["cli"]
+
+[dependencies]
+# hashing the streamed image (sha256, in the sha256sum format)
+sha2.workspace = true
+# the image's log locations (ota.log, the trial-boot snapshots) —
+# the trial command reports and snapshots where the image keeps
+# its logs; no default feature is needed, only paths
+mestro-os = { path = "../mestro-os", version = "0.1.0", default-features = false }
+# the rpi backend's reboot(2): the crate's one audited unsafe site
+libc = { workspace = true, optional = true }
+# the command line (already pinned in the workspace for the mestro
+# binary; the version is the same here)
+clap = { version = "4", features = ["derive"], optional = true }
+
+[dev-dependencies]
+# temp-dir boot fixtures in the rpi and golden tests
+tempfile = "3"
+
+[lints.rust]
+# unsafe only at the audited reboot(2) of the rpi backend, with a
+# local allow and a SAFETY comment; tests/unsafe_pin.rs fails when
+# a second site appears
+unsafe_code = "deny"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"

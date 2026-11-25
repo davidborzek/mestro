@@ -975,11 +975,10 @@ mod tests {
     fn the_status_command_output_is_captured_and_redacted() {
         let out = run_status_command("echo token=abcd1234 slot=a", Duration::from_secs(5)).unwrap();
         assert_eq!(out, ["token=[redacted] slot=a"]);
-        assert!(run_status_command(
-            "/nonexistent/mestro-upgrade --status",
-            Duration::from_secs(1)
-        )
-        .is_none());
+        assert!(
+            run_status_command("/nonexistent/mestro-update status", Duration::from_secs(1))
+                .is_none()
+        );
         assert!(run_status_command("", Duration::from_secs(1)).is_none());
         // a command that never ends is given up on
         let started = std::time::Instant::now();
@@ -1024,7 +1023,7 @@ mod tests {
             wifi: Ok(json!({"state": "sta", "ssid": "Home", "error": format!("bad {PSK}")})),
             collected,
             status: Some((
-                "mestro-upgrade --status".into(),
+                "mestro-update status".into(),
                 vec![format!("slot a {COOKIE}")],
             )),
             secrets: vec![

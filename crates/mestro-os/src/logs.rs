@@ -4,7 +4,9 @@
 //!
 //! - `S50mestro` logs mestro to `LOG_DIR/mestro.log` and moves the
 //!   previous run to `mestro.log.old` (what a crash leaves)
-//! - `S04trial`/`S99ota` and `mestro-upgrade` log to `LOG_DIR/ota.log`
+//! - `S04trial` (starting `mestro-update trial`) and the update
+//!   commands (`mestro-update`, reachable as `mestro-upgrade`) log
+//!   to `LOG_DIR/ota.log`
 //! - a trial boot snapshots its logs to [`trial_boot_dir`] on the
 //!   data partition, so a rolled-back upgrade can be diagnosed
 //!
@@ -22,7 +24,7 @@ pub const LOG_DIR: &str = setting(option_env!("MESTRO_LOG_DIR"), "/tmp");
 /// whitespace, no shell; empty = none)
 pub const STATUS_COMMAND: &str = setting(
     option_env!("MESTRO_STATUS_COMMAND"),
-    "/usr/sbin/mestro-upgrade --status",
+    "/usr/sbin/mestro-update status",
 );
 
 /// the trial boot's log snapshots, under the state dir (the image
@@ -59,7 +61,7 @@ mod tests {
         assert_eq!(LOG_DIR, option_env!("MESTRO_LOG_DIR").unwrap_or("/tmp"));
         assert_eq!(
             STATUS_COMMAND,
-            option_env!("MESTRO_STATUS_COMMAND").unwrap_or("/usr/sbin/mestro-upgrade --status")
+            option_env!("MESTRO_STATUS_COMMAND").unwrap_or("/usr/sbin/mestro-update status")
         );
     }
 

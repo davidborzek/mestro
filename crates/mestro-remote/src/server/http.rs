@@ -104,23 +104,6 @@ pub(super) async fn reply_html(
     .await
 }
 
-#[cfg(feature = "ota")]
-pub(super) async fn reply_json(
-    stream: &mut TcpStream,
-    status: &str,
-    body: &str,
-) -> Result<(), String> {
-    reply_typed(
-        stream,
-        status,
-        "application/json",
-        "Cache-Control: no-store",
-        &[],
-        body.as_bytes(),
-    )
-    .await
-}
-
 /// a byte reply with its own cache policy and optional extra
 /// headers (Set-Cookie): the asset/cover path
 pub(super) async fn reply_with_headers(
@@ -142,6 +125,23 @@ pub(super) async fn reply_typed(
     extra: &[(&str, &str)],
     body: &[u8],
 ) -> Result<(), String> {
+    stream
+        .write_all(&render(status, content_type, cache_control, extra, body))
+        .await
+        .map_err(|e| format!("write: {e}"))?;
+    stream.shutdown().await.ok();
+    Ok(())
+}
+
+/// a whole reply as bytes — for the callers that write on a
+/// blocking socket
+pub(super) fn render(
+    status: &str,
+    content_type: &str,
+    cache_control: &str,
+    extra: &[(&str, &str)],
+    body: &[u8],
+) -> Vec<u8> {
     let mut head = format!(
         "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n{cache_control}\r\n",
         body.len()
@@ -150,17 +150,9 @@ pub(super) async fn reply_typed(
         head.push_str(&format!("{name}: {value}\r\n"));
     }
     head.push_str("\r\n");
-    stream
-        .write_all(head.as_bytes())
-        .await
-        .map(|_| ())
-        .map_err(|e| format!("write: {e}"))?;
-    stream
-        .write_all(body)
-        .await
-        .map_err(|e| format!("write: {e}"))?;
-    stream.shutdown().await.ok();
-    Ok(())
+    let mut bytes = head.into_bytes();
+    bytes.extend_from_slice(body);
+    bytes
 }
 
 /// serialize a protocol response (the error fallback never fails)

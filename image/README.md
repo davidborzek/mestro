@@ -134,7 +134,7 @@ on bumps) and links it against the sysroot it just built. The
 crate set is vendored into the build tree at package-extract time
 (same as Buildroot's own cargo packages; the crate cache lives on
 the /cache volume). The kiosk features are pinned in the package:
-`linuxkms,ota,wifi-setup,audio-output,timezone`.
+`linuxkms,ota,rpi,wifi-setup,audio-output,timezone`.
 
 The fonts ship as their own packages (`image/package/font-inter`,
 `font-material-symbols`), pinned upstream and hash-checked,
@@ -203,33 +203,51 @@ The whole system is one file — the rootfs lives in the initramfs
 embedded in the kernel image. The boot partition holds two of them,
 `Image.a` and `Image.b`; `kernel=` in `config.txt` names the
 running one. An upgrade writes the other slot and boots it once on
-trial, no re-flashing:
+trial, no re-flashing. The upgrade itself is Rust —
+`/usr/sbin/mestro-update` (`crates/mestro-update`, the Raspberry Pi
+firmware's config.txt/tryboot.txt A/B scheme behind a boot-control
+trait); `/usr/sbin/mestro-upgrade` and `mestro-reboot` stay as thin
+wrappers with the old flags (SSH habits). One updater at a time,
+across processes: the CLI, the web OTA and the trial guard
+serialize on a lock at `/run/mestro-update.lock`. An
+install never waits for the lock — the second caller is told an
+update runs (the web answers 409); commit and abandon wait a
+bounded 30 s instead of failing, so an upload that just finished
+cannot make the trial's commit miss. Installs are also refused while
+this boot is an undecided trial — a new upload would delete the
+tryboot.txt its own decision still needs. That refusal runs under
+the lock, after the boot store is mounted, so no install can be
+underway during an undecided trial: the commit's wait only ever
+bridges another decision, not a running upload.
 
 ```sh
 # stream it from the build machine (nothing is buffered in RAM)
 cat output/images/Image | \
-	ssh root@<pi> "mestro-upgrade --reboot - $(sha256sum output/images/Image | cut -d' ' -f1)"
+	ssh root@<pi> "mestro-update install --reboot - $(sha256sum output/images/Image | cut -d' ' -f1)"
 ```
 
 The trial uses the firmware's one-shot `tryboot`: that boot reads
 `tryboot.txt` (a copy of `config.txt` pointing at the new slot)
-and starts with the SoC watchdog armed. `S04trial` takes the
-watchdog over right after the data partition is mounted (a slow
-boot can't trip it) and feeds it until three minutes after boot.
-`S99ota` checks the new image: mestro has to run stably, the device
+and starts with the SoC watchdog armed. `S04trial` starts
+`mestro-update trial` right after the data partition is mounted —
+one process that takes the watchdog over (a slow boot can't trip
+it), feeds it until three minutes after boot, and checks the new
+image every five seconds: mestro has to run stably, the device
 has to be on a network (an address and a default route on wlan0 or
 eth0, or the setup hotspot), and mestro's web endpoint has to
 answer. It retries until two minutes after boot, then commits —
 `config.txt` switches to the new slot and the watchdog turns off
-again. Anything else goes back to the previous slot on its own:
+again. On a normal boot the same command just drops a trial that
+never committed. Anything else goes back to the previous slot on
+its own:
 
 | the new image … | what happens |
 |---|---|
 | runs, on the network, web endpoint answers | committed (usually within a minute) |
-| boots, mestro crashes | S99ota reboots → previous slot |
-| no network or no web endpoint 2 min after boot | S99ota reboots → previous slot |
+| boots, mestro crashes | the trial guard reboots → previous slot |
+| no network or no web endpoint 2 min after boot | the trial guard reboots → previous slot |
 | hangs before userspace (kernel, early init) | the watchdog resets after 60 s → previous slot |
-| hangs later, no decision 3 min after boot | `S04trial` stops feeding, the watchdog resets → previous slot |
+| hangs later, no decision 3 min after boot | the guard stops feeding, the watchdog resets → previous slot |
 | power cut during the trial | next boot reads `config.txt` → previous slot |
 
 Every trial leaves its logs on the data partition in
@@ -240,10 +258,11 @@ them), overwritten by the next trial — a rolled-back upgrade can
 still be diagnosed (over SSH, from the SD card, or in the
 diagnostics download, which includes them).
 
-`mestro-upgrade --status` shows the running and a pending slot.
+`mestro-update status` shows the running and a pending slot.
 Without `--reboot` the trial starts at the next
-`mestro-reboot --tryboot`; plain `mestro-reboot` (never busybox
-`reboot`, it hangs the initramfs kiosk) stays on the current slot.
+`mestro-update reboot --tryboot`; plain `mestro-update reboot`
+(never busybox `reboot`, it hangs the initramfs kiosk) stays on the
+current slot.
 
 ## WiFi setup (hotspot)
 
@@ -323,7 +342,7 @@ JSON file (`GET /diagnostics`, paired phones only): the version,
 the redacted settings, the wifi status, the tail of `/tmp/mestro.log`
 (and `.old`, the previous run) and `/tmp/ota.log`, the last trial
 boot's copies from `/data/state/mestro/trial-boot/`, `/proc/version`,
-`/proc/asound/cards` and the output of `mestro-upgrade --status`.
+`/proc/asound/cards` and the output of `mestro-update status`.
 Tokens, the pairing PIN and wifi passphrases are removed; host
 keys, `wpa_supplicant.conf` and the settings overlay are never read.
 The log locations are build settings (`MESTRO_LOG_DIR`,

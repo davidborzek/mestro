@@ -19,14 +19,16 @@ not on the host.
 # (`wifi-setup`/`audio-output`/`timezone`, forwarded by the
 # binary's features of the same names): -p scopes them
 nix develop -c cargo test
-nix develop -c cargo test -p mestro --features ota,wifi-setup,audio-output,timezone
+nix develop -c cargo test -p mestro --features ota,rpi,wifi-setup,audio-output,timezone
 nix develop -c cargo test -p mestro-os --features wifi-setup,audio-output,timezone
 nix develop -c cargo test -p mestro-remote --features ota,wifi-setup,audio-output,timezone
+nix develop -c cargo test -p mestro-update --features cli,rpi  # the A/B update + its golden test against the old shell script
 nix develop -c cargo test -p mestro-ipc              # the wire protocol + its golden
 nix develop -c cargo clippy --all-targets
-nix develop -c cargo clippy -p mestro --no-default-features --features linuxkms,ota,wifi-setup,audio-output,timezone --all-targets
+nix develop -c cargo clippy -p mestro --no-default-features --features linuxkms,ota,rpi,wifi-setup,audio-output,timezone --all-targets
 nix develop -c cargo clippy -p mestro-os --features wifi-setup,audio-output,timezone --all-targets
 nix develop -c cargo clippy -p mestro-remote --features ota,wifi-setup,audio-output,timezone --all-targets
+nix develop -c cargo clippy -p mestro-update --features cli,rpi --all-targets
 nix develop -c cargo test --test np_layout          # one integration test
 nix develop -c cargo deny check                     # advisories, licenses, bans, sources
 nix develop -c cargo machete                        # unused dependencies
