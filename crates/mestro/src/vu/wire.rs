@@ -95,7 +95,7 @@ impl Vui {
             })
             .collect::<Vec<_>>();
 
-        let state = SkinState::from_config(config, &b, compiled.len());
+        let state = SkinState::from_config(config, &b, &compiled);
         let preview_cache = RefCell::new(vec![None; compiled.len()]);
 
         Self(Rc::new(Inner {
@@ -233,15 +233,12 @@ impl Vui {
     /// activation starts at the new value
     pub fn apply_options(&self, config: &Config) {
         let inner = &self.0;
-        let next = SkinState::from_config(config, &inner.b, inner.compiled.len());
-        let active = inner
-            .views
-            .get(inner.view_state.get())
-            .copied()
-            .and_then(|view| next.glow[view]);
+        let next = SkinState::from_config(config, &inner.b, &inner.compiled);
+        let active = inner.views.get(inner.view_state.get()).copied();
+        let glow = active.and_then(|view| next.glow[view]);
         *inner.state.borrow_mut() = next;
-        if let Some(glow) = active {
-            skin::push_glow(&inner.skin_slot, glow);
+        if let (Some(view), Some(glow)) = (active, glow) {
+            skin::push_glow(&inner.skin_slot, &inner.compiled[view], glow);
         }
     }
 
@@ -586,7 +583,7 @@ struct SkinState {
 }
 
 impl SkinState {
-    fn from_config(config: &Config, b: &Builtins, views: usize) -> Self {
+    fn from_config(config: &Config, b: &Builtins, compiled: &[Skin]) -> Self {
         let skin_options = config.vu.skin_options.clone();
         // the analyzers' meters/gradient knobs ride the same
         // passthrough as [vu.skin-options] — per built-in
@@ -605,14 +602,21 @@ impl SkinState {
             "gradient".into(),
             toml::Value::Boolean(config.vu.bars.gradient),
         );
-        let mut glow = vec![None; views];
-        for (view, value) in [
-            (b.cream, config.vu.cream.glow),
-            (b.round, config.vu.round.glow),
-            (b.wall_light, config.vu.wall_light.glow),
-        ] {
-            if let Some(view) = view {
-                glow[view] = Some(value);
+        // the effective glow per view: the config knobs (cream,
+        // round, wall-light), every other baked skin's manifest
+        // default — a [vu.skin-options] glow key overrides both,
+        // like any pushed property used to
+        let skin_glow = skin_options.get("glow").and_then(toml::Value::as_float);
+        let mut glow = vec![None; compiled.len()];
+        for (view, skin) in compiled.iter().enumerate() {
+            let configured = match Some(view) {
+                v if v == b.cream => Some(config.vu.cream.glow),
+                v if v == b.round => Some(config.vu.round.glow),
+                v if v == b.wall_light => Some(config.vu.wall_light.glow),
+                _ => skin.bake.as_ref().map(|bake| bake.default_glow()),
+            };
+            if let Some(default) = configured {
+                glow[view] = Some(skin_glow.unwrap_or(default));
             }
         }
         Self {

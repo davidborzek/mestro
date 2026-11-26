@@ -1,4 +1,5 @@
 use slint_interpreter::{ComponentDefinition, ComponentInstance, SharedString, Struct, Value};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -337,6 +338,279 @@ fn compile_engine() -> Option<ComponentDefinition> {
 /// setup call — art is resolved eagerly, the reader never escapes)
 type ArtReader<'a> = Rc<dyn Fn(&str) -> Option<Vec<u8>> + 'a>;
 
+/// where a glow layer's light lands: the nearest image layer
+/// below it in the same dial, else the plate art (a glow at the
+/// bottom of the stack lights the plate — wall-light). None =
+/// nothing to bake into; the runtime gradient stays (modern's
+/// tinted lamp over a bare plate)
+enum BakeTarget {
+    Layer(usize),
+    Plate,
+}
+
+fn bake_target(dial: &Dial, idx: usize, has_plate_art: bool) -> Option<BakeTarget> {
+    dial.layer[..idx]
+        .iter()
+        .enumerate()
+        .rev()
+        .find(|(_, l)| l.source.is_some())
+        .map(|(j, _)| BakeTarget::Layer(j))
+        .or_else(|| has_plate_art.then_some(BakeTarget::Plate))
+}
+
+/// append an overlay fragment to an art SVG, before its closing
+/// tag: the overlay draws over the art and resvg composites the
+/// blend at raster time — the engine only ever sees opaque
+/// pixels
+fn compose(art: &[u8], overlay: &str) -> Option<Vec<u8>> {
+    let svg = std::str::from_utf8(art).ok()?;
+    let close = svg.rfind("</svg>")?;
+    Some(format!("{}{}{}", &svg[..close], overlay, "</svg>").into_bytes())
+}
+
+/// one window glow layer's lamp FRAGMENT, relative to the base
+/// art it lights: a warm radial (brightest in the middle,
+/// easing out to a dimmer rim) clipped to the layer's rounded
+/// box — x/y/w/h, inset, radius, all dial units mapped into the
+/// art's viewBox. The stop-opacities scale with the glow value,
+/// so the bake at glow g reproduces what an opacity-g wash did.
+/// `frag` unique-ifies the SVG ids — several lamps may compose
+/// into one art source
+fn lamp_fragment(
+    art: &[u8],
+    dial: &Dial,
+    glow_layer: &Layer,
+    target: &Layer,
+    glow: f64,
+) -> Option<String> {
+    let svg = std::str::from_utf8(art).ok()?;
+    let (_, vb_w, vb_h) = view_box(svg)?;
+    // the target's box (dial units) maps onto its viewBox
+    let tw = if target.w > 0.0 { target.w } else { dial.art_w };
+    let th = if target.h > 0.0 { target.h } else { dial.art_h };
+    let scale_x = vb_w / tw;
+    let scale_y = vb_h / th;
+    let gw = if glow_layer.w > 0.0 {
+        glow_layer.w
+    } else {
+        dial.art_w
+    };
+    let gh = if glow_layer.h > 0.0 {
+        glow_layer.h
+    } else {
+        dial.art_h
+    };
+    let x = (glow_layer.x + glow_layer.inset - target.x) * scale_x;
+    let y = (glow_layer.y + glow_layer.inset - target.y) * scale_y;
+    let w = (gw - 2.0 * glow_layer.inset) * scale_x;
+    let h = (gh - 2.0 * glow_layer.inset) * scale_y;
+    if w <= 0.0 || h <= 0.0 {
+        return None;
+    }
+    let rx = (glow_layer.radius * scale_x).min(w / 2.0).min(h / 2.0);
+    Some(format!(
+        "<defs><clipPath id=\"mestroLampClipLAMPID\"><rect x=\"{x:.2}\" y=\"{y:.2}\" width=\"{w:.2}\" height=\"{h:.2}\" rx=\"{rx:.2}\"/></clipPath>\
+<radialGradient id=\"mestroLampFillLAMPID\" cx=\"50%\" cy=\"50%\" r=\"100%\">\
+<stop offset=\"0\" stop-color=\"#f0a24e\" stop-opacity=\"{:.3}\"/>\
+<stop offset=\"0.55\" stop-color=\"#d9863a\" stop-opacity=\"{:.3}\"/>\
+<stop offset=\"1\" stop-color=\"#d9863a\" stop-opacity=\"{:.3}\"/>\
+</radialGradient></defs>\
+<g clip-path=\"url(#mestroLampClipLAMPID)\"><rect x=\"{x:.2}\" y=\"{y:.2}\" width=\"{w:.2}\" height=\"{h:.2}\" fill=\"url(#mestroLampFillLAMPID)\"/></g>",
+        glow,
+        0.7 * glow,
+        0.15 * glow
+    ))
+}
+
+/// the plate lamp: one warm radial ellipse over the whole plate
+/// art (a glow layer with no art below it in its dial lights the
+/// plate), brightest in the middle and fading toward the corners
+fn plate_lamp_overlay(art: &[u8], glow: f64) -> Option<Vec<u8>> {
+    let svg = std::str::from_utf8(art).ok()?;
+    let (_, vb_w, vb_h) = view_box(svg)?;
+    let overlay = format!(
+        "<defs><radialGradient id=\"mestroPlateLamp\" cx=\"50%\" cy=\"50%\" r=\"75%\">\
+<stop offset=\"0\" stop-color=\"#f0a24e\" stop-opacity=\"{:.3}\"/>\
+<stop offset=\"0.55\" stop-color=\"#e8932f\" stop-opacity=\"{:.3}\"/>\
+<stop offset=\"1\" stop-color=\"#d9863a\" stop-opacity=\"{:.3}\"/>\
+</radialGradient></defs>\
+<rect x=\"0\" y=\"0\" width=\"{vb_w:.2}\" height=\"{vb_h:.2}\" fill=\"url(#mestroPlateLamp)\"/>",
+        0.7 * glow,
+        0.4 * glow,
+        0.12 * glow
+    );
+    compose(art, &overlay)
+}
+
+/// one baked setup variant, keyed by (glow bit pattern, preview)
+/// — the cache behind Bake::apply
+type BakedVariant = Rc<dyn Fn(&ComponentInstance)>;
+
+/// glow baking: the renderer-independent lamp. FemtoVG (the
+/// device renderer) mishandles semi-transparent image blending,
+/// so glow never blends at runtime — it is composited into the
+/// OPAQUE art it lights by resvg at bake time and every renderer
+/// draws the same pixels. One baked variant per glow value,
+/// cached; regenerated by activation and settings edits
+pub struct Bake {
+    manifest: SkinManifest,
+    art: Art,
+    cache: RefCell<HashMap<(u64, bool), BakedVariant>>,
+}
+
+impl Bake {
+    /// collect the bake state for a skin — Some only when at
+    /// least one glow layer can bake (untinted, with art to light)
+    fn new(manifest: &SkinManifest, art: &Art) -> Option<Self> {
+        let has_plate_art = manifest.faceplate.plate_art.is_some();
+        let bakeable = manifest.dial.iter().any(|dial| {
+            dial.layer.iter().enumerate().any(|(i, layer)| {
+                layer.role == Role::Glow
+                    && !matches!(layer.tint.as_deref(), Some("palette"))
+                    && bake_target(dial, i, has_plate_art).is_some()
+            })
+        });
+        if !bakeable {
+            return None;
+        }
+        Some(Self {
+            manifest: manifest.clone(),
+            art: art.clone(),
+            cache: RefCell::new(HashMap::new()),
+        })
+    }
+
+    /// the manifest's own glow default; the config's [vu.<name>]
+    /// glow overrides it at the wire layer for the glow skins
+    pub fn default_glow(&self) -> f64 {
+        self.manifest.glow
+    }
+
+    /// apply the baked variant for one glow value onto an
+    /// instance — a fresh one at activation, or the live one
+    /// after a settings edit. `preview` bakes the needle
+    /// prerotation in (the software renderer cannot rotate)
+    pub fn apply(&self, instance: &ComponentInstance, glow: f64, preview: bool) {
+        let key = (glow.to_bits(), preview);
+        let baked = self.cache.borrow().get(&key).cloned();
+        let baked = baked.unwrap_or_else(|| {
+            let (manifest, baked_art, _) = self.baked(glow);
+            let art = Rc::new(baked_art);
+            let read = {
+                let art = art.clone();
+                move |src: &str| art.get(src).cloned()
+            };
+            let f: BakedVariant = Rc::new(setup(&manifest, &art, &read, preview));
+            self.cache.borrow_mut().insert(key, f.clone());
+            f
+        });
+        baked(instance);
+    }
+
+    /// the overridden art at one glow value: (source, image)
+    /// pairs for everything the bake composited. The opacity
+    /// test asserts these never lose alpha against their base —
+    /// no alpha ever reaches a renderer
+    pub fn baked_art(&self, glow: f64) -> Vec<(String, slint::Image)> {
+        self.baked(glow)
+            .2
+            .iter()
+            .filter_map(|(src, bytes)| {
+                slint::Image::load_from_svg_data(bytes)
+                    .ok()
+                    .map(|img| (src.clone(), img))
+            })
+            .collect()
+    }
+
+    /// the manifest + art with the glow baked in at `glow`: every
+    /// bakeable glow layer is composited into the art it lights
+    /// (the nearest image layer below it, else the plate art) and
+    /// removed from the stack. Tinted or unbackable layers stay
+    /// on the runtime gradient
+    fn baked(&self, glow: f64) -> (SkinManifest, Art, Vec<(String, Vec<u8>)>) {
+        let mut manifest = self.manifest.clone();
+        let has_plate_art = manifest.faceplate.plate_art.is_some();
+        // the lamps, collected per target source against its BASE
+        // art and deduped by geometry: every dial renders its own
+        // instance of the art, so the dials' identical lamps are
+        // ONE overlay — stacking them would double the glow
+        let mut lamps: HashMap<String, Vec<String>> = HashMap::new();
+        let mut skip: Vec<Vec<usize>> = vec![Vec::new(); manifest.dial.len()];
+        let mut plate_lamp = false;
+        for (d, dial) in manifest.dial.iter().enumerate() {
+            for (i, layer) in dial.layer.iter().enumerate() {
+                if layer.role != Role::Glow || matches!(layer.tint.as_deref(), Some("palette")) {
+                    continue;
+                }
+                match bake_target(dial, i, has_plate_art) {
+                    Some(BakeTarget::Layer(j)) => {
+                        let target = &dial.layer[j];
+                        let source = target.source.clone().unwrap_or_default();
+                        if let Some(base) = self.art.get(&source).cloned() {
+                            match lamp_fragment(&base, dial, layer, target, glow) {
+                                Some(fragment) => {
+                                    let frags = lamps.entry(source).or_default();
+                                    if !frags.contains(&fragment) {
+                                        frags.push(fragment);
+                                    }
+                                }
+                                None => tracing::warn!(
+                                    "vu manifest: glow bake failed for {source:?} — the layer keeps the runtime wash"
+                                ),
+                            }
+                        }
+                        skip[d].push(i);
+                    }
+                    Some(BakeTarget::Plate) => {
+                        plate_lamp = true;
+                        skip[d].push(i);
+                    }
+                    None => {}
+                }
+            }
+        }
+        let mut art = self.art.clone();
+        let mut touched: Vec<(String, Vec<u8>)> = Vec::new();
+        for (source, fragments) in lamps {
+            let Some(base) = art.get(&source).cloned() else {
+                continue;
+            };
+            let overlay = fragments
+                .iter()
+                .enumerate()
+                .map(|(n, frag)| frag.replace("LAMPID", &n.to_string()))
+                .collect::<Vec<_>>()
+                .concat();
+            if let Some(baked) = compose(&base, &overlay) {
+                art.insert(source.clone(), baked.clone());
+                touched.push((source, baked));
+            }
+        }
+        if plate_lamp {
+            if let Some(source) = manifest.faceplate.plate_art.clone() {
+                if let Some(base) = art.get(&source).cloned() {
+                    match plate_lamp_overlay(&base, glow) {
+                        Some(baked) => {
+                            art.insert(source.clone(), baked.clone());
+                            touched.push((source, baked));
+                        }
+                        None => {
+                            tracing::warn!("vu manifest: the plate lamp bake failed for {source:?}")
+                        }
+                    }
+                }
+            }
+        }
+        for (dial, skip) in manifest.dial.iter_mut().zip(skip) {
+            for i in skip.into_iter().rev() {
+                dial.layer.remove(i);
+            }
+        }
+        (manifest, art, touched)
+    }
+}
+
 /// assemble the activation setup: geometry, art and labels
 /// from the manifest onto a fresh svgskin instance. `preview`
 /// builds the preview variant instead: the needles baked into
@@ -435,7 +709,9 @@ pub fn load(name: &str, path: &Path) -> Option<super::skin::Skin> {
     let definition = compile_engine()?;
     let live = setup(&manifest, &art, &read, false);
     let preview = setup(&manifest, &art, &read, true);
+    let bake = Bake::new(&manifest, &art).map(Rc::new);
     Some(super::skin::Skin {
+        bake,
         name: name.to_string(),
         definition,
         light: manifest.light,
@@ -640,7 +916,9 @@ fn builtin(name: &'static str) -> Option<super::skin::Skin> {
     let definition = compile_engine()?;
     let live = setup(&manifest, &parsed_art, &read, false);
     let preview = setup(&manifest, &parsed_art, &read, true);
+    let bake = Bake::new(&manifest, &parsed_art).map(Rc::new);
     Some(super::skin::Skin {
+        bake,
         name: name.to_string(),
         definition,
         light: manifest.light,

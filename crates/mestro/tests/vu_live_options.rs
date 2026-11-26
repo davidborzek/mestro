@@ -3,6 +3,8 @@
 //! apply without a restart, through the same handle → sync_vu
 //! path the settings page, web endpoint and ctl socket use.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use mestro::config::{Config, VuMode};
 use mestro::settings::{sync_vu, Handle, Overlay, VuState};
 use mestro::ui::navigation::Navigation;

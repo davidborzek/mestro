@@ -156,14 +156,33 @@ their tick exactly belong on the tick's angle, centered.
 
 ## The glow dial
 
-`glow` layers render an engine-drawn warm wash (amber radial,
-`#f0a24e → #a86e2c`) with `opacity = the glow value` — a lamp
-behind the print. Where it sits in the stack decides what it
-lights: between `face` and `scale` it washes the meter face
-without touching the ticks (`round`, `cream`); above everything
-it lights the whole plate (`wall-light`). Built-ins take the
-value from config (`[vu.round] glow = 0.5`, `[vu.wall-light]
-glow = 0.8`); custom manifest skins use the manifest default.
+`glow` layers are a warm lamp (amber radial, `#f0a24e →
+#d9863a`) behind the print, and they are BAKED: the engine
+composites the lamp into the opaque art the layer lights —
+the nearest image layer below it (`round`, `cream`, `arc`,
+`orbit` wash their face art), or the plate art when nothing
+sits below the layer (`wall-light` lights the whole plate).
+resvg rasterizes the composite, so every renderer draws the
+same opaque pixels: femtovg (the device renderer) mishandles
+semi-transparent blending, and no glow alpha ever reaches it.
+One baked variant per glow value, cached and regenerated on
+settings edits and activations. Built-ins take the value from
+config (`[vu.round] glow = 0.5`, `[vu.wall-light] glow = 0.8`);
+other manifest skins use the manifest default, and a
+`[vu.skin-options] glow` key overrides both. Values apply live.
+
+The layer's `radius` (dial units) shapes the lamp's clip:
+a rounded box inset by `inset` (at least half the box makes it
+a circle), filled edge to edge — warmest in the middle, easing
+out to a dimmer rim. `radius = 0` is the plate lamp: one radial
+ellipse over the whole plate art, its x/y/w/h/inset ignored,
+so a plate-wide glow shows no disc edge, no seam and no unlit
+bands.
+
+One glow layer cannot bake: a `tint = "palette"` lamp with no
+art below it (`modern`'s tinted wash over the bare plate). It
+keeps the runtime engine gradient — femtovg renders it as a
+centred circle, and the cover palette reaches it live.
 
 ## Info lines
 

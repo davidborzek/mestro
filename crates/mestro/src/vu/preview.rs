@@ -76,6 +76,12 @@ fn render_buffer(
     if let Some(setup) = setup {
         setup(&instance);
     }
+    // baked skins carry the glow in their art (femtovg-safe);
+    // the glow property covers everything else (modern's tinted
+    // lamp)
+    if let Some(bake) = &skin.bake {
+        bake.apply(&instance, glow.unwrap_or_else(|| bake.default_glow()), true);
+    }
     if let Some(value) = glow {
         let _ = instance.set_property("glow", Value::Number(value));
     }
