@@ -797,7 +797,8 @@
           "key": "vu.cream.glow",
           "label": "Glow",
           "kind": {
-            "type": "percent"
+            "type": "percent",
+            "max": 1.5
           }
         },
         {
@@ -833,14 +834,16 @@
           "key": "vu.round.glow",
           "label": "Glow",
           "kind": {
-            "type": "percent"
+            "type": "percent",
+            "max": 1.5
           }
         },
         {
           "key": "vu.wall-light.glow",
           "label": "Glow",
           "kind": {
-            "type": "percent"
+            "type": "percent",
+            "max": 1.5
           }
         },
         {

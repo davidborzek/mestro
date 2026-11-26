@@ -28,7 +28,7 @@ centered) and vertically centers the meters+info group — you
 never position anything in screen pixels.
 
 ```toml
-glow = 0            # the glow dial, 0..1 — feeds every glow layer
+glow = 0            # the glow dial, 0..1.5 — feeds every glow layer
 light = false       # a light plate flips the ghost-arrow ink
 
 [faceplate]
@@ -156,8 +156,11 @@ their tick exactly belong on the tick's angle, centered.
 
 ## The glow dial
 
-`glow` layers are a warm lamp (amber radial, `#f0a24e →
-#d9863a`) behind the print, and they are BAKED: the engine
+`glow` layers are a warm lamp behind the print: a radial that
+is brightest in the middle (`#ffdc96`, lighter than a cream
+plate) and deepens to amber at the rim (`#f2a444 → #cf6a1e`),
+so the light falls off like a bulb instead of a flat tint. They
+are BAKED: the engine
 composites the lamp into the opaque art the layer lights —
 the nearest image layer below it (`round`, `cream`, `arc`,
 `orbit` wash their face art), or the plate art when nothing
@@ -170,6 +173,15 @@ settings edits and activations. Built-ins take the value from
 config (`[vu.round] glow = 0.5`, `[vu.wall-light] glow = 0.8`);
 other manifest skins use the manifest default, and a
 `[vu.skin-options] glow` key overrides both. Values apply live.
+
+The range is 0–150 % (`0`–`1.5`). From 0 to 100 % the lamp's
+opacity scales with the value; from 100 % to 150 % the opacity
+stays full and the falloff gets stronger: the middle stays
+bright while the rim deepens (`#ffd074 → #ec8a2a → #b24f12` at
+150 %), the knob for panels that show the lamp paler than the
+art. Values outside the range clamp. The
+runtime wash of a palette-tinted layer (`modern`) stays capped
+at 100 %.
 
 The layer's `radius` (dial units) shapes the lamp's clip:
 a rounded box inset by `inset` (at least half the box makes it

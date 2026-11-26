@@ -80,20 +80,26 @@ fn wall_light_glow_is_one_soft_lamp_behind_the_plate() {
     };
     let gain = |bytes: &[u8], x, y| warmth(bytes, x, y) - warmth(&off, x, y);
 
-    // brightest warm in the middle of the plate, fading toward
-    // the corner — where the cream shows through, tinted: not
-    // plain (the old disc left corners untouched), not paint
+    // a bulb behind the plate: the middle is the BRIGHTEST spot
+    // (lighter than the plate) and warm, the light deepens to
+    // amber toward the rim — no plain-cream corners (the old
+    // disc left them untouched)
     let (center, corner) = (gain(&on, 143, 86), gain(&on, 5, 5));
-    assert!(center > 70, "the middle must be clearly warm (+{center})");
+    assert!(center > 50, "the middle must be warm (+{center})");
     assert!(
-        (10..=40).contains(&corner),
-        "the corner must be tinted, not plain or painted (+{corner})"
+        corner > 90,
+        "the corner must stay warm, not plain cream (+{corner})"
     );
-    assert!(center > 2 * corner, "the falloff must be soft but real");
-    let corner_px = pixel(&on, 5, 5);
     assert!(
-        corner_px[0] > 200 && corner_px[1] > 180,
-        "the cream stays visible in the corner: {corner_px:?}"
+        luma(pixel(&on, 143, 86)) > luma(pixel(&on, 5, 5)) + 40,
+        "the middle must be brighter than the rim: {:?} vs {:?}",
+        pixel(&on, 143, 86),
+        pixel(&on, 5, 5)
+    );
+    let (off_corner, corner_px) = (pixel(&off, 5, 5), pixel(&on, 5, 5));
+    assert!(
+        corner_px[2] + 100 < off_corner[2] && corner_px[1] + 60 < off_corner[1],
+        "the corner must leave plain cream behind: {off_corner:?} -> {corner_px:?}"
     );
 
     // no seam and no unlit bands: ONE image covers the whole
@@ -122,6 +128,29 @@ fn wall_light_glow_is_one_soft_lamp_behind_the_plate() {
         (center_full * 4 / 10..=center_full * 6 / 10).contains(&center_half),
         "glow 0.5 must be about half of glow 1 (+{center_half} vs +{center_full})"
     );
+
+    // past 100 % the falloff strengthens (the knob for pale
+    // panels): the middle stays the brightest spot, every point
+    // gets more saturated (less blue, red leading green by more),
+    // and the rim deepens
+    let deep = glow_pixels("wall-light", 1.5);
+    let redness = |px: [u8; 3]| px[0] as i32 - px[1] as i32;
+    for (what, x, y) in [("centre", 143, 86), ("corner", 5, 5)] {
+        let (full, deeper) = (pixel(&on, x, y), pixel(&deep, x, y));
+        assert!(
+            deeper[2] < full[2] && redness(deeper) > redness(full),
+            "glow 1.5 must be more saturated than glow 1 at the {what}: {full:?} -> {deeper:?}"
+        );
+    }
+    let (rim_full, rim_deep) = (pixel(&on, 5, 5), pixel(&deep, 5, 5));
+    assert!(
+        luma(rim_deep) < luma(rim_full),
+        "glow 1.5 must deepen the rim: {rim_full:?} -> {rim_deep:?}"
+    );
+    assert!(
+        luma(pixel(&deep, 143, 86)) > luma(rim_deep) + 40,
+        "at 1.5 the middle must stay the brightest spot"
+    );
 }
 
 #[test]
@@ -138,12 +167,16 @@ fn cream_glow_stays_inside_its_window_without_a_pill_clip() {
     };
     let gain = |bytes: &[u8], x, y| warmth(bytes, x, y) - warmth(&off, x, y);
 
-    // the window centre lights up (the baked lamp replaces the
-    // window tone there, like an opacity-1 wash did)
+    // the window centre lights up: brighter and warmer than the
+    // unlit window (the lamp's bright middle)
     let center = gain(&on, 77, 86);
     assert!(
-        center > 80,
+        center > 40,
         "the window centre must be clearly warm (+{center})"
+    );
+    assert!(
+        luma(pixel(&on, 77, 86)) >= luma(pixel(&off, 77, 86)),
+        "the lit window centre must not get darker"
     );
     let center_half = gain(&half, 77, 86);
     assert!(
@@ -155,6 +188,7 @@ fn cream_glow_stays_inside_its_window_without_a_pill_clip() {
     // the radius-9 window, outside the old half-width pill clip)
     // carries the wash too
     let fringe = patch_luma(&on, 32, 52, 5, 2) as i32 - patch_luma(&off, 32, 52, 5, 2) as i32;
+    // (the rim is the lamp's deep amber, so the fringe darkens)
     assert!(
         fringe.abs() > 6,
         "the window fringe must carry the wash (Δluma {fringe})"

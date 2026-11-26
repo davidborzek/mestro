@@ -53,10 +53,10 @@ export function hasPreviews(field: Field): boolean {
   return field.kind.options.some((option) => !!option.preview);
 }
 
-export function percentToShown(value: unknown): number {
+export function percentToShown(value: unknown, max = 1): number {
   const stored = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(stored)) return 0;
-  return Math.round(Math.min(1, Math.max(0, stored)) * 100);
+  return Math.round(Math.min(max, Math.max(0, stored)) * 100);
 }
 
 export function shownToPercent(shown: number): number {
@@ -80,7 +80,7 @@ export function formatValue(field: Field, value: unknown, texts: ValueTexts): st
       return `${value}${kind.unit ? ` ${kind.unit}` : ""}`;
     }
     case "percent":
-      return `${percentToShown(value)} %`;
+      return `${percentToShown(value, kind.max)} %`;
     case "text":
       return typeof value === "string" ? value : "";
     default:

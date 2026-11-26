@@ -5,7 +5,8 @@
 
   // number/percent slider: the knob follows the finger locally,
   // the value goes out once on release. `percent` fields are
-  // stored 0..1 and shown 0..100 %.
+  // stored as fractions (1 = 100 %) and shown in percent, up to the
+  // schema's `max`.
 
   let {
     field,
@@ -19,14 +20,15 @@
     field.kind.type === "number" ? field.kind : { min: 0, max: 100, step: 1, unit: undefined },
   );
   const percent = $derived(field.kind.type === "percent");
+  const percentMax = $derived(field.kind.type === "percent" ? field.kind.max : undefined);
   const min = $derived(percent ? 0 : kind.min);
-  const max = $derived(percent ? 100 : kind.max);
+  const max = $derived(percent ? Math.round((percentMax ?? 1) * 100) : kind.max);
   const step = $derived(percent ? 1 : kind.step);
   const unit = $derived(percent ? "%" : (kind.unit ?? ""));
   const stored = $derived(fieldValue(field.key));
 
   const settled = $derived(
-    percent ? percentToShown(stored) : typeof stored === "number" ? stored : min,
+    percent ? percentToShown(stored, percentMax) : typeof stored === "number" ? stored : min,
   );
   const fill = $derived(((settled - min) / (max - min)) * 100);
 

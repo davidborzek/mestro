@@ -38,7 +38,7 @@ fn glow_skin_snapshots() {
         // wall-light is the tunable plate: the wash states a
         // reviewer compares; the others show their one lit look
         let glows: &[f64] = if name == "wall-light" {
-            &[0.0, 0.5, 1.0]
+            &[0.0, 0.5, 1.0, 1.5]
         } else {
             &[1.0]
         };

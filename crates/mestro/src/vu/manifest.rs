@@ -368,12 +368,48 @@ fn compose(art: &[u8], overlay: &str) -> Option<Vec<u8>> {
     Some(format!("{}{}{}", &svg[..close], overlay, "</svg>").into_bytes())
 }
 
+/// the glow range: 0..=1 scales the lamp's opacity, 1..=1.5
+/// keeps it full and deepens the tone (the knob for pale panels)
+const MAX_GLOW: f64 = 1.5;
+
+/// lamp colours (centre, mid, rim) at glow 1 and at MAX_GLOW
+const LAMP_RGB: [[[u8; 3]; 3]; 2] = [
+    [[0xff, 0xdc, 0x96], [0xf2, 0xa4, 0x44], [0xcf, 0x6a, 0x1e]],
+    [[0xff, 0xd0, 0x74], [0xec, 0x8a, 0x2a], [0xb2, 0x4f, 0x12]],
+];
+
+/// the three radial stops of a lamp at `glow` (clamped to
+/// 0..=MAX_GLOW): opacity is the glow capped at 1 times the
+/// per-stop factor, the colour eases from the glow-1 set toward
+/// the deeper one above 1
+fn lamp_stops(glow: f64, opacity_factors: [f64; 3]) -> String {
+    let glow = glow.clamp(0.0, MAX_GLOW);
+    let opacity = glow.min(1.0);
+    let depth = (glow - 1.0).max(0.0) / (MAX_GLOW - 1.0);
+    let channel = |stop: usize, c: usize| {
+        let (from, to) = (LAMP_RGB[0][stop][c] as f64, LAMP_RGB[1][stop][c] as f64);
+        (from + (to - from) * depth).round() as u8
+    };
+    [0.0, 0.55, 1.0]
+        .iter()
+        .enumerate()
+        .map(|(stop, offset)| {
+            format!(
+                "<stop offset=\"{offset}\" stop-color=\"#{:02x}{:02x}{:02x}\" stop-opacity=\"{:.3}\"/>",
+                channel(stop, 0),
+                channel(stop, 1),
+                channel(stop, 2),
+                opacity * opacity_factors[stop]
+            )
+        })
+        .collect()
+}
+
 /// one window glow layer's lamp FRAGMENT, relative to the base
 /// art it lights: a warm radial (brightest in the middle,
 /// easing out to a dimmer rim) clipped to the layer's rounded
 /// box — x/y/w/h, inset, radius, all dial units mapped into the
-/// art's viewBox. The stop-opacities scale with the glow value,
-/// so the bake at glow g reproduces what an opacity-g wash did.
+/// art's viewBox. The stops come from lamp_stops.
 /// `frag` unique-ifies the SVG ids — several lamps may compose
 /// into one art source
 fn lamp_fragment(
@@ -411,14 +447,10 @@ fn lamp_fragment(
     Some(format!(
         "<defs><clipPath id=\"mestroLampClipLAMPID\"><rect x=\"{x:.2}\" y=\"{y:.2}\" width=\"{w:.2}\" height=\"{h:.2}\" rx=\"{rx:.2}\"/></clipPath>\
 <radialGradient id=\"mestroLampFillLAMPID\" cx=\"50%\" cy=\"50%\" r=\"100%\">\
-<stop offset=\"0\" stop-color=\"#f0a24e\" stop-opacity=\"{:.3}\"/>\
-<stop offset=\"0.55\" stop-color=\"#d9863a\" stop-opacity=\"{:.3}\"/>\
-<stop offset=\"1\" stop-color=\"#d9863a\" stop-opacity=\"{:.3}\"/>\
+{}\
 </radialGradient></defs>\
 <g clip-path=\"url(#mestroLampClipLAMPID)\"><rect x=\"{x:.2}\" y=\"{y:.2}\" width=\"{w:.2}\" height=\"{h:.2}\" fill=\"url(#mestroLampFillLAMPID)\"/></g>",
-        glow,
-        0.7 * glow,
-        0.15 * glow
+        lamp_stops(glow, [0.9, 0.95, 1.0])
     ))
 }
 
@@ -430,14 +462,10 @@ fn plate_lamp_overlay(art: &[u8], glow: f64) -> Option<Vec<u8>> {
     let (_, vb_w, vb_h) = view_box(svg)?;
     let overlay = format!(
         "<defs><radialGradient id=\"mestroPlateLamp\" cx=\"50%\" cy=\"50%\" r=\"75%\">\
-<stop offset=\"0\" stop-color=\"#f0a24e\" stop-opacity=\"{:.3}\"/>\
-<stop offset=\"0.55\" stop-color=\"#e8932f\" stop-opacity=\"{:.3}\"/>\
-<stop offset=\"1\" stop-color=\"#d9863a\" stop-opacity=\"{:.3}\"/>\
+{}\
 </radialGradient></defs>\
 <rect x=\"0\" y=\"0\" width=\"{vb_w:.2}\" height=\"{vb_h:.2}\" fill=\"url(#mestroPlateLamp)\"/>",
-        0.7 * glow,
-        0.4 * glow,
-        0.12 * glow
+        lamp_stops(glow, [0.9, 0.95, 1.0])
     );
     compose(art, &overlay)
 }
@@ -1032,6 +1060,39 @@ mod tests {
         assert_eq!(
             prerotate_needle(no_tag, 10.0, &dial(100.0, (50.0, 50.0))),
             no_tag.to_vec()
+        );
+    }
+
+    #[test]
+    fn lamp_stops_scale_to_full_opacity_then_deepen() {
+        let at_one = lamp_stops(1.0, [0.9, 0.95, 1.0]);
+        assert!(at_one.contains("stop-color=\"#ffdc96\" stop-opacity=\"0.900\""));
+        assert!(at_one.contains("stop-color=\"#f2a444\" stop-opacity=\"0.950\""));
+        assert!(at_one.contains("stop-color=\"#cf6a1e\" stop-opacity=\"1.000\""));
+
+        let half = lamp_stops(0.5, [0.9, 0.95, 1.0]);
+        assert!(half.contains("stop-color=\"#ffdc96\" stop-opacity=\"0.450\""));
+        assert!(half.contains("stop-opacity=\"0.500\""));
+
+        let deepest = lamp_stops(1.5, [0.9, 0.95, 1.0]);
+        assert!(deepest.contains("stop-color=\"#ffd074\" stop-opacity=\"0.900\""));
+        assert!(deepest.contains("stop-color=\"#ec8a2a\" stop-opacity=\"0.950\""));
+        assert!(deepest.contains("stop-color=\"#b24f12\" stop-opacity=\"1.000\""));
+
+        let midway = lamp_stops(1.25, [0.9, 0.95, 1.0]);
+        assert!(midway.contains("stop-color=\"#ffd685\" stop-opacity=\"0.900\""));
+        assert!(midway.contains("stop-color=\"#c15d18\" stop-opacity=\"1.000\""));
+    }
+
+    #[test]
+    fn lamp_stops_clamp_the_glow_range() {
+        assert_eq!(
+            lamp_stops(9.0, [1.0, 0.95, 0.8]),
+            lamp_stops(1.5, [1.0, 0.95, 0.8])
+        );
+        assert_eq!(
+            lamp_stops(-1.0, [1.0, 0.95, 0.8]),
+            lamp_stops(0.0, [1.0, 0.95, 0.8])
         );
     }
 }
