@@ -161,12 +161,13 @@ is brightest in the middle (`#ffdc96`, lighter than a cream
 plate) and deepens to amber at the rim (`#f2a444 → #cf6a1e`),
 so the light falls off like a bulb instead of a flat tint. They
 are BAKED: the engine
-composites the lamp into the opaque art the layer lights —
+paints the lamp onto the opaque art the layer lights —
 the nearest image layer below it (`round`, `cream`, `arc`,
 `orbit` wash their face art), or the plate art when nothing
 sits below the layer (`wall-light` lights the whole plate).
-resvg rasterizes the composite, so every renderer draws the
-same opaque pixels: femtovg (the device renderer) mishandles
+resvg rasterizes that art once (at 2x its design size) and
+tiny-skia paints the lamp onto the pixels, so every renderer draws
+the same opaque image: femtovg (the device renderer) mishandles
 semi-transparent blending, and no glow alpha ever reaches it.
 One baked variant per glow value, cached and regenerated on
 settings edits and activations. Built-ins take the value from

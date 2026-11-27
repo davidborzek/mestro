@@ -55,6 +55,11 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 rustfft = "6.4.1"
 qrcode = { version = "0.15", default-features = false }
+# the glow bake: skin art rasterized with resvg, the lamp painted with
+# tiny-skia — exactly the versions slint pulls in (one copy in the
+# lock). Features stay minimal: skin text never renders (docs/vu.md)
+resvg = { version = "=0.49.0", default-features = false }
+tiny-skia = { version = "=0.12.0", default-features = false, features = ["std", "simd"] }
 [features]
 # default = dev/desktop: the winit backend under a compositor.
 # The linuxkms feature adds the straight-on-DRM kiosk backend

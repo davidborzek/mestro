@@ -255,16 +255,20 @@ fn baked_glow_art_never_carries_alpha() {
         assert!(!baked_art.is_empty(), "{name} must bake some art");
         for (source, baked) in baked_art {
             let base = std::fs::read(skins.join(name).join(&source)).expect("the art ships");
-            let base = slint::Image::load_from_svg_data(&base).expect("the art loads");
-            let baked = baked.to_rgba8().expect("the bake rasterizes");
-            let base = base.to_rgba8().expect("the base rasterizes");
-            assert_eq!(
-                (baked.width(), baked.height()),
-                (base.width(), base.height()),
-                "{name}/{source} must keep the art's size"
+            let baked = baked.to_rgba8().expect("the bake is a pixel buffer");
+            // the bake rasterizes at 2x the art's natural size: compare
+            // against the art rendered at the bake's own size
+            let tree = resvg::usvg::Tree::from_data(&base, &resvg::usvg::Options::default())
+                .expect("the art loads");
+            let mut base = resvg::tiny_skia::Pixmap::new(baked.width(), baked.height())
+                .expect("the bake has a size");
+            let scale = resvg::tiny_skia::Transform::from_scale(
+                baked.width() as f32 / tree.size().width(),
+                baked.height() as f32 / tree.size().height(),
             );
+            resvg::render(&tree, scale, &mut base.as_mut());
             for i in 0..(baked.width() * baked.height()) as usize {
-                let (a, b) = (baked.as_bytes()[i * 4 + 3], base.as_bytes()[i * 4 + 3]);
+                let (a, b) = (baked.as_bytes()[i * 4 + 3], base.data()[i * 4 + 3]);
                 assert!(
                     a >= b,
                     "{name}/{source}: the bake must not lose opacity at pixel {i} ({a} vs {b})"

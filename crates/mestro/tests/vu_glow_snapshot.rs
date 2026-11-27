@@ -35,9 +35,9 @@ fn glow_skin_snapshots() {
     for name in ["cream", "round", "wall-light", "arc", "orbit", "modern"] {
         let skin = manifest::load(name, &skins.join(name).join("manifest.toml"))
             .unwrap_or_else(|| panic!("the {name} skin compiles"));
-        // wall-light is the tunable plate: the wash states a
-        // reviewer compares; the others show their one lit look
-        let glows: &[f64] = if name == "wall-light" {
+        // every baking skin shows the glow's whole range for
+        // comparison; modern keeps its runtime wash, one look
+        let glows: &[f64] = if name != "modern" {
             &[0.0, 0.5, 1.0, 1.5]
         } else {
             &[1.0]

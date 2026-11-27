@@ -1,3 +1,4 @@
+use super::raster;
 use slint_interpreter::{ComponentDefinition, ComponentInstance, SharedString, Struct, Value};
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -121,8 +122,51 @@ impl Role {
     }
 }
 
-/// art bytes by manifest-relative source path
-type Art = HashMap<String, Vec<u8>>;
+/// one art file: SVG bytes the engine rasterizes at the size it
+/// draws (vector, scales freely), or an image the glow bake
+/// already rasterized
+#[derive(Clone)]
+enum ArtSource {
+    Svg(Vec<u8>),
+    Raster(slint::Image),
+}
+
+/// art by manifest-relative source path
+type Art = HashMap<String, ArtSource>;
+
+/// the image the engine draws for one art file. `rotation` bakes
+/// a needle's pose into an SVG (the preview path — the software
+/// renderer cannot rotate); None keeps the art raw
+fn load_art(src: &str, art: ArtSource, rotation: Option<raster::Rotation>) -> Option<slint::Image> {
+    match (art, rotation) {
+        (ArtSource::Raster(image), _) => Some(image),
+        (ArtSource::Svg(bytes), Some(rotation)) => {
+            let image = raster::rotated(&bytes, rotation);
+            if image.is_none() {
+                tracing::warn!("vu manifest: art {src} failed to rotate");
+            }
+            image
+        }
+        (ArtSource::Svg(bytes), None) => match slint::Image::load_from_svg_data(&bytes) {
+            Ok(image) => Some(image),
+            Err(e) => {
+                tracing::warn!("vu manifest: art {src} failed to load: {e}");
+                None
+            }
+        },
+    }
+}
+
+/// a needle at `angle_deg`, its pivot (dial units) as a fraction
+/// of the art box — the SVG may ship a different viewBox than the
+/// art box (modern: art box 250, viewBox 180)
+fn needle_rotation(dial: &Dial, angle_deg: f64) -> raster::Rotation {
+    raster::Rotation {
+        degrees: angle_deg,
+        pivot_x: dial.pivot_x / dial.art_w,
+        pivot_y: dial.pivot_y / dial.art_h,
+    }
+}
 
 /// parse a manifest; `read` resolves a source path (relative
 /// to the manifest) into bytes — embedded for built-ins,
@@ -140,7 +184,7 @@ fn parse(manifest: &str, read: &dyn Fn(&str) -> Option<Vec<u8>>) -> Option<(Skin
     if let Some(pa) = &manifest.faceplate.plate_art {
         match read(pa) {
             Some(bytes) => {
-                art.insert(pa.clone(), bytes);
+                art.insert(pa.clone(), ArtSource::Svg(bytes));
             }
             None => {
                 tracing::warn!("vu manifest: plate art {pa:?} unreadable");
@@ -154,7 +198,7 @@ fn parse(manifest: &str, read: &dyn Fn(&str) -> Option<Vec<u8>>) -> Option<(Skin
                 if !art.contains_key(source) {
                     match read(source) {
                         Some(bytes) => {
-                            art.insert(source.clone(), bytes);
+                            art.insert(source.clone(), ArtSource::Svg(bytes));
                         }
                         None => {
                             tracing::warn!("vu manifest: art {source:?} unreadable");
@@ -178,67 +222,6 @@ fn parse_color(hex: &str) -> slint::Color {
     )
 }
 
-/// wrap the needle art in a rotation group: the SVG pipeline
-/// (resvg) rasterizes the rotation, so the preview's software
-/// renderer sees a plain image. The pivot converts from dial
-/// (art box) units into the SVG's viewBox units — they differ
-/// when the art ships a scaled viewBox (modern: art box 250,
-/// viewBox 180)
-fn prerotate_needle(svg: &[u8], angle_deg: f64, dial: &Dial) -> Vec<u8> {
-    let Ok(text) = std::str::from_utf8(svg) else {
-        return svg.to_vec();
-    };
-    let Some((open_end, box_w, box_h)) = view_box(text) else {
-        return svg.to_vec();
-    };
-    let pivot_x = dial.pivot_x * box_w / dial.art_w;
-    let pivot_y = dial.pivot_y * box_h / dial.art_h;
-    let group = format!("<g transform=\"rotate({angle_deg:.3} {pivot_x:.3} {pivot_y:.3})\">");
-    let mut out = String::with_capacity(text.len() + group.len() + 5);
-    out.push_str(&text[..open_end]);
-    out.push_str(&group);
-    if let Some(close) = text.rfind("</svg>") {
-        out.push_str(&text[open_end..close]);
-        out.push_str("</g></svg>");
-    } else {
-        out.push_str(&text[open_end..]);
-    }
-    out.into_bytes()
-}
-
-/// the opening svg tag's end offset plus the viewBox size —
-/// from the `viewBox` attribute, else the width/height
-/// attributes (units stripped)
-fn view_box(svg: &str) -> Option<(usize, f64, f64)> {
-    let start = svg.find("<svg")?;
-    let open_end = svg[start..].find('>')? + start + 1;
-    let tag = &svg[start..open_end];
-    let attr = |name: &str| -> Option<String> {
-        let i = tag.find(name)? + name.len();
-        let value = tag[i..]
-            .trim_start()
-            .strip_prefix('=')?
-            .trim()
-            .strip_prefix('"')?;
-        Some(value[..value.find('"')?].to_string())
-    };
-    if let Some(vb) = attr("viewBox") {
-        let numbers: Vec<f64> = vb
-            .split_whitespace()
-            .filter_map(|n| n.parse().ok())
-            .collect();
-        if numbers.len() == 4 {
-            return Some((open_end, numbers[2], numbers[3]));
-        }
-    }
-    let size = |raw: Option<String>| -> Option<f64> {
-        raw?.trim_end_matches(|c: char| c.is_ascii_alphabetic())
-            .parse()
-            .ok()
-    };
-    Some((open_end, size(attr("width"))?, size(attr("height"))?))
-}
-
 /// build the SkinLayer model for one dial. `needle_angle` bakes
 /// a rotation into the needle art (the preview path — the
 /// software renderer cannot rotate); None keeps the art raw
@@ -255,20 +238,14 @@ fn layer_model(
             let mut s = Struct::default();
             s.set_field("kind".into(), Value::Number(layer.role.kind() as f64));
             let image = layer.source.as_deref().and_then(|src| {
-                let bytes = art.get(src).cloned().or_else(|| read(src))?;
-                let bytes = if layer.role == Role::Needle {
-                    needle_angle
-                        .map_or(bytes.clone(), |angle| prerotate_needle(&bytes, angle, dial))
-                } else {
-                    bytes
-                };
-                match slint::Image::load_from_svg_data(&bytes) {
-                    Ok(img) => Some(img),
-                    Err(e) => {
-                        tracing::warn!("vu manifest: art {src} failed to load: {e}");
-                        None
-                    }
-                }
+                let art = art
+                    .get(src)
+                    .cloned()
+                    .or_else(|| read(src).map(ArtSource::Svg))?;
+                let rotation = needle_angle
+                    .filter(|_| layer.role == Role::Needle)
+                    .map(|angle| needle_rotation(dial, angle));
+                load_art(src, art, rotation)
             });
             if layer.source.is_some() && image.is_none() {
                 tracing::warn!("vu manifest: layer art MISSING ({:?})", layer.source);
@@ -358,128 +335,52 @@ fn bake_target(dial: &Dial, idx: usize, has_plate_art: bool) -> Option<BakeTarge
         .or_else(|| has_plate_art.then_some(BakeTarget::Plate))
 }
 
-/// append an overlay fragment to an art SVG, before its closing
-/// tag: the overlay draws over the art and resvg composites the
-/// blend at raster time — the engine only ever sees opaque
-/// pixels
-fn compose(art: &[u8], overlay: &str) -> Option<Vec<u8>> {
-    let svg = std::str::from_utf8(art).ok()?;
-    let close = svg.rfind("</svg>")?;
-    Some(format!("{}{}{}", &svg[..close], overlay, "</svg>").into_bytes())
-}
-
-/// the glow range: 0..=1 scales the lamp's opacity, 1..=1.5
-/// keeps it full and deepens the tone (the knob for pale panels)
-const MAX_GLOW: f64 = 1.5;
-
-/// lamp colours (centre, mid, rim) at glow 1 and at MAX_GLOW
-const LAMP_RGB: [[[u8; 3]; 3]; 2] = [
-    [[0xff, 0xdc, 0x96], [0xf2, 0xa4, 0x44], [0xcf, 0x6a, 0x1e]],
-    [[0xff, 0xd0, 0x74], [0xec, 0x8a, 0x2a], [0xb2, 0x4f, 0x12]],
-];
-
-/// the three radial stops of a lamp at `glow` (clamped to
-/// 0..=MAX_GLOW): opacity is the glow capped at 1 times the
-/// per-stop factor, the colour eases from the glow-1 set toward
-/// the deeper one above 1
-fn lamp_stops(glow: f64, opacity_factors: [f64; 3]) -> String {
-    let glow = glow.clamp(0.0, MAX_GLOW);
-    let opacity = glow.min(1.0);
-    let depth = (glow - 1.0).max(0.0) / (MAX_GLOW - 1.0);
-    let channel = |stop: usize, c: usize| {
-        let (from, to) = (LAMP_RGB[0][stop][c] as f64, LAMP_RGB[1][stop][c] as f64);
-        (from + (to - from) * depth).round() as u8
-    };
-    [0.0, 0.55, 1.0]
-        .iter()
-        .enumerate()
-        .map(|(stop, offset)| {
-            format!(
-                "<stop offset=\"{offset}\" stop-color=\"#{:02x}{:02x}{:02x}\" stop-opacity=\"{:.3}\"/>",
-                channel(stop, 0),
-                channel(stop, 1),
-                channel(stop, 2),
-                opacity * opacity_factors[stop]
-            )
-        })
-        .collect()
-}
-
-/// one window glow layer's lamp FRAGMENT, relative to the base
-/// art it lights: a warm radial (brightest in the middle,
-/// easing out to a dimmer rim) clipped to the layer's rounded
-/// box — x/y/w/h, inset, radius, all dial units mapped into the
-/// art's viewBox. The stops come from lamp_stops.
-/// `frag` unique-ifies the SVG ids — several lamps may compose
-/// into one art source
-fn lamp_fragment(
-    art: &[u8],
-    dial: &Dial,
-    glow_layer: &Layer,
-    target: &Layer,
-    glow: f64,
-) -> Option<String> {
-    let svg = std::str::from_utf8(art).ok()?;
-    let (_, vb_w, vb_h) = view_box(svg)?;
-    // the target's box (dial units) maps onto its viewBox
-    let tw = if target.w > 0.0 { target.w } else { dial.art_w };
-    let th = if target.h > 0.0 { target.h } else { dial.art_h };
-    let scale_x = vb_w / tw;
-    let scale_y = vb_h / th;
-    let gw = if glow_layer.w > 0.0 {
-        glow_layer.w
-    } else {
-        dial.art_w
-    };
-    let gh = if glow_layer.h > 0.0 {
-        glow_layer.h
-    } else {
-        dial.art_h
-    };
-    let x = (glow_layer.x + glow_layer.inset - target.x) * scale_x;
-    let y = (glow_layer.y + glow_layer.inset - target.y) * scale_y;
-    let w = (gw - 2.0 * glow_layer.inset) * scale_x;
-    let h = (gh - 2.0 * glow_layer.inset) * scale_y;
-    if w <= 0.0 || h <= 0.0 {
-        return None;
-    }
-    let rx = (glow_layer.radius * scale_x).min(w / 2.0).min(h / 2.0);
-    Some(format!(
-        "<defs><clipPath id=\"mestroLampClipLAMPID\"><rect x=\"{x:.2}\" y=\"{y:.2}\" width=\"{w:.2}\" height=\"{h:.2}\" rx=\"{rx:.2}\"/></clipPath>\
-<radialGradient id=\"mestroLampFillLAMPID\" cx=\"50%\" cy=\"50%\" r=\"100%\">\
-{}\
-</radialGradient></defs>\
-<g clip-path=\"url(#mestroLampClipLAMPID)\"><rect x=\"{x:.2}\" y=\"{y:.2}\" width=\"{w:.2}\" height=\"{h:.2}\" fill=\"url(#mestroLampFillLAMPID)\"/></g>",
-        lamp_stops(glow, [0.9, 0.95, 1.0])
-    ))
-}
-
-/// the plate lamp: one warm radial ellipse over the whole plate
-/// art (a glow layer with no art below it in its dial lights the
-/// plate), brightest in the middle and fading toward the corners
-fn plate_lamp_overlay(art: &[u8], glow: f64) -> Option<Vec<u8>> {
-    let svg = std::str::from_utf8(art).ok()?;
-    let (_, vb_w, vb_h) = view_box(svg)?;
-    let overlay = format!(
-        "<defs><radialGradient id=\"mestroPlateLamp\" cx=\"50%\" cy=\"50%\" r=\"75%\">\
-{}\
-</radialGradient></defs>\
-<rect x=\"0\" y=\"0\" width=\"{vb_w:.2}\" height=\"{vb_h:.2}\" fill=\"url(#mestroPlateLamp)\"/>",
-        lamp_stops(glow, [0.9, 0.95, 1.0])
-    );
-    compose(art, &overlay)
-}
-
 /// one baked setup variant, keyed by (glow bit pattern, preview)
 /// — the cache behind Bake::apply
 type BakedVariant = Rc<dyn Fn(&ComponentInstance)>;
 
+/// how many baked variants a Bake keeps: each holds its rasterized
+/// art (megabytes for a plate), and a settings slider walks through
+/// many glow values
+const MAX_CACHED_VARIANTS: usize = 4;
+
+/// the lamp a glow layer paints onto `target`, the art box it
+/// lights: the layer's x/y/w/h, inset and radius in dial units,
+/// as fractions of the target's box
+fn window_lamp(dial: &Dial, glow_layer: &Layer, target: &Layer) -> Option<raster::Lamp> {
+    let box_w = if target.w > 0.0 { target.w } else { dial.art_w };
+    let box_h = if target.h > 0.0 { target.h } else { dial.art_h };
+    let glow_w = if glow_layer.w > 0.0 {
+        glow_layer.w
+    } else {
+        dial.art_w
+    };
+    let glow_h = if glow_layer.h > 0.0 {
+        glow_layer.h
+    } else {
+        dial.art_h
+    };
+    let w = glow_w - 2.0 * glow_layer.inset;
+    let h = glow_h - 2.0 * glow_layer.inset;
+    if w <= 0.0 || h <= 0.0 {
+        return None;
+    }
+    Some(raster::Lamp::Window {
+        x: (glow_layer.x + glow_layer.inset - target.x) / box_w,
+        y: (glow_layer.y + glow_layer.inset - target.y) / box_h,
+        w: w / box_w,
+        h: h / box_h,
+        radius: glow_layer.radius / box_w,
+    })
+}
+
 /// glow baking: the renderer-independent lamp. FemtoVG (the
 /// device renderer) mishandles semi-transparent image blending,
-/// so glow never blends at runtime — it is composited into the
-/// OPAQUE art it lights by resvg at bake time and every renderer
-/// draws the same pixels. One baked variant per glow value,
-/// cached; regenerated by activation and settings edits
+/// so glow never blends at runtime — the art it lights is
+/// rasterized (resvg) and the lamp painted onto those pixels
+/// (tiny-skia) at bake time, and every renderer draws the same
+/// opaque image (see raster.rs). One baked variant per glow
+/// value, cached; regenerated by activation and settings edits
 pub struct Bake {
     manifest: SkinManifest,
     art: Art,
@@ -522,48 +423,53 @@ impl Bake {
         let key = (glow.to_bits(), preview);
         let baked = self.cache.borrow().get(&key).cloned();
         let baked = baked.unwrap_or_else(|| {
-            let (manifest, baked_art, _) = self.baked(glow);
+            let (manifest, baked_art) = self.baked(glow);
             let art = Rc::new(baked_art);
             let read = {
                 let art = art.clone();
-                move |src: &str| art.get(src).cloned()
+                move |src: &str| match art.get(src) {
+                    Some(ArtSource::Svg(bytes)) => Some(bytes.clone()),
+                    _ => None,
+                }
             };
             let f: BakedVariant = Rc::new(setup(&manifest, &art, &read, preview));
-            self.cache.borrow_mut().insert(key, f.clone());
+            let mut cache = self.cache.borrow_mut();
+            if cache.len() >= MAX_CACHED_VARIANTS {
+                cache.clear();
+            }
+            cache.insert(key, f.clone());
             f
         });
         baked(instance);
     }
 
-    /// the overridden art at one glow value: (source, image)
-    /// pairs for everything the bake composited. The opacity
-    /// test asserts these never lose alpha against their base —
-    /// no alpha ever reaches a renderer
+    /// the art the bake rasterized at one glow value: (source,
+    /// image) pairs. The opacity test asserts these never lose
+    /// alpha against their base — no alpha ever reaches a renderer
     pub fn baked_art(&self, glow: f64) -> Vec<(String, slint::Image)> {
         self.baked(glow)
-            .2
-            .iter()
-            .filter_map(|(src, bytes)| {
-                slint::Image::load_from_svg_data(bytes)
-                    .ok()
-                    .map(|img| (src.clone(), img))
+            .1
+            .into_iter()
+            .filter_map(|(src, art)| match art {
+                ArtSource::Raster(image) => Some((src, image)),
+                ArtSource::Svg(_) => None,
             })
             .collect()
     }
 
     /// the manifest + art with the glow baked in at `glow`: every
-    /// bakeable glow layer is composited into the art it lights
+    /// bakeable glow layer is painted onto the art it lights
     /// (the nearest image layer below it, else the plate art) and
-    /// removed from the stack. Tinted or unbackable layers stay
+    /// removed from the stack. Tinted or unbakeable layers stay
     /// on the runtime gradient
-    fn baked(&self, glow: f64) -> (SkinManifest, Art, Vec<(String, Vec<u8>)>) {
+    fn baked(&self, glow: f64) -> (SkinManifest, Art) {
         let mut manifest = self.manifest.clone();
         let has_plate_art = manifest.faceplate.plate_art.is_some();
-        // the lamps, collected per target source against its BASE
-        // art and deduped by geometry: every dial renders its own
-        // instance of the art, so the dials' identical lamps are
-        // ONE overlay — stacking them would double the glow
-        let mut lamps: HashMap<String, Vec<String>> = HashMap::new();
+        // the lamps, collected per target source and deduped by
+        // geometry: every dial renders its own instance of the
+        // art, so the dials' identical lamps are ONE lamp —
+        // painting both would double the glow
+        let mut lamps: HashMap<String, Vec<raster::Lamp>> = HashMap::new();
         let mut skip: Vec<Vec<usize>> = vec![Vec::new(); manifest.dial.len()];
         let mut plate_lamp = false;
         for (d, dial) in manifest.dial.iter().enumerate() {
@@ -575,16 +481,16 @@ impl Bake {
                     Some(BakeTarget::Layer(j)) => {
                         let target = &dial.layer[j];
                         let source = target.source.clone().unwrap_or_default();
-                        if let Some(base) = self.art.get(&source).cloned() {
-                            match lamp_fragment(&base, dial, layer, target, glow) {
-                                Some(fragment) => {
-                                    let frags = lamps.entry(source).or_default();
-                                    if !frags.contains(&fragment) {
-                                        frags.push(fragment);
+                        if self.art.contains_key(&source) {
+                            match window_lamp(dial, layer, target) {
+                                Some(lamp) => {
+                                    let on_source = lamps.entry(source).or_default();
+                                    if !on_source.contains(&lamp) {
+                                        on_source.push(lamp);
                                     }
                                 }
                                 None => tracing::warn!(
-                                    "vu manifest: glow bake failed for {source:?} — the layer keeps the runtime wash"
+                                    "vu manifest: the glow layer has no area on {source:?} — nothing to bake"
                                 ),
                             }
                         }
@@ -598,36 +504,21 @@ impl Bake {
                 }
             }
         }
-        let mut art = self.art.clone();
-        let mut touched: Vec<(String, Vec<u8>)> = Vec::new();
-        for (source, fragments) in lamps {
-            let Some(base) = art.get(&source).cloned() else {
-                continue;
-            };
-            let overlay = fragments
-                .iter()
-                .enumerate()
-                .map(|(n, frag)| frag.replace("LAMPID", &n.to_string()))
-                .collect::<Vec<_>>()
-                .concat();
-            if let Some(baked) = compose(&base, &overlay) {
-                art.insert(source.clone(), baked.clone());
-                touched.push((source, baked));
-            }
-        }
         if plate_lamp {
             if let Some(source) = manifest.faceplate.plate_art.clone() {
-                if let Some(base) = art.get(&source).cloned() {
-                    match plate_lamp_overlay(&base, glow) {
-                        Some(baked) => {
-                            art.insert(source.clone(), baked.clone());
-                            touched.push((source, baked));
-                        }
-                        None => {
-                            tracing::warn!("vu manifest: the plate lamp bake failed for {source:?}")
-                        }
-                    }
+                lamps.entry(source).or_default().push(raster::Lamp::Plate);
+            }
+        }
+        let mut art = self.art.clone();
+        for (source, on_source) in lamps {
+            let Some(ArtSource::Svg(base)) = self.art.get(&source) else {
+                continue;
+            };
+            match raster::bake(base, &on_source, glow) {
+                Some(image) => {
+                    art.insert(source, ArtSource::Raster(image));
                 }
+                None => tracing::warn!("vu manifest: the glow bake failed for {source:?}"),
             }
         }
         for (dial, skip) in manifest.dial.iter_mut().zip(skip) {
@@ -635,7 +526,7 @@ impl Bake {
                 dial.layer.remove(i);
             }
         }
-        (manifest, art, touched)
+        (manifest, art)
     }
 }
 
@@ -674,18 +565,13 @@ fn setup(
     }
     // stretched plate art (the plate contract): resolve here, not
     // in the activation closure — keeps `read` out of it
-    let plate_art = manifest
-        .faceplate
-        .plate_art
-        .as_deref()
-        .and_then(|src| art.get(src).cloned().or_else(|| (read_name)(src)))
-        .and_then(|bytes| match slint::Image::load_from_svg_data(&bytes) {
-            Ok(img) => Some(img),
-            Err(e) => {
-                tracing::warn!("vu manifest: plate art failed to load: {e}");
-                None
-            }
-        });
+    let plate_art = manifest.faceplate.plate_art.as_deref().and_then(|src| {
+        let art = art
+            .get(src)
+            .cloned()
+            .or_else(|| (read_name)(src).map(ArtSource::Svg))?;
+        load_art(src, art, None)
+    });
     if manifest.faceplate.plate_art.is_some() && plate_art.is_none() {
         tracing::warn!("vu manifest: plate art MISSING");
     }
@@ -964,12 +850,12 @@ pub fn builtin_named(name: &'static str) -> Option<super::skin::Skin> {
 mod tests {
     use super::*;
 
-    fn dial(art: f64, pivot: (f64, f64)) -> Dial {
+    fn dial(art: (f64, f64), pivot: (f64, f64)) -> Dial {
         Dial {
             side: Side::Left,
             x: 0.0,
-            art_w: art,
-            art_h: art,
+            art_w: art.0,
+            art_h: art.1,
             pivot_x: pivot.0,
             pivot_y: pivot.1,
             zero_angle: -60.0,
@@ -978,121 +864,73 @@ mod tests {
         }
     }
 
-    fn rotate_group(svg: &str) -> String {
-        let start = svg.find("<g transform=").unwrap();
-        let end = svg[start..].find('>').unwrap() + start + 1;
-        svg[start..end].to_string()
-    }
-
-    fn numbers(transform: &str) -> Vec<f64> {
-        let inner = transform
-            .strip_prefix("<g transform=\"rotate(")
-            .and_then(|t| t.strip_suffix(")\">"))
-            .unwrap();
-        inner
-            .split_whitespace()
-            .map(|n| n.parse().unwrap())
-            .collect()
-    }
-
-    #[test]
-    fn prerotation_wraps_the_whole_document() {
-        let svg =
-            "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 180 180\">\n<rect/>\n</svg>";
-        let out = String::from_utf8(prerotate_needle(
-            svg.as_bytes(),
-            26.4,
-            &dial(180.0, (90.0, 90.0)),
-        ))
-        .unwrap();
-        let expected = "<g transform=\"rotate(26.400 90.000 90.000)\">";
-        assert!(
-            out.starts_with("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 180 180\">"),
-            "{out}"
-        );
-        let group_at = out.find(expected).unwrap();
-        assert_eq!(
-            group_at,
-            svg.find('>').unwrap() + 1,
-            "the group opens right after the svg tag"
-        );
-        assert!(out.ends_with("<rect/>\n</g></svg>"), "{out}");
-        assert_eq!(numbers(&rotate_group(&out)), [26.4, 90.0, 90.0]);
+    fn glow_layer(x: f64, y: f64, size: (f64, f64), inset: f64, radius: f64) -> Layer {
+        Layer {
+            role: Role::Glow,
+            source: None,
+            text: None,
+            x,
+            y,
+            w: size.0,
+            h: size.1,
+            radius,
+            inset,
+            tint: None,
+            size: 0.0,
+            weight: 0,
+            color: None,
+        }
     }
 
     #[test]
-    fn the_pivot_scales_into_a_smaller_viewbox() {
-        // modern: art box 250, viewBox 180, manifest pivot
-        // (125, 181) sits at (90, 130) in viewBox units
-        let svg = "<svg viewBox=\"0 0 180 180\"><rect/></svg>";
-        let out = String::from_utf8(prerotate_needle(
-            svg.as_bytes(),
-            -60.0,
-            &dial(250.0, (125.0, 181.0)),
-        ))
-        .unwrap();
-        let numbers = numbers(&rotate_group(&out));
-        assert!((numbers[1] - 90.0).abs() < 0.01, "{numbers:?}");
-        assert!((numbers[2] - 130.32).abs() < 0.01, "{numbers:?}");
+    fn the_needle_pivot_is_a_fraction_of_the_art_box() {
+        // modern: art box 250, manifest pivot (125, 181) — the
+        // fraction holds whatever viewBox the needle art ships
+        let rotation = needle_rotation(&dial((250.0, 250.0), (125.0, 181.0)), -60.0);
+        assert_eq!(rotation.degrees, -60.0);
+        assert!((rotation.pivot_x - 0.5).abs() < 1e-9);
+        assert!((rotation.pivot_y - 0.724).abs() < 1e-9);
+
+        let wide = needle_rotation(&dial((286.5, 344.0), (145.75, 328.0)), 10.0);
+        assert!((wide.pivot_x - 145.75 / 286.5).abs() < 1e-9);
+        assert!((wide.pivot_y - 328.0 / 344.0).abs() < 1e-9);
     }
 
     #[test]
-    fn a_missing_viewbox_falls_back_to_width_height() {
-        let svg = "<svg width=\"100px\" height=\"100\"><rect/></svg>";
-        let out = String::from_utf8(prerotate_needle(
-            svg.as_bytes(),
-            10.0,
-            &dial(100.0, (50.0, 50.0)),
-        ))
-        .unwrap();
-        assert_eq!(numbers(&rotate_group(&out)), [10.0, 50.0, 50.0]);
+    fn a_window_lamp_maps_the_glow_box_onto_the_target_art() {
+        // orbit: a 180 box, the glow layer inset 2 with radius 88
+        let dial = dial((180.0, 180.0), (90.0, 90.0));
+        let face = glow_layer(0.0, 0.0, (0.0, 0.0), 0.0, 0.0);
+        let glow = glow_layer(0.0, 0.0, (0.0, 0.0), 2.0, 88.0);
+        let Some(raster::Lamp::Window { x, y, w, h, radius }) = window_lamp(&dial, &glow, &face)
+        else {
+            panic!("a window lamp");
+        };
+        assert!((x - 2.0 / 180.0).abs() < 1e-9 && (y - 2.0 / 180.0).abs() < 1e-9);
+        assert!((w - 176.0 / 180.0).abs() < 1e-9 && (h - 176.0 / 180.0).abs() < 1e-9);
+        assert!((radius - 88.0 / 180.0).abs() < 1e-9);
     }
 
     #[test]
-    fn unwrapped_art_passes_through() {
-        // not UTF-8 or no svg tag: the bytes stay as they were
-        let bytes = [0xff, 0xfe, 0x00];
-        assert_eq!(
-            prerotate_needle(&bytes, 10.0, &dial(100.0, (50.0, 50.0))),
-            bytes.to_vec()
-        );
-        let no_tag = b"just text";
-        assert_eq!(
-            prerotate_needle(no_tag, 10.0, &dial(100.0, (50.0, 50.0))),
-            no_tag.to_vec()
-        );
+    fn a_window_lamp_is_relative_to_a_placed_target() {
+        // the target art sits at (10, 20), 100x50; the glow box
+        // covers its right half
+        let dial = dial((200.0, 100.0), (0.0, 0.0));
+        let target = glow_layer(10.0, 20.0, (100.0, 50.0), 0.0, 0.0);
+        let glow = glow_layer(60.0, 20.0, (50.0, 50.0), 0.0, 10.0);
+        let Some(raster::Lamp::Window { x, y, w, h, radius }) = window_lamp(&dial, &glow, &target)
+        else {
+            panic!("a window lamp");
+        };
+        assert_eq!((x, y, w, h), (0.5, 0.0, 0.5, 1.0));
+        assert!((radius - 0.1).abs() < 1e-9);
     }
 
     #[test]
-    fn lamp_stops_scale_to_full_opacity_then_deepen() {
-        let at_one = lamp_stops(1.0, [0.9, 0.95, 1.0]);
-        assert!(at_one.contains("stop-color=\"#ffdc96\" stop-opacity=\"0.900\""));
-        assert!(at_one.contains("stop-color=\"#f2a444\" stop-opacity=\"0.950\""));
-        assert!(at_one.contains("stop-color=\"#cf6a1e\" stop-opacity=\"1.000\""));
-
-        let half = lamp_stops(0.5, [0.9, 0.95, 1.0]);
-        assert!(half.contains("stop-color=\"#ffdc96\" stop-opacity=\"0.450\""));
-        assert!(half.contains("stop-opacity=\"0.500\""));
-
-        let deepest = lamp_stops(1.5, [0.9, 0.95, 1.0]);
-        assert!(deepest.contains("stop-color=\"#ffd074\" stop-opacity=\"0.900\""));
-        assert!(deepest.contains("stop-color=\"#ec8a2a\" stop-opacity=\"0.950\""));
-        assert!(deepest.contains("stop-color=\"#b24f12\" stop-opacity=\"1.000\""));
-
-        let midway = lamp_stops(1.25, [0.9, 0.95, 1.0]);
-        assert!(midway.contains("stop-color=\"#ffd685\" stop-opacity=\"0.900\""));
-        assert!(midway.contains("stop-color=\"#c15d18\" stop-opacity=\"1.000\""));
-    }
-
-    #[test]
-    fn lamp_stops_clamp_the_glow_range() {
-        assert_eq!(
-            lamp_stops(9.0, [1.0, 0.95, 0.8]),
-            lamp_stops(1.5, [1.0, 0.95, 0.8])
-        );
-        assert_eq!(
-            lamp_stops(-1.0, [1.0, 0.95, 0.8]),
-            lamp_stops(0.0, [1.0, 0.95, 0.8])
-        );
+    fn a_glow_box_without_area_has_no_lamp() {
+        let dial = dial((100.0, 100.0), (50.0, 50.0));
+        let face = glow_layer(0.0, 0.0, (0.0, 0.0), 0.0, 0.0);
+        let swallowed = glow_layer(0.0, 0.0, (0.0, 0.0), 50.0, 10.0);
+        assert!(window_lamp(&dial, &swallowed, &face).is_none());
     }
 }
