@@ -166,6 +166,46 @@ fn the_rail_hides_on_its_timer_and_a_tap_only_reveals_it() {
     assert!(!ui.get_vu_rail_hidden());
     assert_eq!(ui.get_vu_view_index(), 0);
 
+    // the skin selection (overview) is a menu, not the faceplate:
+    // opening it shows the rail and keeps it shown however long
+    // it stays open; closing it starts a fresh timer
+    advance(&clock, 6_100);
+    assert!(ui.get_vu_rail_hidden());
+    ui.invoke_vu_open_overview();
+    assert!(
+        !ui.get_vu_rail_hidden(),
+        "opening the selection must show the rail"
+    );
+    advance(&clock, 10_000);
+    assert!(
+        !ui.get_vu_rail_hidden(),
+        "the rail must stay while the selection is open"
+    );
+    ui.invoke_vu_select_preview(0);
+    assert!(!ui.get_vu_overview_open());
+    // the 33 ms tick notices the close (on the device within a
+    // frame; here the fake clock needs a nudge)
+    ui.invoke_vu_sync();
+    advance(&clock, 4_000);
+    assert!(
+        !ui.get_vu_rail_hidden(),
+        "closing the selection restarts the timer"
+    );
+    advance(&clock, 1_100);
+    assert!(ui.get_vu_rail_hidden());
+    // a pending hide from before the selection must not fire
+    // inside it either
+    ui.invoke_vu_activity();
+    advance(&clock, 3_000);
+    ui.invoke_vu_open_overview();
+    advance(&clock, 3_000);
+    assert!(
+        !ui.get_vu_rail_hidden(),
+        "an older hide timer must not fire inside the selection"
+    );
+    ui.set_vu_overview_open(false);
+    ui.invoke_vu_sync();
+
     // 0 = always shown
     ui.set_vu_rail_autohide(0.0);
     ui.invoke_vu_activity();

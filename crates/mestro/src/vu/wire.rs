@@ -194,6 +194,9 @@ impl Vui {
                 let previews = vui.previews();
                 ui.set_vu_previews(slint::ModelRc::new(slint::VecModel::from(previews)));
                 ui.set_vu_overview_open(true);
+                // the selection is a menu: the rail stays while it
+                // is open (schedule_rail_hide skips it)
+                vui.reveal_rail(&ui);
             });
         }
         {
@@ -241,14 +244,15 @@ impl Vui {
     }
 
     /// start/restart the rail's hide timer ([vu.rail-autohide]
-    /// seconds; 0 or a closed overlay never schedules). A newer
-    /// schedule cancels the older one via the generation counter
+    /// seconds; 0, a closed overlay or the open skin selection
+    /// never schedules). A newer schedule cancels the older one
+    /// via the generation counter
     pub fn schedule_rail_hide(&self, ui: &Mestro) {
         let inner = &self.0;
         let gen = inner.rail_gen.get() + 1;
         inner.rail_gen.set(gen);
         let secs = ui.get_vu_rail_autohide();
-        if !ui.get_vu_open() || secs <= 0.0 {
+        if !ui.get_vu_open() || ui.get_vu_overview_open() || secs <= 0.0 {
             return;
         }
         let ui_weak = ui.as_weak();
@@ -258,7 +262,7 @@ impl Vui {
                 return;
             }
             let Some(ui) = ui_weak.upgrade() else { return };
-            if ui.get_vu_open() && ui.get_vu_rail_autohide() > 0.0 {
+            if ui.get_vu_open() && !ui.get_vu_overview_open() && ui.get_vu_rail_autohide() > 0.0 {
                 ui.set_vu_rail_hidden(true);
             }
         });
@@ -407,12 +411,20 @@ impl Vui {
         let vui = self.clone();
         let vu_was_open = Cell::new(ui.get_vu_open());
         let queue_was_open = Cell::new(ui.get_queue_open());
+        let overview_was_open = Cell::new(ui.get_vu_overview_open());
         let update = Rc::new(move |ui: &Mestro| {
             let mut vu_open = vu_was_open.get();
             let mut queue_open = queue_was_open.get();
             vui.tick(ui, &mut vu_open, &mut queue_open);
             vu_was_open.set(vu_open);
             queue_was_open.set(queue_open);
+            // the selection closed by any path (a pick, back, the
+            // remote): the faceplate is back, the rail timer
+            // starts fresh
+            let overview_open = ui.get_vu_overview_open();
+            if overview_was_open.replace(overview_open) && !overview_open {
+                vui.schedule_rail_hide(ui);
+            }
         });
         ui.on_vu_sync({
             let update = update.clone();
