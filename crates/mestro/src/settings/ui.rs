@@ -631,6 +631,16 @@ pub fn sync_vu(
     // the live faceplate: glow lands on the attached instance
     // now, the rest rides the next tick's push
     vui.apply_options(effective);
+    // the rail auto-hide rides the VU family: 0 pins the rail
+    // visible (and drops a pending hide), any other value
+    // restarts the timer for the open overlay
+    ui.set_vu_rail_autohide(effective.vu.rail_autohide as f32);
+    ui.set_vu_rail_autohide_overridden(is("vu.rail-autohide"));
+    if effective.vu.rail_autohide == 0 {
+        vui.reveal_rail(ui);
+    } else {
+        vui.schedule_rail_hide(ui);
+    }
     let edit = ui.get_vu_edit_name().to_string();
     if !edit.is_empty() {
         if let Some(image) = vui.refresh_settings_preview(&edit, effective) {

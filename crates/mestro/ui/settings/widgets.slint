@@ -154,7 +154,7 @@ export component StepperRow inherits Rectangle {
     // "ms-as-s" (2600 → 2.6 s); the stored value is unchanged
     in property <string> unit: "";
     property <string> shown:
-        root.unit == "weight" ? (root.value <= 100 ? "Thin" : root.value <= 200 ? "Extra light" : root.value <= 300 ? "Light" : root.value <= 400 ? "Regular" : root.value <= 500 ? "Medium" : root.value <= 600 ? "Semibold" : root.value <= 700 ? "Bold" : root.value <= 800 ? "Extra bold" : "Black") : root.unit == "ms-as-s" ? (Math.round(root.value / 100) / 10) + " s" : root.unit == "px" ? Math.round(root.value) + " px" : Math.round(root.value) + "";
+        root.unit == "weight" ? (root.value <= 100 ? "Thin" : root.value <= 200 ? "Extra light" : root.value <= 300 ? "Light" : root.value <= 400 ? "Regular" : root.value <= 500 ? "Medium" : root.value <= 600 ? "Semibold" : root.value <= 700 ? "Bold" : root.value <= 800 ? "Extra bold" : "Black") : root.unit == "ms-as-s" ? (Math.round(root.value / 100) / 10) + " s" : root.unit == "s" ? Math.round(root.value) + " s" : root.unit == "px" ? Math.round(root.value) + " px" : Math.round(root.value) + "";
     callback set-num(string, float);
     callback reset-key(string);
     // the reset button renders only when the overlay has this key

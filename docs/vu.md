@@ -19,6 +19,15 @@ retro = "/etc/mestro/retro.slint"           # a full slint skin (below)
 `[vu] cycle` entries accept built-in names and skin names
 alike; swiping the faceplate cycles through them.
 
+```toml
+[vu]
+cycle = ["night", "spectrum"]
+rail-autohide = 15   # hide the nav rail on the faceplate after N idle
+                     # seconds (a tap brings it back, a swipe only
+                     # switches the faceplate; the plate takes the full
+                     # width); 0 = always shown
+```
+
 ## The manifest
 
 All geometry lives in one **faceplate design space** you pick

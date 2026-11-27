@@ -59,7 +59,7 @@ set the device up again on purpose.
 | `[hub]` | home screen layout and the order of its destinations |
 | `[clock]` | standby clock face, custom faces, standby background |
 | `[osd]` | which notifications show, where and how long |
-| `[vu]` | VU source, the faceplates and their order, custom skins |
+| `[vu]` | VU source, the faceplates and their order, the rail auto-hide on the faceplate, custom skins |
 | `[keyboard]` | key bindings for USB remotes and keyboards |
 | `[remote]` | the web app / web endpoint |
 | `[wifi]` | the setup hotspot: interface, address, power save, country (the player image) |

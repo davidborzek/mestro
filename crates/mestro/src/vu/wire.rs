@@ -23,6 +23,7 @@ use crate::player::queue;
 use crate::ui::navigation::Navigation;
 use crate::ui::palette::{self, ArtworkPalette};
 use crate::Mestro;
+use slint::ComponentHandle as _;
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 use std::rc::Rc;
@@ -41,6 +42,10 @@ struct Inner {
     skin_slot: SkinSlot,
     nav: Navigation,
     hint_until: Rc<RefCell<Instant>>,
+    // the rail auto-hide: one generation per (re)schedule — a
+    // newer touch cancels the older pending hide (the OSD's
+    // pattern, on the slint clock so tests can drive it)
+    rail_gen: Rc<Cell<u32>>,
     // render-once images for the skin picker, indexed like compiled
     preview_cache: RefCell<Vec<Option<slint::Image>>>,
     // built-in skin indices for the info-field + options tables
@@ -105,6 +110,7 @@ impl Vui {
             skin_slot: Rc::new(RefCell::new(None)),
             nav: nav.clone(),
             hint_until: Rc::new(RefCell::new(Instant::now() - Duration::from_secs(10))),
+            rail_gen: Rc::new(Cell::new(0)),
             preview_cache,
             b,
             state: RefCell::new(state),
@@ -153,13 +159,32 @@ impl Vui {
                 vui.activate_direction(&ui, inner.views[next], dir);
             }
         };
+        // a swipe only switches the faceplate: a tucked rail stays
+        // tucked, a visible one keeps its full time from now
+        let swiped = {
+            let vui = self.clone();
+            let ui_weak = ui_weak.clone();
+            move || {
+                let Some(ui) = ui_weak.upgrade() else { return };
+                if !ui.get_vu_rail_hidden() {
+                    vui.schedule_rail_hide(&ui);
+                }
+            }
+        };
         ui.on_vu_cycle({
             let step = step.clone();
-            move || step(1)
+            let swiped = swiped.clone();
+            move || {
+                swiped();
+                step(1)
+            }
         });
         ui.on_vu_cycle_back({
             let step = step.clone();
-            move || step(-1)
+            move || {
+                swiped();
+                step(-1)
+            }
         });
         {
             let vui = self.clone();
@@ -169,6 +194,9 @@ impl Vui {
                 let previews = vui.previews();
                 ui.set_vu_previews(slint::ModelRc::new(slint::VecModel::from(previews)));
                 ui.set_vu_overview_open(true);
+                // the selection is a menu: the rail stays while it
+                // is open (schedule_rail_hide skips it)
+                vui.reveal_rail(&ui);
             });
         }
         {
@@ -191,15 +219,53 @@ impl Vui {
                 ui.set_vu_overview_open(false);
             });
         }
-        // the ghost-arrow hint: reveal on entering the layer or
-        // on back-zone touch, hide after 2s
+        // the ghost-arrow hint AND the rail auto-hide: reveal on
+        // entering the layer or on any faceplate touch; Rust
+        // hides both on their own timers
         ui.on_vu_activity({
             let hint_until = self.0.hint_until.clone();
+            let vui = self.clone();
+            let ui_weak = ui_weak.clone();
             move || {
                 *hint_until.borrow_mut() = Instant::now() + Duration::from_secs(2);
+                let Some(ui) = ui_weak.upgrade() else { return };
+                vui.reveal_rail(&ui);
+                vui.schedule_rail_hide(&ui);
             }
         });
         self.start_tick(ui, ui_weak);
+    }
+
+    /// show the nav rail and drop any pending hide (the VU
+    /// closed, or the setting turned the auto-hide off)
+    pub fn reveal_rail(&self, ui: &Mestro) {
+        self.0.rail_gen.set(self.0.rail_gen.get() + 1);
+        ui.set_vu_rail_hidden(false);
+    }
+
+    /// start/restart the rail's hide timer ([vu.rail-autohide]
+    /// seconds; 0, a closed overlay or the open skin selection
+    /// never schedules). A newer schedule cancels the older one
+    /// via the generation counter
+    pub fn schedule_rail_hide(&self, ui: &Mestro) {
+        let inner = &self.0;
+        let gen = inner.rail_gen.get() + 1;
+        inner.rail_gen.set(gen);
+        let secs = ui.get_vu_rail_autohide();
+        if !ui.get_vu_open() || ui.get_vu_overview_open() || secs <= 0.0 {
+            return;
+        }
+        let ui_weak = ui.as_weak();
+        let rail_gen = inner.rail_gen.clone();
+        slint::Timer::single_shot(Duration::from_millis((secs * 1000.0) as u64), move || {
+            if rail_gen.get() != gen {
+                return;
+            }
+            let Some(ui) = ui_weak.upgrade() else { return };
+            if ui.get_vu_open() && !ui.get_vu_overview_open() && ui.get_vu_rail_autohide() > 0.0 {
+                ui.set_vu_rail_hidden(true);
+            }
+        });
     }
 
     /// remote selection: make the cycle's `index` the active view.
@@ -345,12 +411,20 @@ impl Vui {
         let vui = self.clone();
         let vu_was_open = Cell::new(ui.get_vu_open());
         let queue_was_open = Cell::new(ui.get_queue_open());
+        let overview_was_open = Cell::new(ui.get_vu_overview_open());
         let update = Rc::new(move |ui: &Mestro| {
             let mut vu_open = vu_was_open.get();
             let mut queue_open = queue_was_open.get();
             vui.tick(ui, &mut vu_open, &mut queue_open);
             vu_was_open.set(vu_open);
             queue_was_open.set(queue_open);
+            // the selection closed by any path (a pick, back, the
+            // remote): the faceplate is back, the rail timer
+            // starts fresh
+            let overview_open = ui.get_vu_overview_open();
+            if overview_was_open.replace(overview_open) && !overview_open {
+                vui.schedule_rail_hide(ui);
+            }
         });
         ui.on_vu_sync({
             let update = update.clone();
@@ -393,12 +467,18 @@ impl Vui {
             *vu_was_open = vu_open;
             if vu_open {
                 *inner.hint_until.borrow_mut() = Instant::now() + Duration::from_secs(2);
+                // the rail starts shown; its hide timer restarts
+                // with the overlay
+                self.reveal_rail(ui);
+                self.schedule_rail_hide(ui);
                 // (re)attach the view's skin — the container was
                 // emptied when the overlay closed
                 if let Some(v) = inner.views.get(inner.view_state.get()) {
                     self.activate(ui, *v);
                 }
             } else {
+                // leaving the faceplate always shows the rail
+                self.reveal_rail(ui);
                 // empty the container: a hidden skin instance kept
                 // evaluating its needle bindings at 30fps (tens
                 // of percent of CPU while nowplaying shows)

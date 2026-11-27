@@ -97,6 +97,11 @@ export component VuPage inherits Rectangle {
     // light plates (the active skin says so) flip the ink
     in property <bool> hint: false;
     in property <bool> arrow-dark: false;
+    // [vu.rail-autohide]: Rust tucked the nav rail away — the
+    // first tap only reveals it (a flag latched on pointer-down,
+    // before the reveal lands); swipes keep cycling
+    in property <bool> rail-hidden: false;
+    property <bool> tap-reveals: false;
     // the cycle: how many views there are and which is active
     // (the dots at the bottom center mirror it)
     in property <int> view-count: 0;
@@ -153,18 +158,21 @@ export component VuPage inherits Rectangle {
         width: 100%;
         height: 100%;
 
+        // decided on release, not on touch-down: a swipe only
+        // switches the faceplate (the rail and the cycle hint stay
+        // as they are), a plain tap reveals them (back lives in the
+        // nav rail)
         pointer-event(e) => {
             if (e.kind == PointerEventKind.down) {
-                root.activity();
                 root.swipe-start-x = self.mouse-x;
             }
-            // a horizontal swipe cycles the views; a plain tap
-            // only reveals the cycle chrome (back lives in the nav rail)
             if (e.kind == PointerEventKind.up) {
                 if (self.mouse-x - root.swipe-start-x < -60px) {
                     root.cycle();
                 } else if (self.mouse-x - root.swipe-start-x > 60px) {
                     root.cycle-back();
+                } else {
+                    root.activity();
                 }
             }
         }
@@ -188,11 +196,14 @@ export component VuPage inherits Rectangle {
             TouchArea {
                 pointer-event(e) => {
                     if (e.kind == PointerEventKind.down) {
+                        root.tap-reveals = root.rail-hidden;
                         root.activity();
                     }
                 }
                 clicked => {
-                    root.cycle-back();
+                    if !root.tap-reveals {
+                        root.cycle-back();
+                    }
                 }
 
                 Text {
@@ -220,11 +231,14 @@ export component VuPage inherits Rectangle {
             TouchArea {
                 pointer-event(e) => {
                     if (e.kind == PointerEventKind.down) {
+                        root.tap-reveals = root.rail-hidden;
                         root.activity();
                     }
                 }
                 clicked => {
-                    root.cycle();
+                    if !root.tap-reveals {
+                        root.cycle();
+                    }
                 }
 
                 Text {
@@ -255,11 +269,14 @@ export component VuPage inherits Rectangle {
             picker-ta := TouchArea {
                 pointer-event(e) => {
                     if (e.kind == PointerEventKind.down) {
+                        root.tap-reveals = root.rail-hidden;
                         root.activity();
                     }
                 }
                 clicked => {
-                    root.open-overview();
+                    if !root.tap-reveals {
+                        root.open-overview();
+                    }
                 }
             }
 
@@ -290,11 +307,14 @@ export component VuPage inherits Rectangle {
             TouchArea {
                 pointer-event(e) => {
                     if (e.kind == PointerEventKind.down) {
+                        root.tap-reveals = root.rail-hidden;
                         root.activity();
                     }
                 }
                 clicked => {
-                    root.open-overview();
+                    if !root.tap-reveals {
+                        root.open-overview();
+                    }
                 }
             }
 

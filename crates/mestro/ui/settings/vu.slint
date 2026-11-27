@@ -41,6 +41,8 @@ export component VuSettings inherits VerticalLayout {
     in property <bool> meters-overridden: false;
     in property <bool> gradient-value: false;
     in property <bool> gradient-overridden: false;
+    in property <float> rail-autohide: 0;
+    in property <bool> rail-autohide-overridden: false;
 
     // structural edits (cycle array)
     callback vu-move(string, int);
@@ -64,6 +66,26 @@ export component VuSettings inherits VerticalLayout {
 
         SectionLabel {
             label: @tr("VUS");
+        }
+
+        // [vu.rail-autohide]: hide the nav rail while the
+        // faceplate is open, after this many idle seconds — 0
+        // keeps it always visible
+        StepperRow {
+            label: @tr("Rail auto-hide");
+            key: "vu.rail-autohide";
+            value: root.rail-autohide;
+            overridden: root.rail-autohide-overridden;
+            min: 0;
+            max: 30;
+            step: 1;
+            unit: "s";
+            set-num(k, v) => {
+                root.set-num(k, v);
+            }
+            reset-key(k) => {
+                root.reset-value(k);
+            }
         }
 
         VerticalLayout {
