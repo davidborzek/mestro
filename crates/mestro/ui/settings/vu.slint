@@ -249,10 +249,10 @@ export component VuSettings inherits VerticalLayout {
 
                         GlyphBtn {
                             glyph: "+";
-                            enabled: root.glow-value < 1;
+                            enabled: root.glow-value < 1.5;
                             clicked => {
                                 root.set-num("vu." + root.edit-name + ".glow",
-                                        Math.min(1, root.glow-value + 0.1));
+                                        Math.min(1.5, root.glow-value + 0.1));
                             }
                         }
                     }

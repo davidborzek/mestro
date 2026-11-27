@@ -40,15 +40,19 @@ component Dial {
                 source: layer.source;
             }
 
-            // 1 = engine glow wash; circular clip + edge fade
-            // keeps the wash round (a square gradient behind a
-            // round dial reads as a visible orange box)
-            if layer.kind == 1: Rectangle {
+            // 1 = engine glow wash — the RUNTIME fallback for
+            // layers the bake cannot cover (a tinted palette lamp
+            // over a bare plate, modern): clipped by the layer's
+            // radius to the dial window. Every bakeable glow is
+            // composited into opaque art instead (manifest::Bake)
+            // — femtovg, the device renderer, mishandles
+            // semi-transparent blending
+            if layer.kind == 1 && layer.radius > 0: Rectangle {
                 x: layer.inset * 1px * root.f;
                 y: layer.inset * 1px * root.f;
                 width: parent.width - 2 * layer.inset * 1px * root.f;
                 height: parent.height - 2 * layer.inset * 1px * root.f;
-                border-radius: self.width / 2;
+                border-radius: Math.min(Math.min(layer.radius * 1px * root.f, self.width / 2), self.height / 2);
                 clip: true;
                 opacity: Math.min(root.glow, 1);
                 background: layer.tint ? @radial-gradient(circle, root.palette 0%, root.palette.transparentize(0.35) 50%, root.palette.transparentize(1.0) 100%,) : @radial-gradient(circle, #f0a24e 0%, #d9863a 50%, #a86e2c.transparentize(1.0) 100%,);
@@ -134,7 +138,10 @@ export component SvgSkin inherits Rectangle {
     in property <color> m-plate: #000000;
     // stretched plate art (the plate contract): covers the whole
     // zone BEFORE the fitted faceplate — seamless plates stay
-    // band-free on any aspect; empty when the skin ships none
+    // band-free on any aspect; empty when the skin ships none.
+    // Glow skins bake their lamp INTO this (or their dial art —
+    // see manifest::Bake), so it is opaque pixels on every
+    // renderer
     in property <image> m-plate-art;
     // dial boxes: art design size, faceplate position, needle
     // geometry (the manifest lists the LEFT dial first)

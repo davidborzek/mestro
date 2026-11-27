@@ -627,6 +627,10 @@ pub fn sync_vu(
     vu_state: &Rc<RefCell<VuState>>,
 ) {
     let is = |k: &str| handle.is_overridden(k);
+    // the per-skin options (glow, info, meters/gradient) reach
+    // the live faceplate: glow lands on the attached instance
+    // now, the rest rides the next tick's push
+    vui.apply_options(effective);
     let edit = ui.get_vu_edit_name().to_string();
     if !edit.is_empty() {
         if let Some(image) = vui.refresh_settings_preview(&edit, effective) {

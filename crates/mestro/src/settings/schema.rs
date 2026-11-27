@@ -66,8 +66,12 @@ pub enum Kind {
         #[serde(skip_serializing_if = "Option::is_none")]
         unit: Option<&'static str>,
     },
-    /// stored 0..=1, shown as 0..100 %
-    Percent,
+    /// stored as a fraction (1.0 = 100 %), shown as a percent;
+    /// `max` (stored units) widens the default 0..=1 range
+    Percent {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        max: Option<f64>,
+    },
     /// toggle members of a fixed option set and order them
     OrderedSubset { options: Vec<Choice> },
     /// reorder a fixed option set (the set never changes)
@@ -101,6 +105,9 @@ pub enum VisibleIf {
 const VU_INFO_SKINS: &[&str] = &["night", "cream", "round", "spectrum", "bars"];
 /// the built-in VU skins with a glow dial
 const VU_GLOW_SKINS: &[&str] = &["cream", "round", "wall-light"];
+/// the glow dial's upper end (150 %): past 1.0 the lamp only
+/// deepens its tone, for pale panels
+const VU_GLOW_MAX: f64 = 1.5;
 /// the built-in analyzer skins (LED meters + gradient toggles)
 const VU_ANALYZER_SKINS: &[&str] = &["spectrum", "bars"];
 /// the info lines a `vu.<skin>.info` list may order
@@ -498,7 +505,11 @@ fn standby(config: &Config) -> Section {
             ),
             Field {
                 visible_if: source_not_black(),
-                ..field("clock.background.dim", "Darken", Kind::Percent)
+                ..field(
+                    "clock.background.dim",
+                    "Darken",
+                    Kind::Percent { max: None },
+                )
             },
             Field {
                 visible_if: source_not_black(),
@@ -705,7 +716,13 @@ fn vu_meters(config: &Config) -> Section {
             ));
         }
         if VU_GLOW_SKINS.contains(&name) {
-            fields.push(field(format!("vu.{name}.glow"), "Glow", Kind::Percent));
+            fields.push(field(
+                format!("vu.{name}.glow"),
+                "Glow",
+                Kind::Percent {
+                    max: Some(VU_GLOW_MAX),
+                },
+            ));
         }
         if VU_ANALYZER_SKINS.contains(&name) {
             fields.push(field(format!("vu.{name}.meters"), "LED meters", Kind::Bool));
@@ -732,6 +749,28 @@ mod tests {
             .iter()
             .flat_map(|s| s.fields.iter().map(|f| f.key.clone()))
             .collect()
+    }
+
+    #[test]
+    fn the_glow_dials_reach_150_percent() {
+        let mut config = Config::default();
+        config.vu.cycle = vec!["cream".into(), "round".into(), "wall-light".into()];
+        let schema = schema(&config);
+        let glow_kinds: Vec<_> = schema
+            .sections
+            .iter()
+            .flat_map(|s| &s.fields)
+            .filter(|f| f.key.ends_with(".glow"))
+            .map(|f| (f.key.as_str(), serde_json::to_value(&f.kind).unwrap()))
+            .collect();
+        assert_eq!(glow_kinds.len(), 3, "{glow_kinds:?}");
+        for (key, kind) in glow_kinds {
+            assert_eq!(
+                kind,
+                serde_json::json!({ "type": "percent", "max": 1.5 }),
+                "{key}"
+            );
+        }
     }
 
     #[test]

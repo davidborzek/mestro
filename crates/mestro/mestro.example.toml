@@ -228,12 +228,13 @@ shm_prefix = "squeezelite"
 [vu.night]
 #info = ["title", "artist", "quality"]
 # [vu.cream] and [vu.round] take the same `info` key, plus a
-# warm lamp wash over the meter faces (0 = off, 1 = full)
+# warm lamp wash over the meter faces (0 = off, 1 = full, up to
+# 1.5 deepens the tone for pale panels)
 #[vu.round]
 #glow = 0.5
 
-# the wall-light plate backlight: 0 = plain cream, 1 = full hot
-# orange
+# the wall-light plate backlight: 0 = plain cream, 1 = full
+# orange, up to 1.5 = a deeper orange for pale panels
 [vu.wall-light]
 #glow = 1.0
 

@@ -150,7 +150,8 @@ pub struct NightOptions {
 pub struct CreamOptions {
     #[serde(default)]
     pub info: Vec<MetadataField>,
-    /// warm backlight wash over the dark plate: 0 (off) to 1
+    /// warm backlight wash over the dark plate: 0 (off) to 1, up to
+    /// 1.5 for a deeper tone
     #[serde(default)]
     pub glow: f64,
 }
@@ -161,7 +162,8 @@ pub struct CreamOptions {
 pub struct RoundOptions {
     #[serde(default)]
     pub info: Vec<MetadataField>,
-    /// warm backlight wash over the black plate: 0 (off) to 1
+    /// warm backlight wash over the black plate: 0 (off) to 1, up
+    /// to 1.5 for a deeper tone
     #[serde(default)]
     pub glow: f64,
 }
@@ -176,7 +178,7 @@ pub struct WallOptions {}
 #[serde(default, deny_unknown_fields)]
 pub struct WallLightOptions {
     /// backlight intensity of the orange plate glow, 0 (plain
-    /// cream) to 1 (full hot orange)
+    /// cream) to 1 (full orange), up to 1.5 for a deeper tone
     pub glow: f64,
 }
 

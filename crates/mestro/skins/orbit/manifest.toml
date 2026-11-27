@@ -27,7 +27,7 @@ source = "bg.svg"
 
 [[dial.layer]]
 role = "glow"
-radius = 82
+radius = 88
 inset = 2
 
 [[dial.layer]]
@@ -59,7 +59,7 @@ source = "bg.svg"
 
 [[dial.layer]]
 role = "glow"
-radius = 82
+radius = 88
 inset = 2
 
 [[dial.layer]]

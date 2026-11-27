@@ -102,6 +102,10 @@ test("percent converts between stored 0..1 and shown 0..100", () => {
   expect(percentToShown(null)).toBe(0);
   expect(shownToPercent(35)).toBeCloseTo(0.35);
   expect(shownToPercent(70)).toBeCloseTo(0.7);
+  // a field with a wider max (the VU glow, 150 %) keeps its stored overshoot
+  expect(percentToShown(1.5, 1.5)).toBe(150);
+  expect(percentToShown(2, 1.5)).toBe(150);
+  expect(percentToShown(1.5)).toBe(100);
 });
 
 test("formatValue renders each kind's short text", () => {
@@ -136,6 +140,8 @@ test("formatValue renders each kind's short text", () => {
 
   const percent: Field = { key: "clock.background.dim", label: "Dim", kind: { type: "percent" } };
   expect(formatValue(percent, 0.35, texts)).toBe("35 %");
+  const wide: Field = { key: "vu.cream.glow", label: "Glow", kind: { type: "percent", max: 1.5 } };
+  expect(formatValue(wide, 1.5, texts)).toBe("150 %");
 
   const subset: Field = {
     key: "now-playing.controls",

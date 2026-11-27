@@ -165,8 +165,9 @@ export type FieldKind =
   | { type: "bool" }
   | { type: "choice"; options: Option[] }
   | { type: "number"; min: number; max: number; step: number; unit?: string }
-  // stored 0..1, shown 0..100 %
-  | { type: "percent" }
+  // stored as a fraction (1 = 100 %), shown as a percent; max (stored
+  // units, default 1) widens the range
+  | { type: "percent"; max?: number }
   | { type: "ordered-subset"; options: Option[] }
   | { type: "permutation"; options: Option[] }
   // unset = inherit the base value (osd.<context>.*)

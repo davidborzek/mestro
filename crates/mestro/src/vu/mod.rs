@@ -37,6 +37,8 @@ mod fft;
 pub mod manifest;
 /// runtime-loaded skin embedding (ComponentContainer)
 pub mod preview;
+/// skin art rasterized with resvg, the glow lamp painted on it
+mod raster;
 pub mod skin;
 pub mod wire;
 

@@ -16,7 +16,7 @@
 use crate::ui::navigation::Navigation;
 use crate::Mestro;
 use slint::{ComponentFactory, ComponentHandle};
-use slint_interpreter::{ComponentDefinition, ComponentInstance};
+use slint_interpreter::{ComponentDefinition, ComponentInstance, Value};
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -39,6 +39,11 @@ pub struct Skin {
     /// engine skips transform-rotation; None for skins without
     /// rotating layers
     pub preview_setup: Option<SkinSetup>,
+    /// glow bake state for manifest skins with bakeable glow
+    /// layers: the glow rides composited OPAQUE art instead of a
+    /// runtime gradient (femtovg, the device renderer, mishandles
+    /// semi-transparent image blending — see manifest::Bake)
+    pub bake: Option<Rc<crate::vu::manifest::Bake>>,
 }
 
 /// where the active skin instance lives (the factory stores it
@@ -78,6 +83,7 @@ pub fn compile_source(name: &str, source: &str) -> Option<Skin> {
         light: false,
         setup: None,
         preview_setup: None,
+        bake: None,
     })
 }
 
@@ -85,15 +91,18 @@ pub fn compile_source(name: &str, source: &str) -> Option<Skin> {
 /// its instance lands in the slot for push_skin); None clears the
 /// factory so the built-in presets render again
 pub fn activate(ui: &Mestro, slot: &SkinSlot, nav: &Navigation, skin: Option<&Skin>) {
-    activate_direction(ui, slot, nav, skin, 0);
+    activate_direction(ui, slot, nav, skin, 0, None);
 }
 
+/// `glow` starts the instance at the current glow value (the
+/// built-in glow skins); None leaves the skin's own default
 pub fn activate_direction(
     ui: &Mestro,
     slot: &SkinSlot,
     nav: &Navigation,
     skin: Option<&Skin>,
     direction: i32,
+    glow: Option<f64>,
 ) {
     let Some(skin) = skin else {
         ui.set_vu_skin_factory(ComponentFactory::default());
@@ -102,6 +111,7 @@ pub fn activate_direction(
     };
     let definition = skin.definition.clone();
     let setup = skin.setup.clone();
+    let bake = skin.bake.clone();
     let slot2 = slot.clone();
     let ui_weak = ui.as_weak();
     let nav = nav.clone();
@@ -127,6 +137,16 @@ pub fn activate_direction(
         if let Some(setup) = &setup {
             setup(&instance);
         }
+        // the glow dial follows the live config, not the value
+        // baked at compile time — an edit must survive a cycle.
+        // Baked skins carry it in their art (femtovg-safe); the
+        // glow property covers everything else
+        if let (Some(bake), Some(glow)) = (&bake, glow) {
+            bake.apply(&instance, glow, false);
+        }
+        if let Some(glow) = glow {
+            let _ = instance.set_property("glow", Value::Number(glow));
+        }
         // attach the spectrum models once per instance — later
         // pushes only update rows in place (a fresh model per
         // tick re-instantiates the whole segment grid)
@@ -149,6 +169,21 @@ pub fn activate_direction(
     });
     ui.set_vu_skin_factory(factory);
     ui.invoke_vu_present(direction);
+}
+
+/// push the glow dial onto the attached skin instance — the
+/// settings path applies glow edits to the live faceplate
+/// without waiting for the next activation. Baked skins swap in
+/// the variant composited for the new value; the rest take the
+/// glow property
+pub fn push_glow(slot: &SkinSlot, skin: &Skin, glow: f64) {
+    let Some(instance) = slot.borrow().as_ref().and_then(|w| w.upgrade()) else {
+        return;
+    };
+    if let Some(bake) = &skin.bake {
+        bake.apply(&instance, glow, false);
+    }
+    let _ = instance.set_property("glow", Value::Number(glow));
 }
 
 /// push the meter data into the runtime skin; missing properties
